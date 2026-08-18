@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const backup = require('./alunos-github');
 
 const DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ARQUIVO = path.join(DIR, 'agenda.json');
@@ -46,11 +47,13 @@ function salvarAluno(telefone, campos = {}) {
   const atual = dados.alunos[telefone] || {
     telefone,
     nome: null,
+    aniversario: null,   // 'MM-DD' — só dia e mês, sem ano
     criadoEm: new Date().toISOString(),
     bloqueado: false,
   };
   dados.alunos[telefone] = { ...atual, ...campos };
   gravar();
+  backup.sincronizar(listarAlunos);
   return dados.alunos[telefone];
 }
 
@@ -65,6 +68,7 @@ function removerAluno(telefone) {
     if (s.telefone === telefone) delete dados.sessoes[t];
   }
   gravar();
+  backup.sincronizar(listarAlunos);
 }
 
 /* ----------------------------- códigos ---------------------------------- */
@@ -202,7 +206,7 @@ carregar();
 setInterval(() => limparAntigos(), 6 * 3600000).unref();
 
 module.exports = {
-  aluno, salvarAluno, listarAlunos, removerAluno,
+  aluno, salvarAluno, listarAlunos, removerAluno, backup,
   guardarCodigo, conferirCodigo, pedidosNaUltimaHora,
   abrirSessao, sessao, fecharSessao,
   daData, doHorario, doAluno, jaTem, contarNoDia, reservar, cancelar, porId,
