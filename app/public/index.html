@@ -321,6 +321,15 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
   b.disabled = true; b.textContent = 'Enviando…';
   try{
     const r = await api('/auth/codigo', {method:'POST', body:JSON.stringify({telefone:inTelefone.value})});
+
+    // Canal aberto e cadastro completo: não há código, senha, nome nem
+    // aniversário a informar. A segunda tela só teria um botão, então entra.
+    if (r.semCodigo && !r.precisaDeNome && !r.precisaDeAniversario){
+      semCodigo = true; porSenha = false;
+      if (await entrar(b)) return;
+      return;   // deu erro: a mensagem já apareceu e o telefone segue na tela
+    }
+
     document.getElementById('passo-telefone').hidden = true;
     document.getElementById('passo-codigo').hidden = false;
     document.getElementById('campo-nome').hidden = !r.precisaDeNome;
@@ -346,7 +355,10 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
                                     : document.getElementById('btn-entrar'))
      : document.getElementById('in-codigo')).focus();
   }catch(e){ avisar(e.message, 'erro'); }
-  finally{ b.disabled = false; b.textContent = (semCodigo || porSenha) ? 'Continuar' : 'Receber código'; }
+  finally{
+    b.disabled = false;
+    b.textContent = (semCodigo || porSenha) ? 'Continuar' : 'Receber código';
+  }
 });
 
 // Máscara dd/mm: barra sozinha depois do dia, sem deixar digitar letra.
@@ -359,9 +371,14 @@ inAniversario.addEventListener('keydown', e=>{
   if (e.key === 'Enter') document.getElementById('btn-entrar').click();
 });
 
-document.getElementById('btn-entrar').addEventListener('click', async ()=>{
-  const b = document.getElementById('btn-entrar');
-  b.disabled = true; b.textContent = 'Entrando…';
+/**
+ * Faz a entrada de fato. Fica em função própria porque no canal aberto, para
+ * quem já tem cadastro, ela é chamada direto do primeiro passo — sem passar
+ * pela segunda tela, que não teria nada a preencher.
+ */
+async function entrar(botao){
+  const rotulo = botao.textContent;
+  botao.disabled = true; botao.textContent = 'Entrando…';
   try{
     const r = await api('/auth/entrar', {method:'POST', body:JSON.stringify({
       telefone: inTelefone.value,
@@ -372,8 +389,13 @@ document.getElementById('btn-entrar').addEventListener('click', async ()=>{
     })});
     cofre.set(r.token);
     await comecar();
-  }catch(e){ avisar(e.message, 'erro'); }
-  finally{ b.disabled = false; b.textContent = 'Entrar'; }
+    return true;
+  }catch(e){ avisar(e.message, 'erro'); return false; }
+  finally{ botao.disabled = false; botao.textContent = rotulo; }
+}
+
+document.getElementById('btn-entrar').addEventListener('click', function(){
+  entrar(this);
 });
 
 document.getElementById('btn-voltar').addEventListener('click', ()=>{
