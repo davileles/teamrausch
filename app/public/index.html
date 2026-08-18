@@ -43,6 +43,11 @@
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .cab small{font-size:12px;font-weight:500;color:rgba(255,255,255,.62);
     white-space:nowrap;flex-shrink:0}
+  .cab .eu{display:flex;align-items:baseline;gap:10px;flex-shrink:0}
+  .cab .eu button{background:transparent;border:1px solid rgba(255,255,255,.28);color:rgba(255,255,255,.78);
+    border-radius:7px;padding:4px 10px;cursor:pointer;font:700 10.5px 'Montserrat',sans-serif;
+    letter-spacing:.06em;text-transform:uppercase;transition:all .15s}
+  .cab .eu button:hover{border-color:var(--vermelho);background:var(--vermelho);color:#fff}
   nav{max-width:680px;margin:0 auto;padding:10px 18px;display:flex;gap:4px;overflow-x:auto;
     scrollbar-width:none;min-height:56px;align-items:center}
   nav::-webkit-scrollbar{display:none}
@@ -220,7 +225,10 @@
   <header>
     <div class="cab">
       <h1 id="nome-estudio">Agendamento</h1>
-      <small id="quem-sou"></small>
+      <div class="eu">
+        <small id="quem-sou"></small>
+        <button id="btn-sair-topo" type="button">Sair</button>
+      </div>
     </div>
     <nav id="abas" role="tablist">
       <button data-aba="agendar" aria-selected="true">Agendar</button>
@@ -351,6 +359,10 @@ inTelefone.addEventListener('keydown', e=>{
   if (e.key === 'Enter') document.getElementById('btn-codigo').click();
 });
 
+document.getElementById('btn-sair-topo').addEventListener('click', ()=>{
+  if (confirm('Sair desta conta?')) sair(false);
+});
+
 async function sair(silencioso){
   try{ if (!silencioso) await api('/auth/sair', {method:'POST'}); }catch{}
   cofre.set(null); eu = null;
@@ -467,9 +479,7 @@ async function carregarMeus(){
       ? r.meus.map(a=>`<div class="fila"><div class="quem"><b>${a.hora} · ${a.porExtenso}</b>
           <small>reservado</small></div>
           <button class="leve cancelar" data-id="${a.id}">Cancelar</button></div>`).join('')
-      : '<div class="vazio">Você não tem horários reservados.</div>')
-      + `<h3>Conta</h3><button class="leve" id="btn-sair">Sair desta conta</button>`;
-    document.getElementById('btn-sair').addEventListener('click', ()=>sair(false));
+      : '<div class="vazio">Você não tem horários reservados.</div>');
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
