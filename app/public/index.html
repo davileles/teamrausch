@@ -366,10 +366,23 @@ document.getElementById('btn-sair-topo').addEventListener('click', ()=>{
 async function sair(silencioso){
   try{ if (!silencioso) await api('/auth/sair', {method:'POST'}); }catch{}
   cofre.set(null); eu = null;
+  limparTela();
   document.getElementById('tela-app').hidden = true;
   document.getElementById('tela-login').hidden = false;
   document.getElementById('passo-codigo').hidden = true;
   document.getElementById('passo-telefone').hidden = false;
+}
+
+/**
+ * Zera tudo que veio do servidor. Sem isto, quem entra depois vê os horários
+ * e os agendamentos de quem estava antes até a primeira busca terminar — e no
+ * mesmo navegador, trocando de admin para aluno, isso vaza dado de outra conta.
+ */
+function limparTela(){
+  configAtual = null;
+  subConfig = 'negocio';
+  ['agendar','meus','dia','alunos','config'].forEach(a=>{ document.getElementById('aba-'+a).innerHTML = ''; });
+  document.getElementById('quem-sou').textContent = '';
 }
 
 /* ------------------------------ abas ----------------------------------- */
@@ -381,29 +394,32 @@ function abaPermitida(aba){
   return !ABAS_ADMIN.includes(aba) || Boolean(eu && eu.admin);
 }
 
-document.getElementById('abas').addEventListener('click', e=>{
-  const b = e.target.closest('button[data-aba]'); if (!b) return;
-  if (!abaPermitida(b.dataset.aba)) return;
-  abaAtiva = b.dataset.aba;
-  document.querySelectorAll('#abas button').forEach(x=>x.setAttribute('aria-selected', String(x===b)));
+/**
+ * Único caminho para trocar de aba. Antes, o `hidden` das seções só era
+ * ajustado no clique; ao entrar de novo, a seção visível continuava sendo a da
+ * sessão anterior e o conteúdo novo era desenhado numa seção escondida.
+ */
+function abrirAba(aba){
+  abaAtiva = abaPermitida(aba) ? aba : 'agendar';
+  document.querySelectorAll('#abas button').forEach(x=>
+    x.setAttribute('aria-selected', String(x.dataset.aba === abaAtiva)));
   ['agendar','meus','dia','alunos','config'].forEach(a=>{
     document.getElementById('aba-'+a).hidden = a !== abaAtiva;
   });
   desenharAba();
+}
+
+document.getElementById('abas').addEventListener('click', e=>{
+  const b = e.target.closest('button[data-aba]'); if (!b) return;
+  if (!abaPermitida(b.dataset.aba)) return;
+  abrirAba(b.dataset.aba);
 });
 
 function desenharAba(){
   // Rede de segurança: se a sessão perder o admin (removido da lista, por
   // exemplo), volta para uma aba que a pessoa pode ver em vez de tentar
   // carregar dados que o servidor vai recusar.
-  if (!abaPermitida(abaAtiva)){
-    abaAtiva = 'agendar';
-    document.querySelectorAll('#abas button').forEach(x=>
-      x.setAttribute('aria-selected', String(x.dataset.aba === 'agendar')));
-    ['agendar','meus','dia','alunos','config'].forEach(a=>{
-      document.getElementById('aba-'+a).hidden = a !== 'agendar';
-    });
-  }
+  if (!abaPermitida(abaAtiva)) return abrirAba('agendar');
   if (abaAtiva === 'agendar') carregarAgenda();
   if (abaAtiva === 'meus') carregarMeus();
   if (abaAtiva === 'dia') carregarDia();
@@ -921,14 +937,15 @@ async function salvarConfig(){
 async function comecar(manterAba){
   try{
     const r = await api('/auth/eu');
+    // Descarta o que estiver na tela antes de mostrar a conta nova.
+    if (!manterAba) limparTela();
     eu = r.aluno;
     document.getElementById('tela-login').hidden = true;
     document.getElementById('tela-app').hidden = false;
     document.getElementById('nome-estudio').textContent = r.config.estudio.nome;
     document.getElementById('quem-sou').textContent = eu.nome || eu.telefone;
     document.querySelectorAll('.so-admin').forEach(b=>{ b.hidden = !eu.admin; });
-    if (!manterAba) abaAtiva = 'agendar';
-    desenharAba();
+    abrirAba(manterAba ? abaAtiva : 'agendar');
   }catch{
     document.getElementById('tela-login').hidden = false;
     document.getElementById('tela-app').hidden = true;
