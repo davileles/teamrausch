@@ -7,14 +7,22 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  /* Paleta CDV — tema claro (mesmos tokens do painel-cdv) */
+  /* ── Paleta Team Rausch ──────────────────────────────────────────────────
+     Vermelho, preto e amarelo do logo, sobre base clara para leitura no sol
+     e em telas de celular baratas. Estrutura (raios, pesos, espaçamentos)
+     segue as convenções do painel CDV.                                     */
   :root{
-    --bg:#f0f2f7;--surface:#ffffff;--card:#f7f8fc;--card-deep:#eef0f7;
-    --border:#dde2ef;--border-ctrl:#c8d0e4;
-    --text:#1a2035;--muted:#5a6a8a;--muted2:#9aaabf;
-    --green:#16a34a;--red:#dc2626;--accent:#ff585e;--accent2:#e04449;--blue:#126eff;
-    --cdv-navy:#2a3246;--cdv-coral:#ff585e;--amber:#d97706;
-    --meu:#16a34a;--cheio:#dc2626;--raio:10px;--raio-card:14px;
+    --preto:#16171a;--preto-2:#25272c;
+    --vermelho:#e01f26;--vermelho-esc:#b8161c;--vermelho-dim:rgba(224,31,38,.10);
+    --amarelo:#f5c518;--amarelo-esc:#8a6d00;--amarelo-dim:rgba(245,197,24,.16);
+
+    --bg:#f3f3f5;--surface:#ffffff;--card:#fafafa;--card-deep:#eeeef1;
+    --border:#e3e3e8;--border-ctrl:#c9cad1;
+    --text:#16171a;--muted:#5f6169;--muted2:#9a9ca4;
+
+    --accent:var(--vermelho);--accent2:var(--vermelho-esc);
+    --meu:var(--amarelo-esc);--cheio:var(--vermelho);
+    --raio:10px;--raio-card:14px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);
@@ -22,23 +30,24 @@
   .env{max-width:680px;margin:0 auto;padding:0 18px 90px}
   [hidden]{display:none!important}
 
-  header{background:var(--surface);border-bottom:2px solid var(--accent);position:sticky;top:0;z-index:100;
-    box-shadow:0 2px 8px rgba(26,32,53,.07)}
+  /* Cabeçalho preto com faixa vermelha — a leitura do logo */
+  header{background:var(--preto);border-bottom:3px solid var(--vermelho);position:sticky;top:0;z-index:100;
+    box-shadow:0 2px 10px rgba(22,23,26,.18)}
   .cab{max-width:680px;margin:0 auto;padding:14px 18px 0;display:flex;
     justify-content:space-between;align-items:baseline;gap:12px}
-  .cab h1{font-size:17px;font-weight:800;letter-spacing:-.01em;color:var(--text)}
-  .cab small{font-size:12px;font-weight:500;color:var(--muted)}
+  .cab h1{font-size:17px;font-weight:800;letter-spacing:.01em;color:#fff;text-transform:uppercase}
+  .cab small{font-size:12px;font-weight:500;color:rgba(255,255,255,.62)}
   nav{max-width:680px;margin:0 auto;padding:10px 18px;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
   nav::-webkit-scrollbar{display:none}
   nav button{background:transparent;border:1px solid transparent;border-radius:var(--raio);cursor:pointer;
-    padding:9px 15px;font:700 12.5px 'Montserrat',sans-serif;color:var(--muted);white-space:nowrap;flex-shrink:0;
-    transition:color .15s,background .15s}
-  nav button:hover[aria-selected=false]{color:var(--text);background:rgba(255,88,94,.06)}
-  nav button[aria-selected=true]{background:var(--accent);color:#fff}
+    padding:9px 15px;font:700 12.5px 'Montserrat',sans-serif;color:rgba(255,255,255,.66);
+    white-space:nowrap;flex-shrink:0;transition:color .15s,background .15s}
+  nav button[aria-selected=false]:hover{color:#fff;background:rgba(255,255,255,.09)}
+  nav button[aria-selected=true]{background:var(--vermelho);color:#fff}
 
   h2{font-size:19px;font-weight:800;letter-spacing:-.01em;margin:24px 0 4px}
-  h3{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-    color:var(--muted);margin:26px 0 10px}
+  h3{font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--text);margin:26px 0 10px;padding-left:10px;border-left:3px solid var(--amarelo)}
   p.ajuda{font-size:12.5px;color:var(--muted);margin-bottom:12px}
 
   label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.05em;
@@ -46,21 +55,22 @@
   input,select,textarea{width:100%;padding:11px 13px;border:1px solid var(--border-ctrl);
     border-radius:var(--raio);background:var(--card);
     font:400 14px 'Montserrat',sans-serif;color:var(--text);outline:none;transition:border-color .2s}
-  input:focus,select:focus,textarea:focus{border-color:var(--cdv-coral)}
+  input:focus,select:focus,textarea:focus{border-color:var(--vermelho)}
   input::placeholder,textarea::placeholder{color:var(--muted2)}
   select{cursor:pointer}
   .campo{margin-bottom:14px}
   .dupla{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
-  button.acao{width:100%;padding:13px;border:none;border-radius:var(--raio);background:var(--accent);
-    color:#fff;font:700 14.5px 'Montserrat',sans-serif;cursor:pointer;transition:background .15s}
-  button.acao:hover{background:var(--accent2)}
+  button.acao{width:100%;padding:13px;border:none;border-radius:var(--raio);background:var(--vermelho);
+    color:#fff;font:800 14.5px 'Montserrat',sans-serif;letter-spacing:.02em;text-transform:uppercase;
+    cursor:pointer;transition:background .15s}
+  button.acao:hover{background:var(--vermelho-esc)}
   button.acao[disabled]{opacity:.45;cursor:not-allowed}
   button.leve{background:transparent;border:1px solid var(--border-ctrl);color:var(--muted);
     padding:8px 13px;border-radius:8px;cursor:pointer;
     font:700 11.5px 'Montserrat',sans-serif;transition:border-color .15s,color .15s,background .15s}
-  button.leve:hover{border-color:var(--cdv-coral);color:var(--cdv-coral);background:rgba(255,88,94,.06)}
-  button:focus-visible{outline:2px solid var(--cdv-coral);outline-offset:2px}
+  button.leve:hover{border-color:var(--vermelho);color:var(--vermelho);background:var(--vermelho-dim)}
+  button:focus-visible{outline:2px solid var(--vermelho);outline-offset:2px}
 
   /* Horário: as vagas viram marcas — dá pra ver a lotação sem ler número */
   .slot{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
@@ -71,23 +81,24 @@
   .slot .vagas{flex:1;min-width:0}
   .marcas{display:flex;gap:3px;margin-bottom:5px;flex-wrap:wrap}
   .marcas i{width:11px;height:11px;border:1px solid var(--border-ctrl);border-radius:2px;background:var(--card)}
-  .marcas i.ocupada{background:var(--accent);border-color:var(--accent)}
+  .marcas i.ocupada{background:var(--preto);border-color:var(--preto)}
   .slot .conta{font-size:11.5px;font-weight:500;color:var(--muted)}
-  .slot.meu{border-color:var(--meu);border-left:3px solid var(--meu)}
-  .slot.meu .marcas i.ocupada{background:var(--meu);border-color:var(--meu)}
+  /* O seu horário é o único em amarelo — acha de relance na lista */
+  .slot.meu{border-color:var(--amarelo);border-left:4px solid var(--amarelo);background:#fffdf4}
+  .slot.meu .marcas i.ocupada{background:var(--amarelo);border-color:#d9ad10}
   .slot.indisponivel{opacity:.55}
-  .slot .selo{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  .slot .selo{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
     color:var(--muted);white-space:nowrap}
-  .slot .selo.meu{color:var(--meu)}
-  .slot .selo.cheio{color:var(--cheio)}
+  .slot .selo.meu{color:var(--amarelo-esc)}
+  .slot .selo.cheio{color:var(--vermelho)}
 
   .dia{margin-bottom:26px}
   .dia .titulo{display:flex;align-items:baseline;gap:9px;margin-bottom:10px}
-  .dia .titulo b{font-size:17px;font-weight:800;letter-spacing:-.01em}
+  .dia .titulo b{font-size:17px;font-weight:800;letter-spacing:-.01em;text-transform:uppercase}
   .dia .titulo span{font-size:12px;font-weight:500;color:var(--muted)}
 
-  .recado{background:var(--cdv-navy);color:#fff;padding:13px 16px;border-radius:var(--raio-card);
-    font-size:13.5px;font-weight:500;margin:20px 0}
+  .recado{background:var(--preto);color:#fff;padding:13px 16px;border-radius:var(--raio-card);
+    font-size:13.5px;font-weight:500;margin:20px 0;border-left:4px solid var(--amarelo)}
   .vazio{padding:32px 0;color:var(--muted);font-size:13.5px;text-align:center}
 
   .fila{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
@@ -98,23 +109,24 @@
 
   /* ---- grade de horários (configurações) ---- */
   .gerador{background:var(--card-deep);border:1px solid var(--border);border-radius:var(--raio-card);
-    padding:16px;margin-bottom:22px}
-  .gerador h4{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-    color:var(--muted);margin-bottom:12px}
+    padding:16px;margin-bottom:22px;border-top:3px solid var(--amarelo)}
+  .gerador h4{font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--text);margin-bottom:12px}
   .gerador .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+  .gerador input{background:var(--surface)}
   .dias-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
   .chip{background:var(--surface);border:1px solid var(--border-ctrl);border-radius:8px;
     padding:7px 12px;cursor:pointer;font:700 11.5px 'Montserrat',sans-serif;color:var(--muted);
     user-select:none;transition:all .15s}
-  .chip:hover{border-color:var(--cdv-coral)}
-  .chip.sel{border-color:var(--cdv-coral);color:var(--cdv-coral);background:rgba(255,88,94,.08)}
+  .chip:hover{border-color:var(--vermelho)}
+  .chip.sel{border-color:var(--vermelho);color:#fff;background:var(--vermelho)}
   .gerador .botoes{display:flex;gap:8px;flex-wrap:wrap}
 
   .dia-bloco{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
     padding:14px 16px;margin-bottom:12px}
   .dia-bloco .topo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
-  .dia-bloco .topo label{margin:0;font-size:13px;font-weight:800;text-transform:none;letter-spacing:0;color:var(--text)}
-  .dia-bloco .topo .contagem{font-size:11.5px;font-weight:600;color:var(--muted2)}
+  .dia-bloco .topo label{margin:0;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--text)}
+  .dia-bloco .topo .contagem{font-size:11.5px;font-weight:600;color:var(--muted2);text-transform:none;letter-spacing:0}
   .dia-bloco .acoes{display:flex;gap:6px;flex-wrap:wrap}
   .dia-bloco .acoes button{padding:6px 10px;font-size:11px}
   .dia-bloco .acoes select{width:auto;padding:6px 10px;font-size:11.5px;font-weight:600;border-radius:8px}
@@ -124,16 +136,20 @@
   .linha-h button{padding:8px 11px;font-size:11px}
 
   .aviso{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:300;
-    background:var(--cdv-navy);color:#fff;padding:13px 20px;border-radius:var(--raio);
+    background:var(--preto);color:#fff;padding:13px 20px;border-radius:var(--raio);
     font:600 13.5px 'Montserrat',sans-serif;max-width:calc(100% - 36px);
-    box-shadow:0 6px 24px rgba(26,32,53,.22)}
-  .aviso.ok{background:var(--green)} .aviso.erro{background:var(--red)}
+    box-shadow:0 6px 24px rgba(22,23,26,.28)}
+  .aviso.ok{background:var(--preto);border-left:4px solid var(--amarelo)}
+  .aviso.erro{background:var(--vermelho)}
 
   /* login */
   .entrada{max-width:400px;margin:0 auto;padding:56px 18px}
-  .entrada .marca{font-size:25px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px}
+  .entrada .marca{font-size:27px;font-weight:800;letter-spacing:.01em;margin-bottom:6px;
+    text-transform:uppercase;line-height:1.1}
+  .entrada .marca::after{content:'';display:block;width:52px;height:4px;background:var(--vermelho);
+    border-radius:2px;margin-top:9px}
   .entrada .sub{color:var(--muted);font-size:13.5px;margin-bottom:28px}
-  .codigo{font-size:26px;font-weight:700;letter-spacing:.22em;text-align:center;padding:15px}
+  .codigo{font-size:26px;font-weight:800;letter-spacing:.22em;text-align:center;padding:15px}
   .voltar{display:block;margin:16px auto 0;background:none;border:none;color:var(--muted);
     font:500 13px 'Montserrat',sans-serif;text-decoration:underline;cursor:pointer}
 
