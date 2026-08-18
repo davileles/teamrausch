@@ -79,9 +79,21 @@
 
   label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.05em;
     text-transform:uppercase;color:var(--muted);margin-bottom:6px}
-  input,select,textarea{width:100%;padding:11px 13px;border:1px solid var(--border-ctrl);
-    border-radius:var(--raio);background:var(--card);
+  input,select,textarea{width:100%;max-width:100%;min-width:0;padding:11px 13px;
+    border:1px solid var(--border-ctrl);border-radius:var(--raio);background:var(--card);
     font:400 14px 'Montserrat',sans-serif;color:var(--text);outline:none;transition:border-color .2s}
+  /* date e time no WebKit trazem uma largura mínima interna e um botão nativo
+     que ignora o box-sizing. Sem zerar isso, eles estouram a célula do grid. */
+  input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;
+    min-height:46px;line-height:normal}
+  input[type=date]::-webkit-date-and-time-value,
+  input[type=time]::-webkit-date-and-time-value{text-align:left;margin:0}
+  input[type=date]::-webkit-calendar-picker-indicator,
+  input[type=time]::-webkit-calendar-picker-indicator{margin-left:auto;opacity:.55}
+  /* Item de grid tem min-width:auto por padrão: não encolhe abaixo do próprio
+     conteúdo e empurra o vizinho para fora. Esta é a origem dos campos
+     encavalados no celular. */
+  .dupla > *, .gerador .grid > *, .ficha .campos > *, .linha-h > *{min-width:0}
   input:focus,select:focus,textarea:focus{border-color:var(--vermelho)}
   input::placeholder,textarea::placeholder{color:var(--muted2)}
   select{cursor:pointer}
@@ -171,6 +183,34 @@
   /* O destaque amarelo é do segundo cartão: a sequência é o que puxa a volta. */
   .numeros .numero:nth-child(3){border-top-color:var(--amarelo)}
 
+  /* ---- conquistas ---- */
+  .medalhas{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .medalha{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amarelo);
+    border-radius:10px;padding:9px 13px;display:flex;align-items:center;gap:8px;min-width:0}
+  .medalha .cara{font-size:19px;line-height:1}
+  .medalha .txt{min-width:0}
+  .medalha b{display:block;font-size:12.5px;font-weight:700;color:var(--text)}
+  .medalha span{display:block;font-size:11px;color:var(--muted2)}
+
+  .proxima{background:var(--card-deep);border:1px solid var(--border);border-radius:var(--raio-card);
+    padding:14px 16px;margin-bottom:8px}
+  .proxima .linha{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+  .proxima .linha b{font-size:13.5px;font-weight:700}
+  .proxima .linha span{font-size:11.5px;font-weight:700;color:var(--muted);white-space:nowrap}
+  .barra{height:8px;background:var(--border);border-radius:99px;overflow:hidden}
+  .barra i{display:block;height:100%;background:var(--vermelho);border-radius:99px}
+
+  /* ---- linhas editáveis de conquista (configurações) ---- */
+  .linha-c{display:grid;grid-template-columns:88px 56px 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
+  .linha-c > *{min-width:0}
+  @media (max-width:560px){
+    .linha-c{grid-template-columns:1fr 1fr;padding-bottom:10px;margin-bottom:10px;
+      border-bottom:1px solid var(--border)}
+    .linha-c .c-titulo{grid-column:1 / -1}
+    .linha-c button{grid-column:1 / -1}
+    .linha-c:last-of-type{border-bottom:none}
+  }
+
   /* ---- ficha editável (meus dados e aba Alunos) ---- */
   .ficha{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
     padding:14px 16px;margin-bottom:10px}
@@ -251,6 +291,8 @@
   @media (max-width:560px){
     .dupla{grid-template-columns:1fr}
     .gerador .grid{grid-template-columns:1fr 1fr}
+    .gerador .grid > div{min-width:0}
+    .gerador input{width:100%}
 
     /* 16px é o limite: abaixo disso o Safari do iPhone dá zoom ao focar o
        campo e a página inteira salta de lugar. */
@@ -284,12 +326,23 @@
 
     /* Grade de horários: cada linha vira uma faixa própria em vez de
        espremer três controles lado a lado. */
-    .linha-h{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .linha-h input[type=time],.linha-h input[type=number]{width:100%}
+    .linha-h{display:grid;grid-template-columns:1fr 1fr;gap:8px;
+      padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border)}
+    .linha-h:last-child{border-bottom:none;margin-bottom:4px}
+    .linha-h input[type=time],.linha-h input[type=number]{width:100%;min-width:0}
     .linha-h button{grid-column:1 / -1}
     .dia-bloco{padding:13px 14px}
-    .dia-bloco .acoes{width:100%}
-    .dia-bloco .acoes button,.dia-bloco .acoes select{flex:1;min-width:0}
+    /* O "Copiar de…" precisa da linha inteira: comprimido, o texto do
+       select é cortado pelo navegador sem reticências. */
+    .dia-bloco .acoes{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%}
+    .dia-bloco .acoes select{grid-column:1 / -1;width:100%}
+    .dia-bloco .acoes button{width:100%}
+    /* Hora e capacidade lado a lado, Remover ao lado — cabe em 360px agora
+       que os campos podem encolher. */
+    /* A hora recebe mais espaço: em aparelho configurado em inglês ela vem
+       como "06:00 AM" e a coluna igual cortaria o sufixo. */
+    .linha-h{grid-template-columns:1.25fr 1fr auto}
+    .linha-h button{grid-column:auto;padding:11px 10px;white-space:nowrap;font-size:11px}
 
     .ficha .rodape button{flex:1}
     .gerador{padding:14px}
@@ -762,6 +815,26 @@ async function carregarPerfil(){
     const desde = p.desde ? new Date(p.desde).toLocaleDateString('pt-BR',
       {month:'long', year:'numeric'}) : null;
 
+    const medalhas = (n.conquistas||[]).length
+      ? `<div class="medalhas">${n.conquistas.slice().reverse().map(m=>`
+          <div class="medalha">
+            <span class="cara">${esc(m.emoji||'🏅')}</span>
+            <span class="txt"><b>${esc(m.titulo)}</b><span>${m.aulas} ${m.aulas===1?'aula':'aulas'}</span></span>
+          </div>`).join('')}</div>`
+      : '';
+
+    const proxima = n.proximaConquista
+      ? (()=>{ const p = n.proximaConquista;
+          const feito = Math.max(0, Math.min(100, Math.round(n.total / p.aulas * 100)));
+          return `<div class="proxima">
+            <div class="linha">
+              <b>${esc(p.emoji||'🏅')} ${esc(p.titulo)}</b>
+              <span>faltam ${p.faltam}</span>
+            </div>
+            <div class="barra"><i style="width:${feito}%"></i></div>
+          </div>`; })()
+      : '';
+
     const numeros = n.total === 0
       ? `<div class="vazio">Seus números aparecem aqui depois da primeira aula.</div>`
       : `<div class="numeros">
@@ -782,6 +855,8 @@ async function carregarPerfil(){
 
     alvo.innerHTML = `
       <h2>Meus dados</h2>
+
+      ${medalhas || proxima ? `<h3>Conquistas</h3>${medalhas}${proxima}` : ''}
 
       <h3>Meus números</h3>
       ${numeros}
@@ -936,6 +1011,14 @@ async function carregarAlunos(){
 /* --------------------------- configurações ------------------------------ */
 const DIAS = [['seg','Segunda'],['ter','Terça'],['qua','Quarta'],['qui','Quinta'],
               ['sex','Sexta'],['sab','Sábado'],['dom','Domingo']];
+
+function linhaConquista(aulas='', titulo='', emoji=''){
+  return `<div class="linha-c">
+    <input type="number" min="1" max="100000" value="${aulas}" class="c-aulas" placeholder="aulas">
+    <input value="${esc(emoji)}" class="c-emoji" maxlength="4" placeholder="🏅" style="text-align:center">
+    <input value="${esc(titulo)}" class="c-titulo" maxlength="40" placeholder="Nome da conquista">
+    <button class="leve c-remover" aria-label="Remover conquista">Remover</button></div>`;
+}
 
 function linhaHorario(dia, hora='', capacidade=''){
   return `<div class="linha-h" data-dia="${dia}">
@@ -1184,6 +1267,13 @@ async function carregarConfig(){
         </div>`).join('')}
       </div>
 
+      <h3>Conquistas</h3>
+      <p class="ajuda">Marcos que o aluno vê na aba Meus dados. Ele ganha a conquista ao
+        atingir o número de aulas. Deixe a lista vazia para desligar.</p>
+      <div id="lista-conquistas">${(c.conquistas||[]).map(m=>
+        linhaConquista(m.aulas, m.titulo, m.emoji)).join('')}</div>
+      <button class="leve" id="c-add-conquista">+ Conquista</button>
+
       <h3>Administradores</h3>
       <div class="campo"><label for="c-admins">Telefones com DDD</label>
         <input id="c-admins" value="${(c.administradores||[]).map(t=>t.replace(/^55/,'')).join(', ')}"
@@ -1283,6 +1373,15 @@ async function carregarConfig(){
     selCanal.addEventListener('change', pintarAviso);
     pintarAviso();
 
+    document.getElementById('c-add-conquista').addEventListener('click', ()=>{
+      document.getElementById('lista-conquistas')
+        .insertAdjacentHTML('beforeend', linhaConquista());
+    });
+    alvo.addEventListener('click', e=>{
+      const r = e.target.closest('.c-remover');
+      if (r) r.closest('.linha-c').remove();
+    });
+
     ligarSubabas(alvo);
     ligarGrade(alvo);
     mostrarBackup();
@@ -1303,7 +1402,16 @@ async function salvarConfig(){
       .filter(s=>s.hora);
   });
 
+  const conquistas = [...document.querySelectorAll('#lista-conquistas .linha-c')]
+    .map(l=>({
+      aulas: Number(l.querySelector('.c-aulas').value),
+      emoji: l.querySelector('.c-emoji').value,
+      titulo: l.querySelector('.c-titulo').value,
+    }))
+    .filter(m=>m.aulas > 0 && m.titulo.trim());
+
   const corpo = {
+    conquistas,
     estudio: {
       nome: v('c-nome'), fuso: v('c-fuso'), recado: v('c-recado'),
       alerta: v('c-alerta'), alertaAte: v('c-alerta-ate'),
