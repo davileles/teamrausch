@@ -344,7 +344,18 @@ function numerosDoAluno(telefone) {
 
   const primeira = passados[0] ? passados[0].data : null;
 
+  // Conquistas: as já alcançadas e a próxima, com quanto falta.
+  const marcos = (c.conquistas || [])
+    .filter((m) => Number(m.aulas) > 0)
+    .sort((x, y) => Number(x.aulas) - Number(y.aulas));
+  const alcancadas = marcos.filter((m) => passados.length >= Number(m.aulas));
+  const proxima = marcos.find((m) => passados.length < Number(m.aulas)) || null;
+
   return {
+    conquistas: alcancadas,
+    proximaConquista: proxima
+      ? { ...proxima, faltam: Number(proxima.aulas) - passados.length }
+      : null,
     total: passados.length,
     dias: diasDistintos.length,
     noMes,
@@ -531,6 +542,32 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     }
   }
   delete novo.novaSenhaAdmin;
+
+  if (novo.conquistas !== undefined) {
+    if (!Array.isArray(novo.conquistas)) {
+      return res.status(400).json({ erro: 'Lista de conquistas inválida.' });
+    }
+    const limpas = [];
+    for (const m of novo.conquistas) {
+      const aulas = Number(m.aulas);
+      const titulo = String(m.titulo || '').trim();
+      if (!Number.isInteger(aulas) || aulas < 1 || aulas > 100000) {
+        return res.status(400).json({ erro: `Número de aulas inválido: ${m.aulas}` });
+      }
+      if (!titulo) return res.status(400).json({ erro: `Dê um nome à conquista de ${aulas} aulas.` });
+      limpas.push({ aulas, titulo: titulo.slice(0, 40), emoji: String(m.emoji || '').trim().slice(0, 4) });
+    }
+    // Sem repetir a mesma quantidade: duas conquistas no mesmo número
+    // apareceriam juntas e ninguém entenderia por quê.
+    const vistos = new Set();
+    for (const m of limpas) {
+      if (vistos.has(m.aulas)) {
+        return res.status(400).json({ erro: `Há duas conquistas com ${m.aulas} aulas.` });
+      }
+      vistos.add(m.aulas);
+    }
+    novo.conquistas = limpas.sort((x, y) => x.aulas - y.aulas);
+  }
 
   if (novo.acesso && novo.acesso.canalDoCodigo !== undefined) {
     const canais = ['log', 'whatsapp', 'sms', 'aberto'];
