@@ -119,6 +119,19 @@
   .fila .quem b{font-size:15px;font-weight:700;display:block}
   .fila .quem small{font-size:12px;font-weight:500;color:var(--muted)}
 
+  /* ---- ficha editável (meus dados e aba Alunos) ---- */
+  .ficha{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
+    padding:14px 16px;margin-bottom:10px}
+  .ficha .cabeca{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    margin-bottom:2px;flex-wrap:wrap}
+  .ficha .cabeca b{font-size:15px;font-weight:700}
+  .ficha .cabeca .tags{font-size:11.5px;font-weight:600;color:var(--muted2)}
+  .ficha .campos{display:grid;grid-template-columns:1fr 148px 96px;gap:8px;margin-top:10px}
+  .ficha .campos input{padding:9px 11px;font-size:13.5px}
+  .ficha .rodape{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+  .ficha.mudou{border-color:var(--amarelo)}
+  @media (max-width:560px){ .ficha .campos{grid-template-columns:1fr} }
+
   /* ---- subabas de configurações ---- */
   .subabas{display:flex;gap:6px;margin:16px 0 22px;border-bottom:1px solid var(--border);padding-bottom:0}
   .subabas button{background:transparent;border:none;border-bottom:3px solid transparent;
@@ -495,7 +508,43 @@ async function carregarMeus(){
       ? r.meus.map(a=>`<div class="fila"><div class="quem"><b>${a.hora} · ${a.porExtenso}</b>
           <small>reservado</small></div>
           <button class="leve cancelar" data-id="${a.id}">Cancelar</button></div>`).join('')
-      : '<div class="vazio">Você não tem horários reservados.</div>');
+      : '<div class="vazio">Você não tem horários reservados.</div>')
+      + `
+      <h3>Meus dados</h3>
+      <div class="ficha">
+        <div class="dupla">
+          <div class="campo"><label for="p-nome">Como quero ser chamado</label>
+            <input id="p-nome" maxlength="60" value="${esc(eu.nome||'')}"></div>
+          <div class="campo"><label for="p-aniv">Meu aniversário</label>
+            <input id="p-aniv" maxlength="5" placeholder="dd/mm" value="${esc(eu.aniversario||'')}"></div>
+        </div>
+        <div class="campo" style="margin:0">
+          <label>Telefone</label>
+          <input value="${esc(eu.telefone||'')}" disabled>
+          <p class="ajuda" style="margin:6px 0 0">É por ele que você entra. Para trocar, fale com o estúdio.</p>
+        </div>
+        <div class="rodape"><button class="leve" id="p-salvar">Salvar meus dados</button></div>
+      </div>`;
+
+    const pAniv = document.getElementById('p-aniv');
+    pAniv.addEventListener('input', ()=>{
+      const n = pAniv.value.replace(/\D/g,'').slice(0,4);
+      pAniv.value = n.length > 2 ? `${n.slice(0,2)}/${n.slice(2)}` : n;
+    });
+    document.getElementById('p-salvar').addEventListener('click', async ()=>{
+      const b = document.getElementById('p-salvar');
+      b.disabled = true; b.textContent = 'Salvando…';
+      try{
+        const r = await api('/perfil', {method:'PUT', body: JSON.stringify({
+          nome: document.getElementById('p-nome').value,
+          aniversario: pAniv.value,
+        })});
+        eu.nome = r.nome; eu.aniversario = r.aniversario;
+        document.getElementById('quem-sou').textContent = eu.nome || eu.telefone;
+        avisar('Dados atualizados.', 'ok');
+      }catch(e){ avisar(e.message, 'erro'); }
+      finally{ b.disabled = false; b.textContent = 'Salvar meus dados'; }
+    });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
@@ -526,43 +575,80 @@ async function carregarAlunos(){
   const alvo = document.getElementById('aba-alunos');
   try{
     const lista = await api('/admin/alunos');
-    alvo.innerHTML = '<h2>Alunos</h2><p class="ajuda">Quem já entrou pelo menos uma vez.</p>' +
-      (lista.length ? lista.map(a=>`<div class="fila">
-        <div class="quem"><b>${esc(a.nome||'Sem nome')}${a.admin?' · admin':''}</b>
-        <small>${esc(a.telefoneFormatado)}${
-          a.aniversarioFormatado ? ' · 🎂 '+esc(a.aniversarioFormatado) : ' · sem aniversário'
-        }${a.bloqueado?' · suspenso':''}</small></div>
-        <input class="aniv-edit" data-tel="${a.telefone}" value="${esc(a.aniversarioFormatado||'')}"
-          placeholder="dd/mm" maxlength="5" style="width:78px;padding:7px 9px;font-size:12.5px;text-align:center">
-        <button class="leve alternar" data-tel="${a.telefone}" data-bloq="${a.bloqueado?1:0}">
-          ${a.bloqueado?'Reativar':'Suspender'}</button></div>`).join('')
+    alvo.innerHTML = '<h2>Alunos</h2><p class="ajuda">Quem já entrou pelo menos uma vez. ' +
+      'Edite e clique em Salvar; trocar o telefone desconecta o aluno, que entra de novo com o número novo.</p>' +
+      (lista.length ? lista.map(a=>`
+        <div class="ficha" data-tel="${a.telefone}">
+          <div class="cabeca">
+            <b>${esc(a.nome||'Sem nome')}</b>
+            <span class="tags">${a.admin?'admin · ':''}${a.bloqueado?'suspenso':'ativo'}</span>
+          </div>
+          <div class="campos">
+            <input class="f-nome" value="${esc(a.nome||'')}" maxlength="60" placeholder="Nome">
+            <input class="f-tel" value="${esc(a.telefoneFormatado||'')}" placeholder="(31) 98888-7777"
+              ${a.admin?'disabled title="Ajuste a lista de administradores antes de trocar."':''}>
+            <input class="f-aniv" value="${esc(a.aniversarioFormatado||'')}" maxlength="5" placeholder="dd/mm">
+          </div>
+          <div class="rodape">
+            <button class="leve f-salvar">Salvar</button>
+            <button class="leve alternar" data-bloq="${a.bloqueado?1:0}">
+              ${a.bloqueado?'Reativar':'Suspender'}</button>
+          </div>
+        </div>`).join('')
         : '<div class="vazio">Ninguém entrou ainda.</div>');
-    alvo.querySelectorAll('button.alternar').forEach(b=>{
-      b.addEventListener('click', async ()=>{
+
+    alvo.querySelectorAll('.ficha').forEach(ficha=>{
+      const tel   = ficha.dataset.tel;
+      const nome  = ficha.querySelector('.f-nome');
+      const fone  = ficha.querySelector('.f-tel');
+      const aniv  = ficha.querySelector('.f-aniv');
+      const salvar= ficha.querySelector('.f-salvar');
+      const inicial = { nome: nome.value, fone: fone.value, aniv: aniv.value };
+
+      const marcar = ()=> ficha.classList.toggle('mudou',
+        nome.value !== inicial.nome || fone.value !== inicial.fone || aniv.value !== inicial.aniv);
+
+      aniv.addEventListener('input', ()=>{
+        const n = aniv.value.replace(/\D/g,'').slice(0,4);
+        aniv.value = n.length > 2 ? `${n.slice(0,2)}/${n.slice(2)}` : n;
+        marcar();
+      });
+      fone.addEventListener('input', ()=>{
+        const n = fone.value.replace(/\D/g,'').slice(0,11);
+        fone.value = n.length > 7 ? `(${n.slice(0,2)}) ${n.slice(2,7)}-${n.slice(7)}`
+          : n.length > 2 ? `(${n.slice(0,2)}) ${n.slice(2)}` : n;
+        marcar();
+      });
+      nome.addEventListener('input', marcar);
+
+      salvar.addEventListener('click', async ()=>{
+        const trocouFone = fone.value !== inicial.fone;
+        if (trocouFone && !confirm(
+          `Trocar o telefone de ${inicial.fone} para ${fone.value}?\n\n` +
+          'Os agendamentos vão junto, mas o aluno é desconectado e passa a entrar com o número novo.')) return;
+
+        salvar.disabled = true; salvar.textContent = 'Salvando…';
         try{
-          await api('/admin/alunos/'+b.dataset.tel, {method:'PUT',
-            body: JSON.stringify({bloqueado: b.dataset.bloq !== '1'})});
+          await api('/admin/alunos/'+tel, {method:'PUT', body: JSON.stringify({
+            nome: nome.value,
+            aniversario: aniv.value,
+            ...(trocouFone ? { novoTelefone: fone.value } : {}),
+          })});
+          avisar('Aluno atualizado.', 'ok');
+          carregarAlunos();
+        }catch(e){
+          avisar(e.message, 'erro');
+          salvar.disabled = false; salvar.textContent = 'Salvar';
+        }
+      });
+
+      ficha.querySelector('button.alternar').addEventListener('click', async ()=>{
+        try{
+          await api('/admin/alunos/'+tel, {method:'PUT',
+            body: JSON.stringify({bloqueado: ficha.querySelector('button.alternar').dataset.bloq !== '1'})});
           carregarAlunos();
         }catch(e){ avisar(e.message,'erro'); }
       });
-    });
-    // Corrigir aniversário direto na lista: grava ao sair do campo.
-    alvo.querySelectorAll('input.aniv-edit').forEach(inp=>{
-      const original = inp.value;
-      inp.addEventListener('input', ()=>{
-        const n = inp.value.replace(/\D/g,'').slice(0,4);
-        inp.value = n.length > 2 ? `${n.slice(0,2)}/${n.slice(2)}` : n;
-      });
-      inp.addEventListener('blur', async ()=>{
-        if (inp.value === original) return;
-        try{
-          await api('/admin/alunos/'+inp.dataset.tel, {method:'PUT',
-            body: JSON.stringify({aniversario: inp.value})});
-          avisar('Aniversário atualizado.', 'ok');
-          carregarAlunos();
-        }catch(e){ avisar(e.message,'erro'); inp.value = original; }
-      });
-      inp.addEventListener('keydown', e=>{ if (e.key === 'Enter') inp.blur(); });
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
