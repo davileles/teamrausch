@@ -382,7 +382,7 @@
       <input id="in-telefone" type="tel" inputmode="numeric" enterkeyhint="go"
              placeholder="(31) 98888-7777" autocomplete="tel">
     </div>
-    <button class="acao" id="btn-codigo">Receber código</button>
+    <button class="acao" id="btn-codigo">Entrar</button>
   </div>
 
   <div id="passo-codigo" hidden>
@@ -405,7 +405,7 @@
              placeholder="dia/mês — ex: 07/03" autocomplete="off">
       <p class="ajuda" style="margin:6px 0 0">Só o dia e o mês. Não pedimos o ano.</p>
     </div>
-    <button class="acao" id="btn-entrar">Entrar</button>
+    <button class="acao" id="btn-entrar">Confirmar</button>
     <button class="voltar" id="btn-voltar">Usar outro telefone</button>
   </div>
 </section>
@@ -484,7 +484,7 @@ inTelefone.addEventListener('input', e=>{
 
 document.getElementById('btn-codigo').addEventListener('click', async ()=>{
   const b = document.getElementById('btn-codigo');
-  b.disabled = true; b.textContent = 'Enviando…';
+  b.disabled = true; b.textContent = 'Aguarde…';
   try{
     const r = await api('/auth/codigo', {method:'POST', body:JSON.stringify({telefone:inTelefone.value})});
 
@@ -523,7 +523,7 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
   }catch(e){ avisar(e.message, 'erro'); }
   finally{
     b.disabled = false;
-    b.textContent = (semCodigo || porSenha) ? 'Continuar' : 'Receber código';
+    b.textContent = 'Entrar';
   }
 });
 
@@ -543,6 +543,8 @@ inAniversario.addEventListener('keydown', e=>{
  * pela segunda tela, que não teria nada a preencher.
  */
 async function entrar(botao){
+  // Guarda o rótulo original: esta função é chamada pelos dois botões
+  // ("Entrar" no primeiro passo, "Confirmar" no segundo).
   const rotulo = botao.textContent;
   botao.disabled = true; botao.textContent = 'Entrando…';
   try{
@@ -572,7 +574,7 @@ document.getElementById('btn-voltar').addEventListener('click', ()=>{
   document.getElementById('campo-senha').hidden = true;
   document.getElementById('in-senha').value = '';
   semCodigo = false; porSenha = false;
-  document.getElementById('btn-codigo').textContent = 'Receber código';
+  document.getElementById('btn-codigo').textContent = 'Entrar';
 });
 
 document.getElementById('in-codigo').addEventListener('keydown', e=>{
