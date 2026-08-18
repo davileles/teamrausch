@@ -16,7 +16,11 @@ const PADRAO = {
   estudio: {
     nome: 'Meu estúdio',
     fuso: 'America/Sao_Paulo',
+    // Fica fixo no topo da aba Agendar, junto das regras geradas sozinhas.
     recado: '',
+    // Aparece como popup quando a pessoa entra, uma vez por texto novo.
+    alerta: '',
+    alertaAte: '',   // 'AAAA-MM-DD': depois desta data o alerta some sozinho
   },
   agenda: {
     diasAntecedencia: 1,        // 0 = só hoje; 1 = hoje e amanhã; 2 = mais um dia...
