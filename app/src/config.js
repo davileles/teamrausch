@@ -40,6 +40,15 @@ const PADRAO = {
     },
     datasBloqueadas: [],        // ['2026-12-25']
   },
+  // Marcos que o aluno vê na aba Meus dados. Editáveis em Configurações.
+  conquistas: [
+    { aulas: 1,   titulo: 'Primeira aula',  emoji: '🎉' },
+    { aulas: 10,  titulo: 'Pegando o ritmo', emoji: '💪' },
+    { aulas: 25,  titulo: 'Já é rotina',     emoji: '🔥' },
+    { aulas: 50,  titulo: 'Meio century',    emoji: '⭐' },
+    { aulas: 100, titulo: 'Cem aulas',       emoji: '🏆' },
+    { aulas: 200, titulo: 'Veterano',        emoji: '👑' },
+  ],
   acesso: {
     // Senha do administrador. Guardamos só o hash com sal, nunca o texto.
     // null = administrador entra por código, como qualquer aluno.
