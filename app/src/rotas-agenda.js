@@ -35,6 +35,52 @@ function ehAdmin(telefone) {
   return (config.ler().administradores || []).includes(telefone);
 }
 
+/* ------------------------- senha do administrador ------------------------- */
+
+/**
+ * Guardamos scrypt com sal aleatório, nunca a senha em texto. Se o config.json
+ * vazar (backup, log, alguém com acesso ao volume), o que sai dali não serve
+ * para entrar.
+ */
+function criarSenha(texto) {
+  const sal = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(String(texto), sal, 64).toString('hex');
+  return { sal, hash, criadaEm: new Date().toISOString() };
+}
+
+function senhaConfere(texto, guardada) {
+  if (!guardada || !guardada.sal || !guardada.hash) return false;
+  const tentativa = crypto.scryptSync(String(texto || ''), guardada.sal, 64);
+  const esperado = Buffer.from(guardada.hash, 'hex');
+  if (tentativa.length !== esperado.length) return false;
+  return crypto.timingSafeEqual(tentativa, esperado);
+}
+
+/** O administrador entra por senha quando existe uma senha definida. */
+function usaSenha(telefone) {
+  return ehAdmin(telefone) && Boolean(config.ler().acesso.senhaAdmin);
+}
+
+// Freio contra tentativa em série. Fica em memória: reiniciar o serviço zera,
+// o que é aceitável porque reiniciar não é algo que um atacante controla.
+const falhas = new Map();
+const MAX_FALHAS = 5;
+const CASTIGO_MS = 10 * 60000;
+
+function bloqueado(telefone) {
+  const f = falhas.get(telefone);
+  if (!f) return 0;
+  if (Date.now() > f.ate) { falhas.delete(telefone); return 0; }
+  return f.contagem >= MAX_FALHAS ? Math.ceil((f.ate - Date.now()) / 60000) : 0;
+}
+
+function registrarFalha(telefone) {
+  const f = falhas.get(telefone) || { contagem: 0, ate: 0 };
+  f.contagem += 1;
+  f.ate = Date.now() + CASTIGO_MS;
+  falhas.set(telefone, f);
+}
+
 /**
  * Canal 'aberto' = entra só com o telefone, sem código.
  *
@@ -127,6 +173,18 @@ rotas.post('/auth/codigo', async (req, res) => {
     return res.status(429).json({ erro: 'Muitos pedidos de código. Tente daqui a pouco.' });
   }
 
+  // Administrador com senha definida: não há código nenhum, é senha.
+  if (usaSenha(telefone)) {
+    return res.json({
+      enviado: true,
+      canal: 'senha',
+      precisaDeSenha: true,
+      telefone: mostrarTelefone(telefone),
+      precisaDeNome: !cadastrado || !cadastrado.nome,
+      precisaDeAniversario: !cadastrado || !cadastrado.aniversario,
+    });
+  }
+
   // Canal aberto: não gera nem envia código. A tela pula direto para o cadastro.
   if (entraSemCodigo(telefone)) {
     return res.json({
@@ -159,7 +217,18 @@ rotas.post('/auth/entrar', (req, res) => {
   const telefone = normalizarTelefone(req.body.telefone);
   if (!telefone) return res.status(400).json({ erro: 'Telefone inválido.' });
 
-  if (!entraSemCodigo(telefone)) {
+  if (usaSenha(telefone)) {
+    const minutos = bloqueado(telefone);
+    if (minutos) {
+      return res.status(429).json({ erro: `Senha errada vezes demais. Tente em ${minutos} min.` });
+    }
+    if (!senhaConfere(req.body.senha, c.acesso.senhaAdmin)) {
+      registrarFalha(telefone);
+      console.warn(`[acesso] senha incorreta para ${telefone}.`);
+      return res.status(401).json({ erro: 'Senha incorreta.' });
+    }
+    falhas.delete(telefone);
+  } else if (!entraSemCodigo(telefone)) {
     const conferencia = store.conferirCodigo(
       telefone, String(req.body.codigo || '').trim(), Number(c.acesso.maxTentativas || 5));
     if (!conferencia.ok) return res.status(401).json({ erro: conferencia.motivo });
@@ -286,7 +355,7 @@ rotas.get('/admin/dia', exigirLogin, exigirAdmin, (req, res) => {
 });
 
 rotas.get('/admin/config', exigirLogin, exigirAdmin, (_req, res) => {
-  res.json(config.ler());
+  res.json(config.paraAdmin());
 });
 
 rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
@@ -304,6 +373,22 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     }
     novo.administradores = [...new Set(limpos)];
   }
+
+  // A senha nunca chega pronta do navegador; só o texto novo, em campo próprio.
+  if (novo.acesso) delete novo.acesso.senhaAdmin;
+
+  if (novo.novaSenhaAdmin !== undefined) {
+    const texto = String(novo.novaSenhaAdmin);
+    if (texto === '') {
+      novo.acesso = { ...(novo.acesso || {}), senhaAdmin: null };
+      console.warn('[acesso] senha de administrador removida; volta a valer o código.');
+    } else if (texto.length < 6) {
+      return res.status(400).json({ erro: 'A senha precisa ter pelo menos 6 caracteres.' });
+    } else {
+      novo.acesso = { ...(novo.acesso || {}), senhaAdmin: criarSenha(texto) };
+    }
+  }
+  delete novo.novaSenhaAdmin;
 
   if (novo.acesso && novo.acesso.canalDoCodigo !== undefined) {
     const canais = ['log', 'whatsapp', 'sms', 'aberto'];
@@ -323,7 +408,8 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     }
   }
 
-  res.json(config.gravar(novo));
+  config.gravar(novo);
+  res.json(config.paraAdmin());
 });
 
 rotas.get('/admin/alunos', exigirLogin, exigirAdmin, (_req, res) => {
