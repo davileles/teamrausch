@@ -37,6 +37,9 @@ const PADRAO = {
     datasBloqueadas: [],        // ['2026-12-25']
   },
   acesso: {
+    // Senha do administrador. Guardamos só o hash com sal, nunca o texto.
+    // null = administrador entra por código, como qualquer aluno.
+    senhaAdmin: null,
     diasDeSessao: 7,
     canalDoCodigo: 'log',       // log | whatsapp | sms
     minutosDeValidadeDoCodigo: 10,
@@ -59,6 +62,10 @@ const PADRAO = {
 let atual = null;
 
 function fundir(base, novo) {
+  // null é um valor deliberado ("apague isto"), não ausência. Sem esta linha
+  // ele cairia no laço abaixo e o objeto antigo sobreviveria — foi assim que
+  // remover a senha do administrador não removia nada.
+  if (novo === null) return null;
   if (Array.isArray(base) || typeof base !== 'object' || base === null) {
     return novo === undefined ? base : novo;
   }
@@ -124,4 +131,17 @@ function publica() {
   };
 }
 
-module.exports = { ler, gravar, publica, DIAS, PADRAO };
+/**
+ * Config para a tela de administração: igual à real, mas sem o hash da senha.
+ * O hash não serve para nada no navegador e, exposto, vira alvo de quebra
+ * offline.
+ */
+function paraAdmin() {
+  const c = ler();
+  return {
+    ...c,
+    acesso: { ...c.acesso, senhaAdmin: undefined, temSenhaAdmin: Boolean(c.acesso.senhaAdmin) },
+  };
+}
+
+module.exports = { ler, gravar, publica, paraAdmin, DIAS, PADRAO };
