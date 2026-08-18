@@ -119,6 +119,30 @@
     font-size:13.5px;font-weight:500;margin:20px 0;border-left:4px solid var(--amarelo)}
   .vazio{padding:32px 0;color:var(--muted);font-size:13.5px;text-align:center}
 
+  /* Como funciona: fica sempre no topo, discreto o bastante para não competir
+     com a agenda, mas legível para quem entra pela primeira vez. */
+  .guia{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--amarelo);
+    border-radius:var(--raio-card);padding:13px 16px;margin:18px 0}
+  .guia summary{cursor:pointer;font-size:12px;font-weight:800;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--text);list-style:none}
+  .guia summary::-webkit-details-marker{display:none}
+  .guia summary::after{content:' ▾';color:var(--muted2)}
+  .guia[open] summary::after{content:' ▴'}
+  .guia ul{margin:11px 0 0;padding-left:18px}
+  .guia li{font-size:13px;color:var(--muted);margin-bottom:5px}
+  .guia .extra{font-size:13px;color:var(--text);margin-top:11px;padding-top:11px;
+    border-top:1px solid var(--border);white-space:pre-wrap}
+
+  /* Alerta em popup: aparece uma vez por texto novo, ao entrar. */
+  .fundo-modal{position:fixed;inset:0;background:rgba(22,23,26,.62);z-index:400;
+    display:flex;align-items:center;justify-content:center;padding:22px}
+  .modal{background:var(--surface);border-radius:16px;max-width:420px;width:100%;
+    overflow:hidden;box-shadow:0 18px 50px rgba(22,23,26,.35)}
+  .modal .topo{background:var(--vermelho);color:#fff;padding:13px 20px;
+    font:800 12px 'Montserrat',sans-serif;letter-spacing:.08em;text-transform:uppercase}
+  .modal .corpo{padding:20px;font-size:14.5px;line-height:1.6;white-space:pre-wrap;color:var(--text)}
+  .modal .pe{padding:0 20px 20px}
+
   .fila{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
     padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
   .fila .quem{flex:1;min-width:0}
@@ -495,11 +519,63 @@ function marcas(ocupadas, capacidade){
 
 const SELO = {meu:'Seu horário', lotado:'Lotado', fechado:'Fechado', bloqueado:'Fechado'};
 
+/* ------------------------- guia e alerta -------------------------------- */
+// Lembrar o que a pessoa já viu é conveniência, não dado importante: se o
+// navegador bloquear o armazenamento, o guia abre e o alerta reaparece — chato,
+// mas nada quebra.
+
+function lembrete(chave){
+  try{ return localStorage.getItem(chave); }catch{ return null; }
+}
+function anotar(chave, valor){
+  try{ localStorage.setItem(chave, valor); }catch{}
+}
+
+const jaViuOGuia    = ()=> lembrete('guia-visto') === '1';
+const marcarGuiaVisto = ()=> anotar('guia-visto','1');
+
+/** Popup do alerta. Reaparece sempre que o texto do aviso muda. */
+function mostrarAlerta(alerta){
+  if (lembrete('alerta-visto') === alerta.id) return;
+  if (document.querySelector('.fundo-modal')) return;
+
+  const fundo = document.createElement('div');
+  fundo.className = 'fundo-modal';
+  fundo.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+      <div class="topo" id="modal-titulo">Aviso do estúdio</div>
+      <div class="corpo">${esc(alerta.texto)}</div>
+      <div class="pe"><button class="acao" id="modal-ok">Entendi</button></div>
+    </div>`;
+
+  const fechar = ()=>{ anotar('alerta-visto', alerta.id); fundo.remove(); };
+  fundo.querySelector('#modal-ok').addEventListener('click', fechar);
+  fundo.addEventListener('click', e=>{ if (e.target === fundo) fechar(); });
+  document.addEventListener('keydown', function esc(e){
+    if (e.key === 'Escape'){ fechar(); document.removeEventListener('keydown', esc); }
+  });
+
+  document.body.appendChild(fundo);
+  fundo.querySelector('#modal-ok').focus();
+}
+
 async function carregarAgenda(){
   const alvo = document.getElementById('aba-agendar');
   try{
     const r = await api('/agenda');
-    const recado = r.recado ? `<div class="recado">${esc(r.recado)}</div>` : '';
+
+    // Como funciona: regras vindas da configuração + o texto livre do estúdio.
+    const guia = (r.regras && r.regras.length) || r.recado
+      ? `<details class="guia" ${jaViuOGuia() ? '' : 'open'} id="guia">
+           <summary>Como funciona</summary>
+           ${r.regras && r.regras.length
+             ? `<ul>${r.regras.map(l=>`<li>${esc(l)}</li>`).join('')}</ul>` : ''}
+           ${r.recado ? `<div class="extra">${esc(r.recado)}</div>` : ''}
+         </details>`
+      : '';
+
+    // O alerta também fica na página, para quem fechou o popup e quer reler.
+    const recado = r.alerta ? `<div class="recado">${esc(r.alerta.texto)}</div>` : '';
     const dias = r.dias.map(d=>{
       if (d.bloqueada || !d.horarios.length){
         return `<div class="dia"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>
@@ -520,7 +596,12 @@ async function carregarAgenda(){
             </div>${direita}</div>`;
         }).join('')}</div>`;
     }).join('');
-    alvo.innerHTML = recado + dias;
+    alvo.innerHTML = recado + guia + dias;
+
+    const det = document.getElementById('guia');
+    if (det) det.addEventListener('toggle', ()=>{ if (!det.open) marcarGuiaVisto(); });
+
+    if (r.alerta) mostrarAlerta(r.alerta);
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
@@ -870,8 +951,23 @@ async function carregarConfig(){
 
       <h3>Estúdio</h3>
       <div class="campo"><label for="c-nome">Nome</label><input id="c-nome" value="${esc(c.estudio.nome)}"></div>
-      <div class="campo"><label for="c-recado">Recado na tela dos alunos</label>
-        <textarea id="c-recado" rows="2">${esc(c.estudio.recado)}</textarea></div>
+      <h3>Recado fixo</h3>
+      <p class="ajuda">Fica sempre no bloco "Como funciona", no topo da agenda. As regras
+        (quantos horários por dia, prazo de cancelamento, dias abertos) o sistema já escreve
+        sozinho a partir das configurações abaixo — use este campo só para o que ele não sabe:
+        o que trazer, onde estacionar, como chegar.</p>
+      <div class="campo"><label for="c-recado">Texto do recado</label>
+        <textarea id="c-recado" rows="4" placeholder="Traga sua toalha e garrafa de água.&#10;Chegue 5 minutos antes.">${esc(c.estudio.recado)}</textarea></div>
+
+      <h3>Aviso em destaque</h3>
+      <p class="ajuda">Aparece como popup quando a pessoa entra e fica em destaque no topo
+        da agenda. Reaparece para todo mundo sempre que você muda o texto — inclusive para
+        quem já tinha fechado o aviso anterior. Deixe em branco quando não houver nada urgente.</p>
+      <div class="campo"><label for="c-alerta">Texto do aviso</label>
+        <textarea id="c-alerta" rows="3" placeholder="Dia 7 é feriado, o estúdio não abre.">${esc(c.estudio.alerta||'')}</textarea></div>
+      <div class="campo"><label for="c-alerta-ate">Mostrar até (opcional)</label>
+        <input id="c-alerta-ate" type="date" value="${esc(c.estudio.alertaAte||'')}">
+        <p class="ajuda">Depois desta data o aviso some sozinho. Em branco, fica até você apagar.</p></div>
 
       <h3>Regras de agendamento</h3>
       <div class="dupla">
@@ -1056,7 +1152,10 @@ async function salvarConfig(){
   });
 
   const corpo = {
-    estudio: { nome: v('c-nome'), fuso: v('c-fuso'), recado: v('c-recado') },
+    estudio: {
+      nome: v('c-nome'), fuso: v('c-fuso'), recado: v('c-recado'),
+      alerta: v('c-alerta'), alertaAte: v('c-alerta-ate'),
+    },
     agenda: {
       diasAntecedencia: n('c-antec'), capacidadePadrao: n('c-cap'),
       minutosAntesDeFechar: n('c-fechar'), limitePorDia: n('c-limite'),
