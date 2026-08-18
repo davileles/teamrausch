@@ -57,6 +57,34 @@ function salvarAluno(telefone, campos = {}) {
   return dados.alunos[telefone];
 }
 
+/**
+ * Troca o telefone de um aluno. O telefone é a chave do cadastro, então é
+ * preciso mover a ficha, reetiquetar os agendamentos e derrubar as sessões
+ * abertas com o número antigo — senão a pessoa fica logada num cadastro que
+ * não existe mais.
+ */
+function trocarTelefone(antigo, novo) {
+  const ficha = dados.alunos[antigo];
+  if (!ficha) return { ok: false, motivo: 'Aluno não encontrado.' };
+  if (antigo === novo) return { ok: true, aluno: ficha };
+  if (dados.alunos[novo]) return { ok: false, motivo: 'Já existe um aluno com esse telefone.' };
+
+  dados.alunos[novo] = { ...ficha, telefone: novo };
+  delete dados.alunos[antigo];
+
+  for (const a of dados.agendamentos) {
+    if (a.telefone === antigo) a.telefone = novo;
+  }
+  for (const [t, s] of Object.entries(dados.sessoes)) {
+    if (s.telefone === antigo) delete dados.sessoes[t];
+  }
+  delete dados.codigos[antigo];
+
+  gravar();
+  backup.sincronizar(listarAlunos);
+  return { ok: true, aluno: dados.alunos[novo] };
+}
+
 function listarAlunos() {
   return Object.values(dados.alunos).sort((a, b) =>
     (a.nome || a.telefone).localeCompare(b.nome || b.telefone));
@@ -206,7 +234,7 @@ carregar();
 setInterval(() => limparAntigos(), 6 * 3600000).unref();
 
 module.exports = {
-  aluno, salvarAluno, listarAlunos, removerAluno, backup,
+  aluno, salvarAluno, listarAlunos, removerAluno, trocarTelefone, backup,
   guardarCodigo, conferirCodigo, pedidosNaUltimaHora,
   abrirSessao, sessao, fecharSessao,
   daData, doHorario, doAluno, jaTem, contarNoDia, reservar, cancelar, porId,
