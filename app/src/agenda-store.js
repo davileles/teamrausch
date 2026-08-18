@@ -185,6 +185,13 @@ function doAluno(telefone, apartirDe) {
     .sort((x, y) => (x.data + x.hora).localeCompare(y.data + y.hora));
 }
 
+/** Todos os agendamentos ativos do aluno, do mais antigo ao mais novo. */
+function historicoDoAluno(telefone) {
+  return dados.agendamentos
+    .filter((a) => a.telefone === telefone && a.status === 'ativo')
+    .sort((x, y) => (x.data + x.hora).localeCompare(y.data + y.hora));
+}
+
 function jaTem(telefone, data, hora) {
   return doHorario(data, hora).some((a) => a.telefone === telefone);
 }
@@ -237,5 +244,5 @@ module.exports = {
   aluno, salvarAluno, listarAlunos, removerAluno, trocarTelefone, backup,
   guardarCodigo, conferirCodigo, pedidosNaUltimaHora,
   abrirSessao, sessao, fecharSessao,
-  daData, doHorario, doAluno, jaTem, contarNoDia, reservar, cancelar, porId,
+  daData, doHorario, doAluno, historicoDoAluno, jaTem, contarNoDia, reservar, cancelar, porId,
 };
