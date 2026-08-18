@@ -325,12 +325,79 @@ rotas.put('/perfil', exigirLogin, (req, res) => {
 
 /* ----------------------------- agenda ------------------------------------ */
 
+/* ------------------------------ avisos ----------------------------------- */
+
+/** Minutos viram texto de gente: 90 → "1h30", 120 → "2 horas". */
+function emTextoDeTempo(min) {
+  const n = Number(min) || 0;
+  if (n < 60) return `${n} minutos`;
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  if (m) return `${h}h${String(m).padStart(2, '0')}`;
+  return h === 1 ? '1 hora' : `${h} horas`;
+}
+
+/**
+ * As regras que o aluno precisa saber, escritas a partir da própria
+ * configuração. Assim não existe o texto explicando uma coisa e o sistema
+ * fazendo outra — mudou a regra em Negócio, o texto muda junto.
+ */
+function regrasEmTexto() {
+  const c = config.ler();
+  const a = c.agenda;
+  const linhas = [];
+
+  const dias = Number(a.diasAntecedencia) || 0;
+  linhas.push(dias === 0
+    ? 'A agenda abre só para hoje.'
+    : dias === 1
+      ? 'Dá para reservar para hoje e amanhã.'
+      : `A agenda abre para hoje e os próximos ${dias} dias.`);
+
+  const limite = Number(a.limitePorDia) || 0;
+  if (limite === 1) linhas.push('Cada pessoa reserva um horário por dia.');
+  else if (limite > 1) linhas.push(`Cada pessoa reserva até ${limite} horários por dia.`);
+
+  const fecha = Number(a.minutosAntesDeFechar) || 0;
+  if (fecha > 0) linhas.push(`O horário fecha ${emTextoDeTempo(fecha)} antes de começar.`);
+
+  if (a.permitirCancelar) {
+    const canc = Number(a.minutosParaCancelar) || 0;
+    linhas.push(canc > 0
+      ? `Você pode cancelar até ${emTextoDeTempo(canc)} antes do horário.`
+      : 'Você pode cancelar a qualquer momento antes do horário.');
+  } else {
+    linhas.push('Cancelamento pelo app está desligado — fale com o estúdio.');
+  }
+
+  return linhas;
+}
+
+/** O alerta vale enquanto tiver texto e não tiver passado da data limite. */
+function alertaAtivo() {
+  const c = config.ler();
+  const texto = String(c.estudio.alerta || '').trim();
+  if (!texto) return null;
+
+  const ate = String(c.estudio.alertaAte || '').trim();
+  if (ate && agenda.hoje(c.estudio.fuso) > ate) return null;
+
+  return {
+    texto,
+    // Muda quando o texto muda: é assim que a tela sabe que é um aviso novo
+    // e mostra o popup de novo para quem já tinha fechado o anterior.
+    id: crypto.createHash('sha256').update(texto).digest('hex').slice(0, 16),
+  };
+}
+
 rotas.get('/agenda', exigirLogin, (req, res) => {
   res.json({
     dias: agenda.montarDias(req.aluno.telefone),
     meus: store.doAluno(req.aluno.telefone, agenda.hoje(config.ler().estudio.fuso))
       .map((a) => ({ ...a, porExtenso: agenda.porExtenso(a.data) })),
     recado: config.ler().estudio.recado || '',
+    regras: regrasEmTexto(),
+    alerta: alertaAtivo(),
   });
 });
 
