@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Team Rausch Studio — Agendamento</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="apple-touch-icon" href="/favicon.png">
@@ -31,15 +31,22 @@
   /* A barra de rolagem some quando a aba é curta e volta quando é longa. Cada
      ida e volta reserva ou devolve ~15px e empurra tudo que é centralizado.
      Reservando o espaço sempre, nada se mexe ao trocar de aba. */
-  html{scrollbar-gutter:stable;overflow-y:scroll}
+  html{scrollbar-gutter:stable;overflow-y:scroll;
+    /* Safari aumenta a fonte sozinho ao girar o aparelho; isto desliga. */
+    -webkit-text-size-adjust:100%;text-size-adjust:100%}
+  /* Sem o flash cinza do toque e sem o atraso de 300ms herdado do duplo-toque. */
+  a,button,summary,.chip,input,select,textarea{
+    -webkit-tap-highlight-color:transparent;touch-action:manipulation}
   body{background:var(--bg);color:var(--text);
     font:400 15px/1.55 'Montserrat',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-  .env{max-width:680px;margin:0 auto;padding:0 18px 90px;min-height:70vh}
+  .env{max-width:680px;margin:0 auto;min-height:70vh;
+    padding:0 max(18px, env(safe-area-inset-left)) calc(90px + env(safe-area-inset-bottom))
+            max(18px, env(safe-area-inset-right))}
   [hidden]{display:none!important}
 
   /* Cabeçalho preto com faixa vermelha — a leitura do logo */
   header{background:var(--preto);border-bottom:3px solid var(--vermelho);position:sticky;top:0;z-index:100;
-    box-shadow:0 2px 10px rgba(22,23,26,.18)}
+    box-shadow:0 2px 10px rgba(22,23,26,.18);padding-top:env(safe-area-inset-top)}
   .cab{max-width:680px;margin:0 auto;padding:12px 18px 0;display:flex;
     justify-content:space-between;align-items:center;gap:12px;min-height:34px}
   .cab h1{font-size:17px;font-weight:800;letter-spacing:.01em;color:var(--amarelo);text-transform:uppercase;
@@ -51,11 +58,13 @@
   .cab .logo-topo{height:30px;width:auto;flex-shrink:0;display:block;align-self:center}
   .cab .eu{display:flex;align-items:baseline;gap:10px;flex-shrink:0}
   .cab .eu button{background:transparent;border:1px solid rgba(255,255,255,.28);color:rgba(255,255,255,.78);
-    border-radius:7px;padding:4px 10px;cursor:pointer;font:700 10.5px 'Montserrat',sans-serif;
-    letter-spacing:.06em;text-transform:uppercase;transition:all .15s}
+    border-radius:7px;padding:7px 12px;cursor:pointer;font:700 10.5px 'Montserrat',sans-serif;
+    letter-spacing:.06em;text-transform:uppercase;transition:all .15s;
+    min-height:34px;display:inline-flex;align-items:center}
   .cab .eu button:hover{border-color:var(--vermelho);background:var(--vermelho);color:#fff}
   nav{max-width:680px;margin:0 auto;padding:10px 18px;display:flex;gap:4px;overflow-x:auto;
-    scrollbar-width:none;min-height:56px;align-items:center}
+    scrollbar-width:none;min-height:56px;align-items:center;
+    -webkit-overflow-scrolling:touch;scroll-padding-inline:18px}
   nav::-webkit-scrollbar{display:none}
   nav button{background:transparent;border:1px solid transparent;border-radius:var(--raio);cursor:pointer;
     padding:9px 15px;font:700 12.5px 'Montserrat',sans-serif;color:rgba(255,255,255,.66);
@@ -124,7 +133,8 @@
   .guia{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--amarelo);
     border-radius:var(--raio-card);padding:13px 16px;margin:18px 0}
   .guia summary{cursor:pointer;font-size:12px;font-weight:800;letter-spacing:.06em;
-    text-transform:uppercase;color:var(--text);list-style:none}
+    text-transform:uppercase;color:var(--text);list-style:none;
+    padding:6px 0;min-height:32px;display:flex;align-items:center}
   .guia summary::-webkit-details-marker{display:none}
   .guia summary::after{content:' ▾';color:var(--muted2)}
   .guia[open] summary::after{content:' ▴'}
@@ -223,10 +233,73 @@
   .voltar{display:block;margin:16px auto 0;background:none;border:none;color:var(--muted);
     font:500 13px 'Montserrat',sans-serif;text-decoration:underline;cursor:pointer}
 
+  /* ─────────────────────────── CELULAR ────────────────────────────────────
+     O estúdio usa isto no celular; o desktop é a exceção. Daqui para baixo
+     vale o que muda em tela estreita.                                       */
   @media (max-width:560px){
     .dupla{grid-template-columns:1fr}
     .gerador .grid{grid-template-columns:1fr 1fr}
+
+    /* 16px é o limite: abaixo disso o Safari do iPhone dá zoom ao focar o
+       campo e a página inteira salta de lugar. */
+    input,select,textarea{font-size:16px;padding:12px 13px;min-height:46px}
+    textarea{min-height:auto}
+    input[type=checkbox]{min-height:auto}
+    .linha-h input[type=time],.linha-h input[type=number],
+    .ficha .campos input,.dia-bloco .acoes select{font-size:16px;min-height:46px}
+    .cab .eu button{min-height:44px;padding:11px 14px;font-size:11px}
+    .guia summary{min-height:44px}
+    .codigo{font-size:24px;letter-spacing:.18em}
+
+    /* Alvos de toque: 44px é o mínimo confortável para o polegar. */
+    button.leve{padding:11px 14px;font-size:12px;min-height:44px}
+    nav button{padding:11px 15px;min-height:44px}
+    .chip{padding:11px 14px;min-height:44px;display:flex;align-items:center}
+    .subabas button{padding:13px 14px;min-height:46px}
+    button.acao{padding:15px;min-height:50px}
+
+    /* Cabeçalho: em tela estreita o nome do aluno é o primeiro a sair. */
+    .cab{padding:10px 14px 0;gap:9px}
+    .cab .logo-topo{height:26px}
+    .cab h1{font-size:15px}
+    nav{padding:8px 14px;min-height:52px}
+
+    /* Horários: a hora encolhe para sobrar espaço ao botão Reservar. */
+    .slot{padding:12px 13px;gap:10px}
+    .slot .hora{font-size:17px;min-width:54px}
+    .slot .conta{font-size:11px}
+    .marcas i{width:10px;height:10px}
+
+    /* Grade de horários: cada linha vira uma faixa própria em vez de
+       espremer três controles lado a lado. */
+    .linha-h{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .linha-h input[type=time],.linha-h input[type=number]{width:100%}
+    .linha-h button{grid-column:1 / -1}
+    .dia-bloco{padding:13px 14px}
+    .dia-bloco .acoes{width:100%}
+    .dia-bloco .acoes button,.dia-bloco .acoes select{flex:1;min-width:0}
+
+    .ficha .rodape button{flex:1}
+    .gerador{padding:14px}
+    .modal{border-radius:14px}
+    .modal .corpo{font-size:15px}
+    .entrada{padding:38px 18px}
+    h2{font-size:18px}
   }
+
+  /* Telas bem estreitas (iPhone SE e similares). */
+  @media (max-width:380px){
+    .cab #quem-sou{display:none}
+    .gerador .grid{grid-template-columns:1fr}
+    .dupla{gap:10px}
+  }
+
+  /* Celular deitado: o cabeçalho fixo come metade da tela útil. */
+  @media (max-height:480px) and (orientation:landscape){
+    header{position:static}
+    .entrada{padding:20px 18px}
+  }
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -241,7 +314,8 @@
   <div id="passo-telefone">
     <div class="campo">
       <label for="in-telefone">Telefone com DDD</label>
-      <input id="in-telefone" type="tel" inputmode="numeric" placeholder="(31) 98888-7777" autocomplete="tel">
+      <input id="in-telefone" type="tel" inputmode="numeric" enterkeyhint="go"
+             placeholder="(31) 98888-7777" autocomplete="tel">
     </div>
     <button class="acao" id="btn-codigo">Receber código</button>
   </div>
@@ -249,11 +323,12 @@
   <div id="passo-codigo" hidden>
     <div class="campo" id="campo-codigo">
       <label for="in-codigo">Código recebido</label>
-      <input id="in-codigo" class="codigo" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+      <input id="in-codigo" class="codigo" inputmode="numeric" maxlength="6" enterkeyhint="go"
+             placeholder="000000" autocomplete="one-time-code">
     </div>
     <div class="campo" id="campo-senha" hidden>
       <label for="in-senha">Senha de administrador</label>
-      <input id="in-senha" type="password" autocomplete="current-password" placeholder="••••••••">
+      <input id="in-senha" type="password" autocomplete="current-password" enterkeyhint="go" placeholder="••••••••">
     </div>
     <div class="campo" id="campo-nome" hidden>
       <label for="in-nome">Como você quer ser chamado</label>
@@ -261,7 +336,7 @@
     </div>
     <div class="campo" id="campo-aniversario" hidden>
       <label for="in-aniversario">Seu aniversário</label>
-      <input id="in-aniversario" type="text" inputmode="numeric" maxlength="5"
+      <input id="in-aniversario" type="text" inputmode="numeric" maxlength="5" enterkeyhint="done"
              placeholder="dia/mês — ex: 07/03" autocomplete="off">
       <p class="ajuda" style="margin:6px 0 0">Só o dia e o mês. Não pedimos o ano.</p>
     </div>
@@ -659,7 +734,7 @@ async function carregarMeus(){
           <div class="campo"><label for="p-nome">Como quero ser chamado</label>
             <input id="p-nome" maxlength="60" value="${esc(eu.nome||'')}"></div>
           <div class="campo"><label for="p-aniv">Meu aniversário</label>
-            <input id="p-aniv" maxlength="5" placeholder="dd/mm" value="${esc(eu.aniversario||'')}"></div>
+            <input id="p-aniv" inputmode="numeric" maxlength="5" placeholder="dd/mm" value="${esc(eu.aniversario||'')}"></div>
         </div>
         <div class="campo" style="margin:0">
           <label>Telefone</label>
@@ -728,9 +803,9 @@ async function carregarAlunos(){
           </div>
           <div class="campos">
             <input class="f-nome" value="${esc(a.nome||'')}" maxlength="60" placeholder="Nome">
-            <input class="f-tel" value="${esc(a.telefoneFormatado||'')}" placeholder="(31) 98888-7777"
+            <input class="f-tel" type="tel" inputmode="numeric" value="${esc(a.telefoneFormatado||'')}" placeholder="(31) 98888-7777"
               ${a.admin?'disabled title="Ajuste a lista de administradores antes de trocar."':''}>
-            <input class="f-aniv" value="${esc(a.aniversarioFormatado||'')}" maxlength="5" placeholder="dd/mm">
+            <input class="f-aniv" inputmode="numeric" value="${esc(a.aniversarioFormatado||'')}" maxlength="5" placeholder="dd/mm">
           </div>
           <div class="rodape">
             <button class="leve f-salvar">Salvar</button>
