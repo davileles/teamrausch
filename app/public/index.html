@@ -5,104 +5,142 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agendamento</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+  /* Paleta CDV — tema claro (mesmos tokens do painel-cdv) */
   :root{
-    --concreto:#E8E9E4;--papel:#FFF;--tinta:#101317;--neutro:#6E7580;--linha:#D2D4CD;
-    --meu:#1B6B4A;--cheio:#A8321F;--raio:4px;
+    --bg:#f0f2f7;--surface:#ffffff;--card:#f7f8fc;--card-deep:#eef0f7;
+    --border:#dde2ef;--border-ctrl:#c8d0e4;
+    --text:#1a2035;--muted:#5a6a8a;--muted2:#9aaabf;
+    --green:#16a34a;--red:#dc2626;--accent:#ff585e;--accent2:#e04449;--blue:#126eff;
+    --cdv-navy:#2a3246;--cdv-coral:#ff585e;--amber:#d97706;
+    --meu:#16a34a;--cheio:#dc2626;--raio:10px;--raio-card:14px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--concreto);color:var(--tinta);
-    font:400 16px/1.5 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-  .env{max-width:640px;margin:0 auto;padding:0 18px 90px}
+  body{background:var(--bg);color:var(--text);
+    font:400 15px/1.55 'Montserrat',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .env{max-width:680px;margin:0 auto;padding:0 18px 90px}
   [hidden]{display:none!important}
 
-  header{border-bottom:1px solid var(--linha);position:sticky;top:0;background:var(--concreto);z-index:10}
-  .cab{max-width:640px;margin:0 auto;padding:16px 18px 0;display:flex;
+  header{background:var(--surface);border-bottom:2px solid var(--accent);position:sticky;top:0;z-index:100;
+    box-shadow:0 2px 8px rgba(26,32,53,.07)}
+  .cab{max-width:680px;margin:0 auto;padding:14px 18px 0;display:flex;
     justify-content:space-between;align-items:baseline;gap:12px}
-  .cab h1{font:700 18px/1 "Space Grotesk",sans-serif;letter-spacing:-.02em}
-  .cab small{font:400 12px "IBM Plex Mono",monospace;color:var(--neutro)}
-  nav{max-width:640px;margin:0 auto;padding:12px 18px 0;display:flex;gap:4px;overflow-x:auto}
-  nav button{background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;
-    padding:8px 10px;font:600 11px "IBM Plex Mono",monospace;letter-spacing:.09em;
-    text-transform:uppercase;color:var(--neutro);white-space:nowrap}
-  nav button[aria-selected=true]{color:var(--tinta);border-bottom-color:var(--tinta)}
+  .cab h1{font-size:17px;font-weight:800;letter-spacing:-.01em;color:var(--text)}
+  .cab small{font-size:12px;font-weight:500;color:var(--muted)}
+  nav{max-width:680px;margin:0 auto;padding:10px 18px;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+  nav::-webkit-scrollbar{display:none}
+  nav button{background:transparent;border:1px solid transparent;border-radius:var(--raio);cursor:pointer;
+    padding:9px 15px;font:700 12.5px 'Montserrat',sans-serif;color:var(--muted);white-space:nowrap;flex-shrink:0;
+    transition:color .15s,background .15s}
+  nav button:hover[aria-selected=false]{color:var(--text);background:rgba(255,88,94,.06)}
+  nav button[aria-selected=true]{background:var(--accent);color:#fff}
 
-  h2{font:500 20px "Space Grotesk",sans-serif;letter-spacing:-.01em;margin:26px 0 4px}
-  h3{font:600 11px "IBM Plex Mono",monospace;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--neutro);margin:24px 0 10px}
-  p.ajuda{font-size:13px;color:var(--neutro);margin-bottom:12px}
+  h2{font-size:19px;font-weight:800;letter-spacing:-.01em;margin:24px 0 4px}
+  h3{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--muted);margin:26px 0 10px}
+  p.ajuda{font-size:12.5px;color:var(--muted);margin-bottom:12px}
 
-  label{display:block;font:600 11px "IBM Plex Mono",monospace;letter-spacing:.08em;
-    text-transform:uppercase;color:var(--neutro);margin-bottom:5px}
-  input,select,textarea{width:100%;padding:12px 13px;border:1px solid var(--linha);
-    border-radius:var(--raio);background:var(--papel);font:400 15px "IBM Plex Sans",sans-serif;color:var(--tinta)}
-  input[inputmode=numeric],input[type=time]{font-family:"IBM Plex Mono",monospace}
-  input:focus,select:focus,textarea:focus{outline:2px solid var(--tinta);outline-offset:-1px}
+  label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  input,select,textarea{width:100%;padding:11px 13px;border:1px solid var(--border-ctrl);
+    border-radius:var(--raio);background:var(--card);
+    font:400 14px 'Montserrat',sans-serif;color:var(--text);outline:none;transition:border-color .2s}
+  input:focus,select:focus,textarea:focus{border-color:var(--cdv-coral)}
+  input::placeholder,textarea::placeholder{color:var(--muted2)}
+  select{cursor:pointer}
   .campo{margin-bottom:14px}
   .dupla{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
-  button.acao{width:100%;padding:14px;border:none;border-radius:var(--raio);background:var(--tinta);
-    color:#fff;font:600 15px "IBM Plex Sans",sans-serif;cursor:pointer}
-  button.acao:hover{opacity:.88}
-  button.acao[disabled]{opacity:.4;cursor:not-allowed}
-  button.leve{background:none;border:1px solid var(--linha);color:var(--neutro);
-    padding:9px 13px;border-radius:var(--raio);cursor:pointer;
-    font:600 11px "IBM Plex Mono",monospace;letter-spacing:.07em;text-transform:uppercase}
-  button.leve:hover{border-color:var(--tinta);color:var(--tinta)}
-  button:focus-visible{outline:2px solid var(--tinta);outline-offset:2px}
+  button.acao{width:100%;padding:13px;border:none;border-radius:var(--raio);background:var(--accent);
+    color:#fff;font:700 14.5px 'Montserrat',sans-serif;cursor:pointer;transition:background .15s}
+  button.acao:hover{background:var(--accent2)}
+  button.acao[disabled]{opacity:.45;cursor:not-allowed}
+  button.leve{background:transparent;border:1px solid var(--border-ctrl);color:var(--muted);
+    padding:8px 13px;border-radius:8px;cursor:pointer;
+    font:700 11.5px 'Montserrat',sans-serif;transition:border-color .15s,color .15s,background .15s}
+  button.leve:hover{border-color:var(--cdv-coral);color:var(--cdv-coral);background:rgba(255,88,94,.06)}
+  button:focus-visible{outline:2px solid var(--cdv-coral);outline-offset:2px}
 
   /* Horário: as vagas viram marcas — dá pra ver a lotação sem ler número */
-  .slot{background:var(--papel);border:1px solid var(--linha);border-radius:var(--raio);
-    padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px}
-  .slot .hora{font:600 21px "IBM Plex Mono",monospace;letter-spacing:-.02em;min-width:66px}
+  .slot{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
+    padding:13px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px;
+    transition:border-color .15s}
+  .slot:hover{border-color:var(--border-ctrl)}
+  .slot .hora{font-size:19px;font-weight:800;letter-spacing:-.02em;min-width:62px;color:var(--text)}
   .slot .vagas{flex:1;min-width:0}
   .marcas{display:flex;gap:3px;margin-bottom:5px;flex-wrap:wrap}
-  .marcas i{width:11px;height:11px;border:1px solid var(--linha);border-radius:1px;background:var(--papel)}
-  .marcas i.ocupada{background:var(--tinta);border-color:var(--tinta)}
-  .slot .conta{font:400 12px "IBM Plex Mono",monospace;color:var(--neutro)}
-  .slot.meu{border-color:var(--meu);border-left-width:3px}
+  .marcas i{width:11px;height:11px;border:1px solid var(--border-ctrl);border-radius:2px;background:var(--card)}
+  .marcas i.ocupada{background:var(--accent);border-color:var(--accent)}
+  .slot .conta{font-size:11.5px;font-weight:500;color:var(--muted)}
+  .slot.meu{border-color:var(--meu);border-left:3px solid var(--meu)}
   .slot.meu .marcas i.ocupada{background:var(--meu);border-color:var(--meu)}
-  .slot.indisponivel{opacity:.5}
-  .slot .selo{font:600 10px "IBM Plex Mono",monospace;letter-spacing:.09em;text-transform:uppercase;
-    color:var(--neutro);white-space:nowrap}
+  .slot.indisponivel{opacity:.55}
+  .slot .selo{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--muted);white-space:nowrap}
   .slot .selo.meu{color:var(--meu)}
   .slot .selo.cheio{color:var(--cheio)}
 
   .dia{margin-bottom:26px}
   .dia .titulo{display:flex;align-items:baseline;gap:9px;margin-bottom:10px}
-  .dia .titulo b{font:500 19px "Space Grotesk",sans-serif}
-  .dia .titulo span{font:400 12px "IBM Plex Mono",monospace;color:var(--neutro)}
+  .dia .titulo b{font-size:17px;font-weight:800;letter-spacing:-.01em}
+  .dia .titulo span{font-size:12px;font-weight:500;color:var(--muted)}
 
-  .recado{background:var(--tinta);color:#fff;padding:13px 16px;border-radius:var(--raio);
-    font-size:14px;margin:20px 0}
-  .vazio{padding:34px 0;color:var(--neutro);font-size:14px;text-align:center}
+  .recado{background:var(--cdv-navy);color:#fff;padding:13px 16px;border-radius:var(--raio-card);
+    font-size:13.5px;font-weight:500;margin:20px 0}
+  .vazio{padding:32px 0;color:var(--muted);font-size:13.5px;text-align:center}
 
-  .fila{background:var(--papel);border:1px solid var(--linha);border-radius:var(--raio);
+  .fila{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
     padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
   .fila .quem{flex:1;min-width:0}
-  .fila .quem b{font:500 16px "Space Grotesk",sans-serif;display:block}
-  .fila .quem small{font:400 12px "IBM Plex Mono",monospace;color:var(--neutro)}
+  .fila .quem b{font-size:15px;font-weight:700;display:block}
+  .fila .quem small{font-size:12px;font-weight:500;color:var(--muted)}
 
+  /* ---- grade de horários (configurações) ---- */
+  .gerador{background:var(--card-deep);border:1px solid var(--border);border-radius:var(--raio-card);
+    padding:16px;margin-bottom:22px}
+  .gerador h4{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:12px}
+  .gerador .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+  .dias-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .chip{background:var(--surface);border:1px solid var(--border-ctrl);border-radius:8px;
+    padding:7px 12px;cursor:pointer;font:700 11.5px 'Montserrat',sans-serif;color:var(--muted);
+    user-select:none;transition:all .15s}
+  .chip:hover{border-color:var(--cdv-coral)}
+  .chip.sel{border-color:var(--cdv-coral);color:var(--cdv-coral);background:rgba(255,88,94,.08)}
+  .gerador .botoes{display:flex;gap:8px;flex-wrap:wrap}
+
+  .dia-bloco{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
+    padding:14px 16px;margin-bottom:12px}
+  .dia-bloco .topo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .dia-bloco .topo label{margin:0;font-size:13px;font-weight:800;text-transform:none;letter-spacing:0;color:var(--text)}
+  .dia-bloco .topo .contagem{font-size:11.5px;font-weight:600;color:var(--muted2)}
+  .dia-bloco .acoes{display:flex;gap:6px;flex-wrap:wrap}
+  .dia-bloco .acoes button{padding:6px 10px;font-size:11px}
+  .dia-bloco .acoes select{width:auto;padding:6px 10px;font-size:11.5px;font-weight:600;border-radius:8px}
   .linha-h{display:flex;gap:8px;align-items:center;margin-bottom:6px}
-  .linha-h input[type=time]{width:110px} .linha-h input[type=number]{width:88px}
-  .linha-h button{padding:9px 12px}
+  .linha-h input[type=time]{width:108px;padding:8px 10px;font-weight:600}
+  .linha-h input[type=number]{width:92px;padding:8px 10px}
+  .linha-h button{padding:8px 11px;font-size:11px}
 
-  .aviso{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:30;
-    background:var(--tinta);color:#fff;padding:13px 20px;border-radius:var(--raio);
-    font:500 14px "IBM Plex Sans",sans-serif;max-width:calc(100% - 36px);
-    box-shadow:0 6px 24px rgba(16,19,23,.22)}
-  .aviso.ok{background:var(--meu)} .aviso.erro{background:var(--cheio)}
+  .aviso{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:300;
+    background:var(--cdv-navy);color:#fff;padding:13px 20px;border-radius:var(--raio);
+    font:600 13.5px 'Montserrat',sans-serif;max-width:calc(100% - 36px);
+    box-shadow:0 6px 24px rgba(26,32,53,.22)}
+  .aviso.ok{background:var(--green)} .aviso.erro{background:var(--red)}
 
   /* login */
-  .entrada{max-width:380px;margin:0 auto;padding:52px 18px}
-  .entrada .marca{font:700 26px/1.1 "Space Grotesk",sans-serif;letter-spacing:-.03em;margin-bottom:6px}
-  .entrada .sub{color:var(--neutro);font-size:14px;margin-bottom:30px}
-  .codigo{font:600 30px "IBM Plex Mono",monospace;letter-spacing:.28em;text-align:center;padding:16px}
-  .voltar{display:block;margin:16px auto 0;background:none;border:none;color:var(--neutro);
-    font:400 13px "IBM Plex Sans",sans-serif;text-decoration:underline;cursor:pointer}
+  .entrada{max-width:400px;margin:0 auto;padding:56px 18px}
+  .entrada .marca{font-size:25px;font-weight:800;letter-spacing:-.02em;margin-bottom:6px}
+  .entrada .sub{color:var(--muted);font-size:13.5px;margin-bottom:28px}
+  .codigo{font-size:26px;font-weight:700;letter-spacing:.22em;text-align:center;padding:15px}
+  .voltar{display:block;margin:16px auto 0;background:none;border:none;color:var(--muted);
+    font:500 13px 'Montserrat',sans-serif;text-decoration:underline;cursor:pointer}
 
-  @media (max-width:520px){.dupla{grid-template-columns:1fr}}
+  @media (max-width:560px){
+    .dupla{grid-template-columns:1fr}
+    .gerador .grid{grid-template-columns:1fr 1fr}
+  }
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -402,6 +440,108 @@ function linhaHorario(dia, hora='', capacidade=''){
     <button class="leve h-remover" aria-label="Remover horário">Remover</button></div>`;
 }
 
+/* --------- grade de horários: gerador, cópia entre dias e contagem -------- */
+
+function listaDo(dia){ return document.querySelector(`.lista-h[data-dia="${dia}"]`); }
+
+/** Lê os horários já montados na tela de um dia. */
+function horariosDo(dia){
+  return [...listaDo(dia).querySelectorAll('.linha-h')].map(l=>({
+    hora: l.querySelector('.h-hora').value,
+    capacidade: l.querySelector('.h-cap').value,
+  })).filter(s=>s.hora);
+}
+
+/** Redesenha um dia inteiro e atualiza o contador. */
+function pintarDia(dia, horarios){
+  listaDo(dia).innerHTML = horarios
+    .slice().sort((a,b)=>a.hora.localeCompare(b.hora))
+    .map(s=>linhaHorario(dia, s.hora, s.capacidade||'')).join('');
+  contarDia(dia);
+}
+
+function contarDia(dia){
+  const n = listaDo(dia).querySelectorAll('.linha-h').length;
+  const alvo = document.querySelector(`[data-cont="${dia}"]`);
+  if (alvo) alvo.textContent = n ? `— ${n} ${n===1?'horário':'horários'}` : '— fechado';
+}
+
+function contarTodos(){ DIAS.forEach(([k])=>contarDia(k)); }
+
+const emMin = h => { const [a,b] = h.split(':').map(Number); return a*60+(b||0); };
+const emHora = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+
+function ligarGrade(alvo){
+  // A aba é redesenhada a cada visita; o container não. Sem esta trava os
+  // listeners delegados se acumulariam e cada clique dispararia várias vezes.
+  if (!alvo.dataset.gradeLigada){
+    alvo.dataset.gradeLigada = '1';
+    alvo.addEventListener('click', e=>{
+      const add = e.target.closest('.h-add');
+      if (add){
+        listaDo(add.dataset.dia).insertAdjacentHTML('beforeend', linhaHorario(add.dataset.dia));
+        contarDia(add.dataset.dia);
+        return;
+      }
+      const rem = e.target.closest('.h-remover');
+      if (rem){
+        const dia = rem.closest('.linha-h').dataset.dia;
+        rem.closest('.linha-h').remove();
+        contarDia(dia);
+        return;
+      }
+      const lim = e.target.closest('.h-limpar');
+      if (lim){ pintarDia(lim.dataset.dia, []); return; }
+      const chip = e.target.closest('#g-dias .chip');
+      if (chip) chip.classList.toggle('sel');
+    });
+  }
+
+  // copiar a grade de outro dia
+  alvo.querySelectorAll('.h-copiar-de').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      const origem = sel.value; if (!origem) return;
+      const destino = sel.dataset.dia;
+      pintarDia(destino, horariosDo(origem));
+      sel.value = '';
+      const nome = (DIAS.find(([k])=>k===origem)||[])[1] || origem;
+      avisar(`Grade copiada de ${nome}.`, 'ok');
+    });
+  });
+
+  // atalhos de seleção de dias
+  document.getElementById('g-uteis').addEventListener('click', ()=>{
+    document.querySelectorAll('#g-dias .chip').forEach(ch=>
+      ch.classList.toggle('sel', ['seg','ter','qua','qui','sex'].includes(ch.dataset.dia)));
+  });
+  document.getElementById('g-nenhum').addEventListener('click', ()=>{
+    document.querySelectorAll('#g-dias .chip').forEach(ch=>ch.classList.remove('sel'));
+  });
+
+  // gerar a grade
+  document.getElementById('g-aplicar').addEventListener('click', ()=>{
+    const inicio = document.getElementById('g-inicio').value;
+    const fim    = document.getElementById('g-fim').value;
+    const passo  = Number(document.getElementById('g-int').value);
+    const cap    = document.getElementById('g-cap').value;
+    const dias   = [...document.querySelectorAll('#g-dias .chip.sel')].map(ch=>ch.dataset.dia);
+
+    if (!inicio || !fim) return avisar('Preencha o primeiro e o último horário.', 'erro');
+    if (!(passo >= 5))   return avisar('O intervalo precisa ser de pelo menos 5 minutos.', 'erro');
+    if (emMin(fim) < emMin(inicio)) return avisar('O último horário vem antes do primeiro.', 'erro');
+    if (!dias.length)    return avisar('Marque pelo menos um dia.', 'erro');
+
+    const horarios = [];
+    for (let m = emMin(inicio); m <= emMin(fim); m += passo) horarios.push({ hora: emHora(m), capacidade: cap });
+    if (horarios.length > 60) return avisar('Isso geraria mais de 60 horários por dia. Revise o intervalo.', 'erro');
+
+    dias.forEach(d=>pintarDia(d, horarios));
+    avisar(`${horarios.length} horários em ${dias.length} ${dias.length===1?'dia':'dias'}. Não esqueça de salvar.`, 'ok');
+  });
+
+  contarTodos();
+}
+
 async function carregarConfig(){
   const alvo = document.getElementById('aba-config');
   try{
@@ -441,12 +581,44 @@ async function carregarConfig(){
         <p class="ajuda">Separe por vírgula, no formato AAAA-MM-DD.</p></div>
 
       <h3>Horários da semana</h3>
-      <p class="ajuda">Deixe a capacidade em branco para usar a padrão.</p>
+      <p class="ajuda">Use o gerador para criar a grade de uma vez. Depois ajuste dia a dia se precisar.
+        Deixe a capacidade em branco para usar a padrão.</p>
+
+      <div class="gerador">
+        <h4>Gerar grade automaticamente</h4>
+        <div class="grid">
+          <div><label for="g-inicio">Primeiro horário</label><input id="g-inicio" type="time" value="06:00"></div>
+          <div><label for="g-fim">Último horário</label><input id="g-fim" type="time" value="20:00"></div>
+          <div><label for="g-int">A cada (min)</label><input id="g-int" type="number" min="5" max="240" step="5" value="60"></div>
+          <div><label for="g-cap">Capacidade</label><input id="g-cap" type="number" min="1" max="200" placeholder="padrão"></div>
+        </div>
+        <label>Aplicar nos dias</label>
+        <div class="dias-chips" id="g-dias">${DIAS.map(([k,nome])=>
+          `<div class="chip${['seg','ter','qua','qui'].includes(k)?' sel':''}" data-dia="${k}">${nome}</div>`).join('')}
+        </div>
+        <div class="botoes">
+          <button class="leve" id="g-aplicar">Gerar nos dias marcados</button>
+          <button class="leve" id="g-uteis">Marcar seg a sex</button>
+          <button class="leve" id="g-nenhum">Desmarcar todos</button>
+        </div>
+      </div>
+
       <div id="grade">${DIAS.map(([k,nome])=>`
-        <div style="margin-bottom:18px"><label>${nome}</label>
+        <div class="dia-bloco" data-bloco="${k}">
+          <div class="topo">
+            <label>${nome} <span class="contagem" data-cont="${k}"></span></label>
+            <div class="acoes">
+              <select class="h-copiar-de" data-dia="${k}">
+                <option value="">Copiar de…</option>
+                ${DIAS.filter(([o])=>o!==k).map(([o,on])=>`<option value="${o}">${on}</option>`).join('')}
+              </select>
+              <button class="leve h-add" data-dia="${k}">+ Horário</button>
+              <button class="leve h-limpar" data-dia="${k}">Limpar</button>
+            </div>
+          </div>
           <div class="lista-h" data-dia="${k}">${(c.agenda.horarios[k]||[]).map(s=>
             linhaHorario(k, s.hora, s.capacidade||'')).join('')}</div>
-          <button class="leve h-add" data-dia="${k}">Adicionar horário</button></div>`).join('')}
+        </div>`).join('')}
       </div>
 
       <h3>Entrada dos alunos</h3>
@@ -495,13 +667,7 @@ async function carregarConfig(){
 
       <button class="acao" id="btn-salvar" style="margin-top:22px">Salvar configurações</button>`;
 
-    alvo.querySelectorAll('.h-add').forEach(b=>b.addEventListener('click', ()=>{
-      alvo.querySelector(`.lista-h[data-dia="${b.dataset.dia}"]`)
-        .insertAdjacentHTML('beforeend', linhaHorario(b.dataset.dia));
-    }));
-    alvo.addEventListener('click', e=>{
-      const r = e.target.closest('.h-remover'); if (r) r.closest('.linha-h').remove();
-    });
+    ligarGrade(alvo);
     document.getElementById('btn-salvar').addEventListener('click', salvarConfig);
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
