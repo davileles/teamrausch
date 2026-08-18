@@ -31,8 +31,8 @@ const PADRAO = {
       ter: [{ hora: '06:00' }, { hora: '07:00' }, { hora: '18:00' }, { hora: '19:00' }],
       qua: [{ hora: '06:00' }, { hora: '07:00' }, { hora: '18:00' }, { hora: '19:00' }],
       qui: [{ hora: '06:00' }, { hora: '07:00' }, { hora: '18:00' }, { hora: '19:00' }],
-      sex: [{ hora: '06:00' }, { hora: '07:00' }, { hora: '18:00' }, { hora: '19:00' }],
-      sab: [{ hora: '09:00' }],
+      sex: [{ hora: '06:00' }, { hora: '07:00' }, { hora: '18:00' }],
+      sab: [],
     },
     datasBloqueadas: [],        // ['2026-12-25']
   },
