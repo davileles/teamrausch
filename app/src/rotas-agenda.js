@@ -35,6 +35,37 @@ function ehAdmin(telefone) {
   return (config.ler().administradores || []).includes(telefone);
 }
 
+/* --------------------------- aniversário --------------------------------- */
+// Guardamos só dia e mês, no formato 'MM-DD'. Sem ano: não precisamos da
+// idade de ninguém, e menos dado guardado é menos dado a proteger.
+
+const DIAS_NO_MES = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/** Aceita '07/03', '7/3', '03-07' (dia-mês) ou já no formato 'MM-DD'. */
+function normalizarAniversario(entrada) {
+  const texto = String(entrada || '').trim();
+  if (!texto) return null;
+
+  const partes = texto.split(/[\/\-.]/).map((p) => p.trim());
+  if (partes.length !== 2 || partes.some((p) => !/^\d{1,2}$/.test(p))) return null;
+
+  // 'MM-DD' vem do próprio banco; o resto vem do usuário como dia/mês.
+  const ehCanonico = /^\d{2}-\d{2}$/.test(texto);
+  const dia = Number(ehCanonico ? partes[1] : partes[0]);
+  const mes = Number(ehCanonico ? partes[0] : partes[1]);
+
+  if (mes < 1 || mes > 12) return null;
+  if (dia < 1 || dia > DIAS_NO_MES[mes - 1]) return null;
+  return `${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+}
+
+/** 'MM-DD' → '07/03', para mostrar na tela. */
+function mostrarAniversario(mmdd) {
+  if (!mmdd) return null;
+  const [m, d] = mmdd.split('-');
+  return `${d}/${m}`;
+}
+
 /* ----------------------------- sessão ------------------------------------ */
 
 function identificar(req, _res, next) {
@@ -93,6 +124,7 @@ rotas.post('/auth/codigo', async (req, res) => {
     canal: envio.canal,
     telefone: mostrarTelefone(telefone),
     precisaDeNome: !cadastrado || !cadastrado.nome,
+    precisaDeAniversario: !cadastrado || !cadastrado.aniversario,
   });
 });
 
@@ -107,10 +139,26 @@ rotas.post('/auth/entrar', (req, res) => {
 
   const nome = String(req.body.nome || '').trim();
   const existente = store.aluno(telefone);
-  if (!existente && !nome) return res.status(400).json({ erro: 'Informe seu nome.' });
+
+  // Primeiro acesso deste telefone: nome e aniversário são obrigatórios.
+  if (!existente || !existente.nome) {
+    if (!nome) return res.status(400).json({ erro: 'Informe como você quer ser chamado.' });
+  }
+
+  let aniversario = (existente && existente.aniversario) || null;
+  if (req.body.aniversario !== undefined && String(req.body.aniversario).trim()) {
+    aniversario = normalizarAniversario(req.body.aniversario);
+    if (!aniversario) {
+      return res.status(400).json({ erro: 'Aniversário inválido. Use dia e mês, como 07/03.' });
+    }
+  }
+  if (!aniversario) {
+    return res.status(400).json({ erro: 'Informe seu aniversário (dia e mês).' });
+  }
 
   const aluno = store.salvarAluno(telefone, {
     nome: nome || (existente && existente.nome) || null,
+    aniversario,
     ultimoAcesso: new Date().toISOString(),
   });
 
@@ -118,7 +166,12 @@ rotas.post('/auth/entrar', (req, res) => {
   res.json({
     token,
     diasDeSessao: Number(c.acesso.diasDeSessao || 7),
-    aluno: { nome: aluno.nome, telefone: mostrarTelefone(telefone), admin: ehAdmin(telefone) },
+    aluno: {
+      nome: aluno.nome,
+      telefone: mostrarTelefone(telefone),
+      aniversario: mostrarAniversario(aluno.aniversario),
+      admin: ehAdmin(telefone),
+    },
   });
 });
 
@@ -133,6 +186,7 @@ rotas.get('/auth/eu', (req, res) => {
     aluno: {
       nome: req.aluno.nome,
       telefone: mostrarTelefone(req.aluno.telefone),
+      aniversario: mostrarAniversario(req.aluno.aniversario),
       admin: req.admin,
     },
     config: config.publica(),
@@ -206,7 +260,10 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
 
 rotas.get('/admin/alunos', exigirLogin, exigirAdmin, (_req, res) => {
   res.json(store.listarAlunos().map((a) => ({
-    ...a, telefoneFormatado: mostrarTelefone(a.telefone), admin: ehAdmin(a.telefone),
+    ...a,
+    telefoneFormatado: mostrarTelefone(a.telefone),
+    aniversarioFormatado: mostrarAniversario(a.aniversario),
+    admin: ehAdmin(a.telefone),
   })));
 });
 
@@ -216,7 +273,21 @@ rotas.put('/admin/alunos/:telefone', exigirLogin, exigirAdmin, (req, res) => {
   const campos = {};
   if (req.body.nome !== undefined) campos.nome = String(req.body.nome).trim() || null;
   if (req.body.bloqueado !== undefined) campos.bloqueado = Boolean(req.body.bloqueado);
+  if (req.body.aniversario !== undefined) {
+    const texto = String(req.body.aniversario).trim();
+    if (!texto) {
+      campos.aniversario = null;
+    } else {
+      const limpo = normalizarAniversario(texto);
+      if (!limpo) return res.status(400).json({ erro: 'Aniversário inválido. Use dia e mês, como 07/03.' });
+      campos.aniversario = limpo;
+    }
+  }
   res.json(store.salvarAluno(telefone, campos));
+});
+
+rotas.get('/admin/backup', exigirLogin, exigirAdmin, (_req, res) => {
+  res.json(store.backup.situacao());
 });
 
 rotas.delete('/admin/alunos/:telefone', exigirLogin, exigirAdmin, (req, res) => {
@@ -227,4 +298,7 @@ rotas.delete('/admin/alunos/:telefone', exigirLogin, exigirAdmin, (req, res) => 
   res.json({ ok: true });
 });
 
-module.exports = { rotas, normalizarTelefone, mostrarTelefone, ehAdmin };
+module.exports = {
+  rotas, normalizarTelefone, mostrarTelefone, ehAdmin,
+  normalizarAniversario, mostrarAniversario,
+};
