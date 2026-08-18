@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agendamento</title>
+<title>Team Rausch Studio — Agendamento</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="apple-touch-icon" href="/favicon.png">
+<meta name="theme-color" content="#16171a">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -37,12 +40,15 @@
   /* Cabeçalho preto com faixa vermelha — a leitura do logo */
   header{background:var(--preto);border-bottom:3px solid var(--vermelho);position:sticky;top:0;z-index:100;
     box-shadow:0 2px 10px rgba(22,23,26,.18)}
-  .cab{max-width:680px;margin:0 auto;padding:14px 18px 0;display:flex;
-    justify-content:space-between;align-items:baseline;gap:12px;min-height:26px}
+  .cab{max-width:680px;margin:0 auto;padding:12px 18px 0;display:flex;
+    justify-content:space-between;align-items:center;gap:12px;min-height:34px}
   .cab h1{font-size:17px;font-weight:800;letter-spacing:.01em;color:#fff;text-transform:uppercase;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .cab small{font-size:12px;font-weight:500;color:rgba(255,255,255,.62);
     white-space:nowrap;flex-shrink:0}
+  /* Altura fixa: a imagem carrega depois do HTML e, sem reservar o espaço,
+     o cabeçalho pularia ao aparecer. */
+  .cab .logo-topo{height:30px;width:auto;flex-shrink:0;display:block;align-self:center}
   .cab .eu{display:flex;align-items:baseline;gap:10px;flex-shrink:0}
   .cab .eu button{background:transparent;border:1px solid rgba(255,255,255,.28);color:rgba(255,255,255,.78);
     border-radius:7px;padding:4px 10px;cursor:pointer;font:700 10.5px 'Montserrat',sans-serif;
@@ -182,6 +188,8 @@
 
   /* login */
   .entrada{max-width:400px;margin:0 auto;padding:56px 18px}
+  .entrada .logo-login{display:block;width:180px;max-width:60%;height:auto;margin:0 auto 22px}
+  .entrada .sub{text-align:center}
   .entrada .marca{font-size:27px;font-weight:800;letter-spacing:.01em;margin-bottom:6px;
     text-transform:uppercase;line-height:1.1}
   .entrada .marca::after{content:'';display:block;width:52px;height:4px;background:var(--vermelho);
@@ -202,7 +210,8 @@
 
 <!-- ======================= LOGIN ======================= -->
 <section id="tela-login" class="entrada">
-  <div class="marca" id="marca-login">Agendamento</div>
+  <img src="/logo.png" alt="Team Rausch Studio" class="logo-login">
+  <div class="marca" id="marca-login" hidden>Agendamento</div>
   <div class="sub" id="sub-login">Entre com seu telefone para reservar seu horário.</div>
 
   <div id="passo-telefone">
@@ -237,6 +246,7 @@
 <div id="tela-app" hidden>
   <header>
     <div class="cab">
+      <img src="/logo.png" alt="" class="logo-topo" aria-hidden="true">
       <h1 id="nome-estudio">Agendamento</h1>
       <div class="eu">
         <small id="quem-sou"></small>
