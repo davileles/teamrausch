@@ -223,6 +223,37 @@ rotas.get('/auth/eu', (req, res) => {
   });
 });
 
+/* ------------------------------ perfil ----------------------------------- */
+
+/**
+ * O aluno corrige o próprio nome e aniversário. O telefone fica de fora de
+ * propósito: é a chave do cadastro e a credencial de entrada, então só o
+ * estúdio troca, pela aba Alunos.
+ */
+rotas.put('/perfil', exigirLogin, (req, res) => {
+  const campos = {};
+
+  if (req.body.nome !== undefined) {
+    const nome = String(req.body.nome).trim();
+    if (!nome) return res.status(400).json({ erro: 'Informe como você quer ser chamado.' });
+    if (nome.length > 60) return res.status(400).json({ erro: 'Nome muito longo.' });
+    campos.nome = nome;
+  }
+
+  if (req.body.aniversario !== undefined) {
+    const limpo = normalizarAniversario(req.body.aniversario);
+    if (!limpo) return res.status(400).json({ erro: 'Aniversário inválido. Use dia e mês, como 07/03.' });
+    campos.aniversario = limpo;
+  }
+
+  const aluno = store.salvarAluno(req.aluno.telefone, campos);
+  res.json({
+    nome: aluno.nome,
+    telefone: mostrarTelefone(aluno.telefone),
+    aniversario: mostrarAniversario(aluno.aniversario),
+  });
+});
+
 /* ----------------------------- agenda ------------------------------------ */
 
 rotas.get('/agenda', exigirLogin, (req, res) => {
@@ -305,8 +336,25 @@ rotas.get('/admin/alunos', exigirLogin, exigirAdmin, (_req, res) => {
 });
 
 rotas.put('/admin/alunos/:telefone', exigirLogin, exigirAdmin, (req, res) => {
-  const telefone = normalizarTelefone(req.params.telefone);
+  let telefone = normalizarTelefone(req.params.telefone);
   if (!telefone) return res.status(400).json({ erro: 'Telefone inválido.' });
+
+  // Trocar o telefone vem primeiro: os outros campos são gravados na ficha nova.
+  if (req.body.novoTelefone !== undefined && String(req.body.novoTelefone).trim()) {
+    const novo = normalizarTelefone(req.body.novoTelefone);
+    if (!novo) return res.status(400).json({ erro: 'Novo telefone inválido. Use DDD + 9 dígitos.' });
+    if (novo !== telefone) {
+      if (ehAdmin(telefone)) {
+        return res.status(400).json({
+          erro: 'Este número é de administrador. Ajuste a lista em Configurações antes de trocar.',
+        });
+      }
+      const r = store.trocarTelefone(telefone, novo);
+      if (!r.ok) return res.status(409).json({ erro: r.motivo });
+      telefone = novo;
+    }
+  }
+
   const campos = {};
   if (req.body.nome !== undefined) campos.nome = String(req.body.nome).trim() || null;
   if (req.body.bloqueado !== undefined) campos.bloqueado = Boolean(req.body.bloqueado);
@@ -320,7 +368,12 @@ rotas.put('/admin/alunos/:telefone', exigirLogin, exigirAdmin, (req, res) => {
       campos.aniversario = limpo;
     }
   }
-  res.json(store.salvarAluno(telefone, campos));
+  const aluno = store.salvarAluno(telefone, campos);
+  res.json({
+    ...aluno,
+    telefoneFormatado: mostrarTelefone(aluno.telefone),
+    aniversarioFormatado: mostrarAniversario(aluno.aniversario),
+  });
 });
 
 rotas.get('/admin/backup', exigirLogin, exigirAdmin, (_req, res) => {
