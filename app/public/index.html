@@ -25,19 +25,26 @@
     --raio:10px;--raio-card:14px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  /* A barra de rolagem some quando a aba é curta e volta quando é longa. Cada
+     ida e volta reserva ou devolve ~15px e empurra tudo que é centralizado.
+     Reservando o espaço sempre, nada se mexe ao trocar de aba. */
+  html{scrollbar-gutter:stable;overflow-y:scroll}
   body{background:var(--bg);color:var(--text);
     font:400 15px/1.55 'Montserrat',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-  .env{max-width:680px;margin:0 auto;padding:0 18px 90px}
+  .env{max-width:680px;margin:0 auto;padding:0 18px 90px;min-height:70vh}
   [hidden]{display:none!important}
 
   /* Cabeçalho preto com faixa vermelha — a leitura do logo */
   header{background:var(--preto);border-bottom:3px solid var(--vermelho);position:sticky;top:0;z-index:100;
     box-shadow:0 2px 10px rgba(22,23,26,.18)}
   .cab{max-width:680px;margin:0 auto;padding:14px 18px 0;display:flex;
-    justify-content:space-between;align-items:baseline;gap:12px}
-  .cab h1{font-size:17px;font-weight:800;letter-spacing:.01em;color:#fff;text-transform:uppercase}
-  .cab small{font-size:12px;font-weight:500;color:rgba(255,255,255,.62)}
-  nav{max-width:680px;margin:0 auto;padding:10px 18px;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+    justify-content:space-between;align-items:baseline;gap:12px;min-height:26px}
+  .cab h1{font-size:17px;font-weight:800;letter-spacing:.01em;color:#fff;text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cab small{font-size:12px;font-weight:500;color:rgba(255,255,255,.62);
+    white-space:nowrap;flex-shrink:0}
+  nav{max-width:680px;margin:0 auto;padding:10px 18px;display:flex;gap:4px;overflow-x:auto;
+    scrollbar-width:none;min-height:56px;align-items:center}
   nav::-webkit-scrollbar{display:none}
   nav button{background:transparent;border:1px solid transparent;border-radius:var(--raio);cursor:pointer;
     padding:9px 15px;font:700 12.5px 'Montserrat',sans-serif;color:rgba(255,255,255,.66);
@@ -106,6 +113,19 @@
   .fila .quem{flex:1;min-width:0}
   .fila .quem b{font-size:15px;font-weight:700;display:block}
   .fila .quem small{font-size:12px;font-weight:500;color:var(--muted)}
+
+  /* ---- subabas de configurações ---- */
+  .subabas{display:flex;gap:6px;margin:16px 0 22px;border-bottom:1px solid var(--border);padding-bottom:0}
+  .subabas button{background:transparent;border:none;border-bottom:3px solid transparent;
+    padding:10px 14px;cursor:pointer;font:800 12px 'Montserrat',sans-serif;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--muted);transition:color .15s,border-color .15s}
+  .subabas button:hover[aria-selected=false]{color:var(--text)}
+  .subabas button[aria-selected=true]{color:var(--vermelho);border-bottom-color:var(--vermelho)}
+  .painel-config h3:first-of-type{margin-top:4px}
+
+  .nota{background:var(--card-deep);border:1px solid var(--border);border-left:3px solid var(--amarelo);
+    border-radius:8px;padding:11px 14px;font-size:12.5px;color:var(--muted);margin-bottom:16px}
+  .nota b{color:var(--text);font-weight:700}
 
   /* ---- grade de horários (configurações) ---- */
   .gerador{background:var(--card-deep);border:1px solid var(--border);border-radius:var(--raio-card);
@@ -325,8 +345,17 @@ async function sair(silencioso){
 }
 
 /* ------------------------------ abas ----------------------------------- */
+const ABAS_ADMIN = ['dia','alunos','config'];
+
+/** Uma aba só vale se existir e, sendo de admin, se a pessoa for admin. */
+function abaPermitida(aba){
+  if (!['agendar','meus','dia','alunos','config'].includes(aba)) return false;
+  return !ABAS_ADMIN.includes(aba) || Boolean(eu && eu.admin);
+}
+
 document.getElementById('abas').addEventListener('click', e=>{
   const b = e.target.closest('button[data-aba]'); if (!b) return;
+  if (!abaPermitida(b.dataset.aba)) return;
   abaAtiva = b.dataset.aba;
   document.querySelectorAll('#abas button').forEach(x=>x.setAttribute('aria-selected', String(x===b)));
   ['agendar','meus','dia','alunos','config'].forEach(a=>{
@@ -336,6 +365,17 @@ document.getElementById('abas').addEventListener('click', e=>{
 });
 
 function desenharAba(){
+  // Rede de segurança: se a sessão perder o admin (removido da lista, por
+  // exemplo), volta para uma aba que a pessoa pode ver em vez de tentar
+  // carregar dados que o servidor vai recusar.
+  if (!abaPermitida(abaAtiva)){
+    abaAtiva = 'agendar';
+    document.querySelectorAll('#abas button').forEach(x=>
+      x.setAttribute('aria-selected', String(x.dataset.aba === 'agendar')));
+    ['agendar','meus','dia','alunos','config'].forEach(a=>{
+      document.getElementById('aba-'+a).hidden = a !== 'agendar';
+    });
+  }
   if (abaAtiva === 'agendar') carregarAgenda();
   if (abaAtiva === 'meus') carregarMeus();
   if (abaAtiva === 'dia') carregarDia();
@@ -598,6 +638,45 @@ function ligarGrade(alvo){
   contarTodos();
 }
 
+let subConfig = 'negocio';   // lembra a subaba entre visitas à aba
+
+function ligarSubabas(alvo){
+  const barra = alvo.querySelector('#sub-config');
+  const pintar = ()=>{
+    barra.querySelectorAll('button').forEach(b=>
+      b.setAttribute('aria-selected', String(b.dataset.sub === subConfig)));
+    alvo.querySelectorAll('.painel-config').forEach(p=>{
+      p.hidden = p.dataset.painel !== subConfig;
+    });
+  };
+  barra.addEventListener('click', e=>{
+    const b = e.target.closest('button[data-sub]'); if (!b) return;
+    subConfig = b.dataset.sub;
+    pintar();
+  });
+  pintar();
+}
+
+async function mostrarBackup(){
+  const alvo = document.getElementById('c-backup');
+  if (!alvo) return;
+  try{
+    const s = await api('/admin/backup');
+    if (!s.ligado){
+      alvo.innerHTML = 'Desligado. A ficha dos alunos vive só no disco do servidor. ' +
+        'Para guardar uma cópia no GitHub, defina <b>GITHUB_TOKEN</b> e <b>GITHUB_REPO</b> nas ' +
+        'variáveis do serviço — use um repositório privado, são dados pessoais.';
+      return;
+    }
+    const quando = s.ultimoEnvio
+      ? new Date(s.ultimoEnvio).toLocaleString('pt-BR')
+      : 'ainda não enviou nesta execução';
+    alvo.innerHTML = `Ligado em <b>${esc(s.repo)}</b>, arquivo <b>${esc(s.caminho)}</b>.<br>` +
+      `Último envio: ${esc(quando)}.` +
+      (s.ultimoErro ? `<br>Última falha: <b>${esc(s.ultimoErro)}</b>` : '');
+  }catch(e){ alvo.textContent = 'Não consegui consultar o backup: '+e.message; }
+}
+
 async function carregarConfig(){
   const alvo = document.getElementById('aba-config');
   try{
@@ -606,11 +685,16 @@ async function carregarConfig(){
     alvo.innerHTML = `
       <h2>Configurações</h2>
 
+      <div class="subabas" id="sub-config" role="tablist">
+        <button data-sub="negocio" aria-selected="true">Negócio</button>
+        <button data-sub="tecnica" aria-selected="false">Técnica</button>
+      </div>
+
+      <!-- ================= NEGÓCIO ================= -->
+      <div class="painel-config" data-painel="negocio">
+
       <h3>Estúdio</h3>
       <div class="campo"><label for="c-nome">Nome</label><input id="c-nome" value="${esc(c.estudio.nome)}"></div>
-      <div class="dupla">
-        <div class="campo"><label for="c-fuso">Fuso horário</label><input id="c-fuso" value="${esc(c.estudio.fuso)}"></div>
-      </div>
       <div class="campo"><label for="c-recado">Recado na tela dos alunos</label>
         <textarea id="c-recado" rows="2">${esc(c.estudio.recado)}</textarea></div>
 
@@ -677,6 +761,25 @@ async function carregarConfig(){
         </div>`).join('')}
       </div>
 
+      <h3>Administradores</h3>
+      <div class="campo"><label for="c-admins">Telefones com DDD</label>
+        <input id="c-admins" value="${(c.administradores||[]).map(t=>t.replace(/^55/,'')).join(', ')}"
+          placeholder="31988887777, 11977776666">
+        <p class="ajuda">Separe por vírgula. Quem está aqui vê as abas Lista do dia,
+          Alunos e Configurações. Você não pode tirar o seu próprio número.</p></div>
+
+      </div><!-- fim negócio -->
+
+      <!-- ================= TÉCNICA ================= -->
+      <div class="painel-config" data-painel="tecnica" hidden>
+
+      <div class="nota">Estas opções mexem em como o sistema funciona por dentro.
+        No dia a dia do estúdio você não precisa tocar em nada aqui.</div>
+
+      <h3>Servidor</h3>
+      <div class="campo"><label for="c-fuso">Fuso horário</label><input id="c-fuso" value="${esc(c.estudio.fuso)}">
+        <p class="ajuda">Base de todos os horários. Ex: America/Sao_Paulo.</p></div>
+
       <h3>Entrada dos alunos</h3>
       <div class="dupla">
         <div class="campo"><label for="c-sessao">Sessão dura quantos dias</label>
@@ -715,15 +818,16 @@ async function carregarConfig(){
         <textarea id="c-texto" rows="2">${esc(c.envio.texto)}</textarea>
         <p class="ajuda">Use {{codigo}} e {{minutos}}.</p></div>
 
-      <h3>Administradores</h3>
-      <div class="campo"><label for="c-admins">Telefones com DDD</label>
-        <input id="c-admins" value="${(c.administradores||[]).map(t=>t.replace(/^55/,'')).join(', ')}"
-          placeholder="31988887777, 11977776666">
-        <p class="ajuda">Separe por vírgula. Você não pode tirar o seu próprio.</p></div>
+      <h3>Backup da ficha dos alunos</h3>
+      <div id="c-backup" class="nota">Consultando…</div>
+
+      </div><!-- fim técnica -->
 
       <button class="acao" id="btn-salvar" style="margin-top:22px">Salvar configurações</button>`;
 
+    ligarSubabas(alvo);
     ligarGrade(alvo);
+    mostrarBackup();
     document.getElementById('btn-salvar').addEventListener('click', salvarConfig);
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
