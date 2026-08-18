@@ -196,7 +196,7 @@
   </div>
 
   <div id="passo-codigo" hidden>
-    <div class="campo">
+    <div class="campo" id="campo-codigo">
       <label for="in-codigo">Código recebido</label>
       <input id="in-codigo" class="codigo" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
     </div>
@@ -249,6 +249,7 @@ const cofre = {
 };
 
 let eu = null, configAtual = null, abaAtiva = 'agendar';
+let semCodigo = false;   // canal aberto: entra só com o telefone
 
 async function api(caminho, opcoes={}){
   const cab = {'Content-Type':'application/json'};
@@ -288,12 +289,24 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
     document.getElementById('passo-codigo').hidden = false;
     document.getElementById('campo-nome').hidden = !r.precisaDeNome;
     document.getElementById('campo-aniversario').hidden = !r.precisaDeAniversario;
+
+    // Canal aberto: some o campo de código e o foco vai para o primeiro
+    // campo que a pessoa realmente precisa preencher.
+    semCodigo = Boolean(r.semCodigo);
+    document.getElementById('campo-codigo').hidden = semCodigo;
+    if (semCodigo) document.getElementById('in-codigo').value = '';
+
     document.getElementById('sub-login').textContent =
-      r.canal === 'log' ? 'Modo de teste: o código está no log do servidor.'
-                        : `Código enviado para ${r.telefone}.`;
-    document.getElementById('in-codigo').focus();
+      semCodigo   ? (r.precisaDeNome ? 'Só completar o cadastro e entrar.' : 'É só entrar.')
+      : r.canal === 'log' ? 'Modo de teste: o código está no log do servidor.'
+                          : `Código enviado para ${r.telefone}.`;
+
+    (semCodigo
+      ? (r.precisaDeNome ? document.getElementById('in-nome')
+                         : document.getElementById('btn-entrar'))
+      : document.getElementById('in-codigo')).focus();
   }catch(e){ avisar(e.message, 'erro'); }
-  finally{ b.disabled = false; b.textContent = 'Receber código'; }
+  finally{ b.disabled = false; b.textContent = semCodigo ? 'Continuar' : 'Receber código'; }
 });
 
 // Máscara dd/mm: barra sozinha depois do dia, sem deixar digitar letra.
@@ -326,6 +339,9 @@ document.getElementById('btn-voltar').addEventListener('click', ()=>{
   document.getElementById('passo-codigo').hidden = true;
   document.getElementById('passo-telefone').hidden = false;
   document.getElementById('in-codigo').value = '';
+  document.getElementById('campo-codigo').hidden = false;
+  semCodigo = false;
+  document.getElementById('btn-codigo').textContent = 'Receber código';
 });
 
 document.getElementById('in-codigo').addEventListener('keydown', e=>{
@@ -786,15 +802,23 @@ async function carregarConfig(){
           <input id="c-sessao" type="number" min="1" max="365" value="${c.acesso.diasDeSessao}"></div>
         <div class="campo"><label for="c-canal">Canal do código</label>
           <select id="c-canal">
+            <option value="aberto"${c.acesso.canalDoCodigo==='aberto'?' selected':''}>Sem código — entra só com o telefone</option>
             <option value="log"${c.acesso.canalDoCodigo==='log'?' selected':''}>Só no log (teste)</option>
-            <option value="whatsapp"${c.acesso.canalDoCodigo==='whatsapp'?' selected':''}>WhatsApp</option>
             <option value="sms"${c.acesso.canalDoCodigo==='sms'?' selected':''}>SMS</option>
+            <option value="whatsapp"${c.acesso.canalDoCodigo==='whatsapp'?' selected':''}>WhatsApp</option>
           </select></div>
         <div class="campo"><label for="c-valcod">Código vale quantos min</label>
           <input id="c-valcod" type="number" min="1" max="60" value="${c.acesso.minutosDeValidadeDoCodigo}"></div>
         <div class="campo"><label for="c-maxped">Pedidos por hora</label>
           <input id="c-maxped" type="number" min="1" max="50" value="${c.acesso.maxPedidosPorHora}"></div>
       </div>
+      <div class="nota" id="aviso-aberto" hidden>
+        <b>Sem código:</b> quem souber o telefone de um aluno entra como ele.
+        Use só nos testes iniciais, enquanto não há WhatsApp configurado, e volte
+        para <b>WhatsApp</b> antes de abrir para a turma toda.
+        Administradores continuam precisando de código mesmo assim — o seu sai no log do servidor.
+      </div>
+
       <div class="campo"><label for="c-aberto">Quem pode entrar</label>
         <select id="c-aberto">
           <option value="1"${c.acesso.cadastroAberto?' selected':''}>Qualquer telefone</option>
@@ -824,6 +848,12 @@ async function carregarConfig(){
       </div><!-- fim técnica -->
 
       <button class="acao" id="btn-salvar" style="margin-top:22px">Salvar configurações</button>`;
+
+    const selCanal = document.getElementById('c-canal');
+    const avisoAberto = document.getElementById('aviso-aberto');
+    const pintarAviso = ()=>{ avisoAberto.hidden = selCanal.value !== 'aberto'; };
+    selCanal.addEventListener('change', pintarAviso);
+    pintarAviso();
 
     ligarSubabas(alvo);
     ligarGrade(alvo);
