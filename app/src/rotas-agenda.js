@@ -295,6 +295,79 @@ rotas.get('/auth/eu', (req, res) => {
 /* ------------------------------ perfil ----------------------------------- */
 
 /**
+ * Números para a aba Meus dados.
+ *
+ * Importante: contamos horários RESERVADOS que já passaram, não presença
+ * confirmada. Quem reservou e não apareceu entra na conta. Enquanto o
+ * check-in do Wellhub não estiver ligado, é o melhor que temos — e a tela
+ * diz isso ao aluno em vez de fingir precisão.
+ */
+function numerosDoAluno(telefone) {
+  const c = config.ler();
+  const hoje = agenda.hoje(c.estudio.fuso);
+  const historico = store.historicoDoAluno(telefone);
+
+  const passados = historico.filter((a) => a.data < hoje);
+  const futuros = historico.filter((a) => a.data >= hoje);
+
+  const mes = hoje.slice(0, 7);
+  const noMes = passados.filter((a) => a.data.startsWith(mes)).length;
+
+  // Dias distintos: dois horários no mesmo dia contam como uma ida.
+  const diasDistintos = [...new Set(passados.map((a) => a.data))];
+
+  // Semanas seguidas com pelo menos uma ida, contando de trás para frente a
+  // partir da semana atual. Semanas é a unidade certa aqui: o estúdio não
+  // abre fim de semana, então "dias seguidos" travaria em 5 por definição.
+  const semanaDe = (data) => {
+    const d = new Date(`${data}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - d.getUTCDay());   // volta para o domingo
+    return d.toISOString().slice(0, 10);
+  };
+  const semanas = new Set(diasDistintos.map(semanaDe));
+  let sequencia = 0;
+  const cursor = new Date(`${semanaDe(hoje)}T12:00:00Z`);
+  // A semana corrente só conta se já houve ida; senão a sequência não quebra
+  // por ainda ser segunda de manhã.
+  if (!semanas.has(cursor.toISOString().slice(0, 10))) {
+    cursor.setUTCDate(cursor.getUTCDate() - 7);
+  }
+  while (semanas.has(cursor.toISOString().slice(0, 10))) {
+    sequencia += 1;
+    cursor.setUTCDate(cursor.getUTCDate() - 7);
+  }
+
+  // Horário mais repetido.
+  const porHora = {};
+  for (const a of passados) porHora[a.hora] = (porHora[a.hora] || 0) + 1;
+  const favorito = Object.entries(porHora).sort((x, y) => y[1] - x[1])[0];
+
+  const primeira = passados[0] ? passados[0].data : null;
+
+  return {
+    total: passados.length,
+    dias: diasDistintos.length,
+    noMes,
+    semanasSeguidas: sequencia,
+    horarioFavorito: favorito ? favorito[0] : null,
+    vezesNoFavorito: favorito ? favorito[1] : 0,
+    primeiraVez: primeira,
+    primeiraVezPorExtenso: primeira ? agenda.porExtenso(primeira) : null,
+    proximos: futuros.length,
+  };
+}
+
+rotas.get('/perfil', exigirLogin, (req, res) => {
+  res.json({
+    nome: req.aluno.nome,
+    telefone: mostrarTelefone(req.aluno.telefone),
+    aniversario: mostrarAniversario(req.aluno.aniversario),
+    desde: req.aluno.criadoEm || null,
+    numeros: numerosDoAluno(req.aluno.telefone),
+  });
+});
+
+/**
  * O aluno corrige o próprio nome e aniversário. O telefone fica de fora de
  * propósito: é a chave do cadastro e a credencial de entrada, então só o
  * estúdio troca, pela aba Alunos.
@@ -320,6 +393,8 @@ rotas.put('/perfil', exigirLogin, (req, res) => {
     nome: aluno.nome,
     telefone: mostrarTelefone(aluno.telefone),
     aniversario: mostrarAniversario(aluno.aniversario),
+    desde: aluno.criadoEm || null,
+    numeros: numerosDoAluno(aluno.telefone),
   });
 });
 
