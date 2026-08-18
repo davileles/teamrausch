@@ -531,12 +531,27 @@ function anotar(chave, valor){
   try{ localStorage.setItem(chave, valor); }catch{}
 }
 
-const jaViuOGuia    = ()=> lembrete('guia-visto') === '1';
-const marcarGuiaVisto = ()=> anotar('guia-visto','1');
+// As marcas são por pessoa, não por navegador: no celular do estúdio ou num
+// aparelho compartilhado, o aviso precisa aparecer para cada um que entra.
+const marcaDe = (nome)=> `${nome}:${(eu && eu.telefone) || 'anon'}`;
+
+const jaViuOGuia      = ()=> lembrete(marcaDe('guia-visto')) === '1';
+const marcarGuiaVisto = ()=> anotar(marcaDe('guia-visto'),'1');
+
+/** Mesmo id que o servidor calcula: sha256 do texto, 16 primeiros hex. */
+async function idDoAlerta(texto){
+  const bytes = new TextEncoder().encode(texto.trim());
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('').slice(0,16);
+}
+
+async function marcarAlertaComoVisto(texto){
+  try{ anotar(marcaDe('alerta-visto'), await idDoAlerta(texto)); }catch{}
+}
 
 /** Popup do alerta. Reaparece sempre que o texto do aviso muda. */
 function mostrarAlerta(alerta){
-  if (lembrete('alerta-visto') === alerta.id) return;
+  if (lembrete(marcaDe('alerta-visto')) === alerta.id) return;
   if (document.querySelector('.fundo-modal')) return;
 
   const fundo = document.createElement('div');
@@ -548,7 +563,7 @@ function mostrarAlerta(alerta){
       <div class="pe"><button class="acao" id="modal-ok">Entendi</button></div>
     </div>`;
 
-  const fechar = ()=>{ anotar('alerta-visto', alerta.id); fundo.remove(); };
+  const fechar = ()=>{ anotar(marcaDe('alerta-visto'), alerta.id); fundo.remove(); };
   fundo.querySelector('#modal-ok').addEventListener('click', fechar);
   fundo.addEventListener('click', e=>{ if (e.target === fundo) fechar(); });
   document.addEventListener('keydown', function esc(e){
@@ -1186,6 +1201,10 @@ async function salvarConfig(){
   try{
     await api('/admin/config', {method:'PUT', body:JSON.stringify(corpo)});
     avisar('Configurações salvas.', 'ok');
+    // Quem escreveu o aviso acabou de lê-lo. Marcar como visto aqui evita que
+    // o popup pule na cara logo após salvar — e, principalmente, evita que o
+    // administrador o dispense sem querer antes dos alunos verem.
+    if (corpo.estudio.alerta) marcarAlertaComoVisto(corpo.estudio.alerta);
     await comecar(true);
   }catch(e){ avisar(e.message, 'erro'); }
   finally{ b.disabled = false; b.textContent = 'Salvar configurações'; }
