@@ -1,0 +1,17 @@
+{
+  "name": "wellhub-checkin",
+  "version": "1.0.0",
+  "description": "Check-in Wellhub na recepcao e catraca, mais agendamento de horarios",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "simular": "node scripts/simular-checkin.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

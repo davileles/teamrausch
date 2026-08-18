@@ -1,0 +1,14 @@
+{
+  "name": "teamrausch-whatsapp",
+  "version": "1.0.0",
+  "description": "Servico de WhatsApp dedicado ao estudio, isolado de outras integracoes",
+  "main": "index.js",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "baileys": "6.7.24",
+    "express": "^4.19.2",
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.4"
+  }
+}

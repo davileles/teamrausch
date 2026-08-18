@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agendamento</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --concreto:#E8E9E4;--papel:#FFF;--tinta:#101317;--neutro:#6E7580;--linha:#D2D4CD;
+    --meu:#1B6B4A;--cheio:#A8321F;--raio:4px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--concreto);color:var(--tinta);
+    font:400 16px/1.5 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .env{max-width:640px;margin:0 auto;padding:0 18px 90px}
+  [hidden]{display:none!important}
+
+  header{border-bottom:1px solid var(--linha);position:sticky;top:0;background:var(--concreto);z-index:10}
+  .cab{max-width:640px;margin:0 auto;padding:16px 18px 0;display:flex;
+    justify-content:space-between;align-items:baseline;gap:12px}
+  .cab h1{font:700 18px/1 "Space Grotesk",sans-serif;letter-spacing:-.02em}
+  .cab small{font:400 12px "IBM Plex Mono",monospace;color:var(--neutro)}
+  nav{max-width:640px;margin:0 auto;padding:12px 18px 0;display:flex;gap:4px;overflow-x:auto}
+  nav button{background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;
+    padding:8px 10px;font:600 11px "IBM Plex Mono",monospace;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--neutro);white-space:nowrap}
+  nav button[aria-selected=true]{color:var(--tinta);border-bottom-color:var(--tinta)}
+
+  h2{font:500 20px "Space Grotesk",sans-serif;letter-spacing:-.01em;margin:26px 0 4px}
+  h3{font:600 11px "IBM Plex Mono",monospace;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--neutro);margin:24px 0 10px}
+  p.ajuda{font-size:13px;color:var(--neutro);margin-bottom:12px}
+
+  label{display:block;font:600 11px "IBM Plex Mono",monospace;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--neutro);margin-bottom:5px}
+  input,select,textarea{width:100%;padding:12px 13px;border:1px solid var(--linha);
+    border-radius:var(--raio);background:var(--papel);font:400 15px "IBM Plex Sans",sans-serif;color:var(--tinta)}
+  input[inputmode=numeric],input[type=time]{font-family:"IBM Plex Mono",monospace}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--tinta);outline-offset:-1px}
+  .campo{margin-bottom:14px}
+  .dupla{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+  button.acao{width:100%;padding:14px;border:none;border-radius:var(--raio);background:var(--tinta);
+    color:#fff;font:600 15px "IBM Plex Sans",sans-serif;cursor:pointer}
+  button.acao:hover{opacity:.88}
+  button.acao[disabled]{opacity:.4;cursor:not-allowed}
+  button.leve{background:none;border:1px solid var(--linha);color:var(--neutro);
+    padding:9px 13px;border-radius:var(--raio);cursor:pointer;
+    font:600 11px "IBM Plex Mono",monospace;letter-spacing:.07em;text-transform:uppercase}
+  button.leve:hover{border-color:var(--tinta);color:var(--tinta)}
+  button:focus-visible{outline:2px solid var(--tinta);outline-offset:2px}
+
+  /* Horário: as vagas viram marcas — dá pra ver a lotação sem ler número */
+  .slot{background:var(--papel);border:1px solid var(--linha);border-radius:var(--raio);
+    padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px}
+  .slot .hora{font:600 21px "IBM Plex Mono",monospace;letter-spacing:-.02em;min-width:66px}
+  .slot .vagas{flex:1;min-width:0}
+  .marcas{display:flex;gap:3px;margin-bottom:5px;flex-wrap:wrap}
+  .marcas i{width:11px;height:11px;border:1px solid var(--linha);border-radius:1px;background:var(--papel)}
+  .marcas i.ocupada{background:var(--tinta);border-color:var(--tinta)}
+  .slot .conta{font:400 12px "IBM Plex Mono",monospace;color:var(--neutro)}
+  .slot.meu{border-color:var(--meu);border-left-width:3px}
+  .slot.meu .marcas i.ocupada{background:var(--meu);border-color:var(--meu)}
+  .slot.indisponivel{opacity:.5}
+  .slot .selo{font:600 10px "IBM Plex Mono",monospace;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--neutro);white-space:nowrap}
+  .slot .selo.meu{color:var(--meu)}
+  .slot .selo.cheio{color:var(--cheio)}
+
+  .dia{margin-bottom:26px}
+  .dia .titulo{display:flex;align-items:baseline;gap:9px;margin-bottom:10px}
+  .dia .titulo b{font:500 19px "Space Grotesk",sans-serif}
+  .dia .titulo span{font:400 12px "IBM Plex Mono",monospace;color:var(--neutro)}
+
+  .recado{background:var(--tinta);color:#fff;padding:13px 16px;border-radius:var(--raio);
+    font-size:14px;margin:20px 0}
+  .vazio{padding:34px 0;color:var(--neutro);font-size:14px;text-align:center}
+
+  .fila{background:var(--papel);border:1px solid var(--linha);border-radius:var(--raio);
+    padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
+  .fila .quem{flex:1;min-width:0}
+  .fila .quem b{font:500 16px "Space Grotesk",sans-serif;display:block}
+  .fila .quem small{font:400 12px "IBM Plex Mono",monospace;color:var(--neutro)}
+
+  .linha-h{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+  .linha-h input[type=time]{width:110px} .linha-h input[type=number]{width:88px}
+  .linha-h button{padding:9px 12px}
+
+  .aviso{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:30;
+    background:var(--tinta);color:#fff;padding:13px 20px;border-radius:var(--raio);
+    font:500 14px "IBM Plex Sans",sans-serif;max-width:calc(100% - 36px);
+    box-shadow:0 6px 24px rgba(16,19,23,.22)}
+  .aviso.ok{background:var(--meu)} .aviso.erro{background:var(--cheio)}
+
+  /* login */
+  .entrada{max-width:380px;margin:0 auto;padding:52px 18px}
+  .entrada .marca{font:700 26px/1.1 "Space Grotesk",sans-serif;letter-spacing:-.03em;margin-bottom:6px}
+  .entrada .sub{color:var(--neutro);font-size:14px;margin-bottom:30px}
+  .codigo{font:600 30px "IBM Plex Mono",monospace;letter-spacing:.28em;text-align:center;padding:16px}
+  .voltar{display:block;margin:16px auto 0;background:none;border:none;color:var(--neutro);
+    font:400 13px "IBM Plex Sans",sans-serif;text-decoration:underline;cursor:pointer}
+
+  @media (max-width:520px){.dupla{grid-template-columns:1fr}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ======================= LOGIN ======================= -->
+<section id="tela-login" class="entrada">
+  <div class="marca" id="marca-login">Agendamento</div>
+  <div class="sub" id="sub-login">Entre com seu telefone para reservar seu horário.</div>
+
+  <div id="passo-telefone">
+    <div class="campo">
+      <label for="in-telefone">Telefone com DDD</label>
+      <input id="in-telefone" type="tel" inputmode="numeric" placeholder="(31) 98888-7777" autocomplete="tel">
+    </div>
+    <button class="acao" id="btn-codigo">Receber código</button>
+  </div>
+
+  <div id="passo-codigo" hidden>
+    <div class="campo">
+      <label for="in-codigo">Código recebido</label>
+      <input id="in-codigo" class="codigo" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+    </div>
+    <div class="campo" id="campo-nome" hidden>
+      <label for="in-nome">Seu nome</label>
+      <input id="in-nome" type="text" placeholder="Como você quer ser chamado" autocomplete="name">
+    </div>
+    <button class="acao" id="btn-entrar">Entrar</button>
+    <button class="voltar" id="btn-voltar">Usar outro telefone</button>
+  </div>
+</section>
+
+<!-- ======================= APP ======================= -->
+<div id="tela-app" hidden>
+  <header>
+    <div class="cab">
+      <h1 id="nome-estudio">Agendamento</h1>
+      <small id="quem-sou"></small>
+    </div>
+    <nav id="abas" role="tablist">
+      <button data-aba="agendar" aria-selected="true">Agendar</button>
+      <button data-aba="meus" aria-selected="false">Meus horários</button>
+      <button data-aba="dia" aria-selected="false" class="so-admin" hidden>Lista do dia</button>
+      <button data-aba="alunos" aria-selected="false" class="so-admin" hidden>Alunos</button>
+      <button data-aba="config" aria-selected="false" class="so-admin" hidden>Configurações</button>
+    </nav>
+  </header>
+
+  <div class="env">
+    <section id="aba-agendar"></section>
+    <section id="aba-meus" hidden></section>
+    <section id="aba-dia" hidden></section>
+    <section id="aba-alunos" hidden></section>
+    <section id="aba-config" hidden></section>
+  </div>
+</div>
+
+<script>
+/* --------------------------- infraestrutura ---------------------------- */
+const cofre = {
+  _m:null,
+  get(){ try{ return localStorage.getItem('agenda-token') }catch{ return this._m } },
+  set(v){ this._m=v; try{ v ? localStorage.setItem('agenda-token',v) : localStorage.removeItem('agenda-token') }catch{} }
+};
+
+let eu = null, configAtual = null, abaAtiva = 'agendar';
+
+async function api(caminho, opcoes={}){
+  const cab = {'Content-Type':'application/json'};
+  const t = cofre.get(); if (t) cab.Authorization = 'Bearer '+t;
+  const r = await fetch('/agenda-api'+caminho, {...opcoes, headers:cab});
+  const corpo = await r.json().catch(()=>({}));
+  if (r.status === 401 && eu){ sair(true); throw new Error('Sua sessão venceu. Entre de novo.'); }
+  if (!r.ok) throw new Error(corpo.erro || 'Não consegui completar a ação.');
+  return corpo;
+}
+
+function avisar(texto, tipo){
+  document.querySelector('.aviso')?.remove();
+  const d = document.createElement('div');
+  d.className = 'aviso'+(tipo?' '+tipo:''); d.setAttribute('role','status'); d.textContent = texto;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(), 4200);
+}
+
+function esc(t){ return String(t??'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+
+/* ------------------------------ login ---------------------------------- */
+const inTelefone = document.getElementById('in-telefone');
+
+inTelefone.addEventListener('input', e=>{
+  const n = e.target.value.replace(/\D/g,'').slice(0,11);
+  e.target.value = n.length > 7 ? `(${n.slice(0,2)}) ${n.slice(2,7)}-${n.slice(7)}`
+    : n.length > 2 ? `(${n.slice(0,2)}) ${n.slice(2)}` : n;
+});
+
+document.getElementById('btn-codigo').addEventListener('click', async ()=>{
+  const b = document.getElementById('btn-codigo');
+  b.disabled = true; b.textContent = 'Enviando…';
+  try{
+    const r = await api('/auth/codigo', {method:'POST', body:JSON.stringify({telefone:inTelefone.value})});
+    document.getElementById('passo-telefone').hidden = true;
+    document.getElementById('passo-codigo').hidden = false;
+    document.getElementById('campo-nome').hidden = !r.precisaDeNome;
+    document.getElementById('sub-login').textContent =
+      r.canal === 'log' ? 'Modo de teste: o código está no log do servidor.'
+                        : `Código enviado para ${r.telefone}.`;
+    document.getElementById('in-codigo').focus();
+  }catch(e){ avisar(e.message, 'erro'); }
+  finally{ b.disabled = false; b.textContent = 'Receber código'; }
+});
+
+document.getElementById('btn-entrar').addEventListener('click', async ()=>{
+  const b = document.getElementById('btn-entrar');
+  b.disabled = true; b.textContent = 'Entrando…';
+  try{
+    const r = await api('/auth/entrar', {method:'POST', body:JSON.stringify({
+      telefone: inTelefone.value,
+      codigo: document.getElementById('in-codigo').value,
+      nome: document.getElementById('in-nome').value,
+    })});
+    cofre.set(r.token);
+    await comecar();
+  }catch(e){ avisar(e.message, 'erro'); }
+  finally{ b.disabled = false; b.textContent = 'Entrar'; }
+});
+
+document.getElementById('btn-voltar').addEventListener('click', ()=>{
+  document.getElementById('passo-codigo').hidden = true;
+  document.getElementById('passo-telefone').hidden = false;
+  document.getElementById('in-codigo').value = '';
+});
+
+document.getElementById('in-codigo').addEventListener('keydown', e=>{
+  if (e.key === 'Enter') document.getElementById('btn-entrar').click();
+});
+inTelefone.addEventListener('keydown', e=>{
+  if (e.key === 'Enter') document.getElementById('btn-codigo').click();
+});
+
+async function sair(silencioso){
+  try{ if (!silencioso) await api('/auth/sair', {method:'POST'}); }catch{}
+  cofre.set(null); eu = null;
+  document.getElementById('tela-app').hidden = true;
+  document.getElementById('tela-login').hidden = false;
+  document.getElementById('passo-codigo').hidden = true;
+  document.getElementById('passo-telefone').hidden = false;
+}
+
+/* ------------------------------ abas ----------------------------------- */
+document.getElementById('abas').addEventListener('click', e=>{
+  const b = e.target.closest('button[data-aba]'); if (!b) return;
+  abaAtiva = b.dataset.aba;
+  document.querySelectorAll('#abas button').forEach(x=>x.setAttribute('aria-selected', String(x===b)));
+  ['agendar','meus','dia','alunos','config'].forEach(a=>{
+    document.getElementById('aba-'+a).hidden = a !== abaAtiva;
+  });
+  desenharAba();
+});
+
+function desenharAba(){
+  if (abaAtiva === 'agendar') carregarAgenda();
+  if (abaAtiva === 'meus') carregarMeus();
+  if (abaAtiva === 'dia') carregarDia();
+  if (abaAtiva === 'alunos') carregarAlunos();
+  if (abaAtiva === 'config') carregarConfig();
+}
+
+/* ---------------------------- agendar ---------------------------------- */
+function marcas(ocupadas, capacidade){
+  return '<div class="marcas">'+Array.from({length:capacidade},(_,i)=>
+    `<i class="${i<ocupadas?'ocupada':''}"></i>`).join('')+'</div>';
+}
+
+const SELO = {meu:'Seu horário', lotado:'Lotado', fechado:'Fechado', bloqueado:'Fechado'};
+
+async function carregarAgenda(){
+  const alvo = document.getElementById('aba-agendar');
+  try{
+    const r = await api('/agenda');
+    const recado = r.recado ? `<div class="recado">${esc(r.recado)}</div>` : '';
+    const dias = r.dias.map(d=>{
+      if (d.bloqueada || !d.horarios.length){
+        return `<div class="dia"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>
+          <div class="vazio">${d.bloqueada ? 'O estúdio não abre neste dia.' : 'Sem horários neste dia.'}</div></div>`;
+      }
+      return `<div class="dia"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>${
+        d.horarios.map(h=>{
+          const livre = h.situacao === 'aberto';
+          const direita = livre
+            ? `<button class="leve reservar" data-data="${d.data}" data-hora="${h.hora}">Reservar</button>`
+            : h.situacao === 'meu' && h.podeCancelar
+              ? `<button class="leve cancelar" data-id="${h.meuAgendamentoId}">Cancelar</button>`
+              : `<span class="selo ${h.situacao==='meu'?'meu':h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`;
+          return `<div class="slot ${h.situacao==='meu'?'meu':''} ${livre||h.situacao==='meu'?'':'indisponivel'}">
+            <div class="hora">${h.hora}</div>
+            <div class="vagas">${marcas(h.ocupadas,h.capacidade)}
+              <div class="conta">${h.vagas>0?`${h.vagas} de ${h.capacidade} livres`:`${h.capacidade} lugares ocupados`}</div>
+            </div>${direita}</div>`;
+        }).join('')}</div>`;
+    }).join('');
+    alvo.innerHTML = recado + dias;
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+document.body.addEventListener('click', async e=>{
+  const res = e.target.closest('button.reservar');
+  const can = e.target.closest('button.cancelar');
+  if (res){
+    res.disabled = true; res.textContent = '…';
+    try{
+      await api('/agenda/reservar', {method:'POST', body:JSON.stringify({data:res.dataset.data, hora:res.dataset.hora})});
+      avisar('Horário reservado.', 'ok');
+    }catch(err){ avisar(err.message, 'erro'); }
+    desenharAba();
+  }
+  if (can){
+    if (!confirm('Cancelar este horário?')) return;
+    can.disabled = true;
+    try{
+      await api('/agenda/cancelar', {method:'POST', body:JSON.stringify({id:can.dataset.id})});
+      avisar('Horário cancelado.', 'ok');
+    }catch(err){ avisar(err.message, 'erro'); }
+    desenharAba();
+  }
+});
+
+/* -------------------------- meus horários ------------------------------- */
+async function carregarMeus(){
+  const alvo = document.getElementById('aba-meus');
+  try{
+    const r = await api('/agenda');
+    alvo.innerHTML = '<h2>Meus horários</h2>' + (r.meus.length
+      ? r.meus.map(a=>`<div class="fila"><div class="quem"><b>${a.hora} · ${a.porExtenso}</b>
+          <small>reservado</small></div>
+          <button class="leve cancelar" data-id="${a.id}">Cancelar</button></div>`).join('')
+      : '<div class="vazio">Você não tem horários reservados.</div>')
+      + `<h3>Conta</h3><button class="leve" id="btn-sair">Sair desta conta</button>`;
+    document.getElementById('btn-sair').addEventListener('click', ()=>sair(false));
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* --------------------------- lista do dia ------------------------------- */
+let dataDoDia = null;
+
+async function carregarDia(){
+  const alvo = document.getElementById('aba-dia');
+  try{
+    const r = await api('/admin/dia'+(dataDoDia?`?data=${dataDoDia}`:''));
+    dataDoDia = r.data;
+    alvo.innerHTML = `<h2>Lista do dia</h2>
+      <div class="campo"><label for="in-dia">Data</label>
+      <input id="in-dia" type="date" value="${r.data}"></div>` +
+      (r.horarios.length ? r.horarios.map(h=>`
+        <h3>${h.hora} · ${h.alunos.length} de ${h.capacidade}</h3>
+        ${h.alunos.length ? h.alunos.map(a=>`<div class="fila">
+            <div class="quem"><b>${esc(a.nome)}</b><small>${esc(a.telefone.replace(/^55/,''))}</small></div>
+            <button class="leve cancelar" data-id="${a.id}">Remover</button></div>`).join('')
+          : '<div class="vazio">Ninguém reservou.</div>'}`).join('')
+        : '<div class="vazio">Sem horários nesta data.</div>');
+    document.getElementById('in-dia').addEventListener('change', e=>{ dataDoDia = e.target.value; carregarDia(); });
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* ------------------------------ alunos ---------------------------------- */
+async function carregarAlunos(){
+  const alvo = document.getElementById('aba-alunos');
+  try{
+    const lista = await api('/admin/alunos');
+    alvo.innerHTML = '<h2>Alunos</h2><p class="ajuda">Quem já entrou pelo menos uma vez.</p>' +
+      (lista.length ? lista.map(a=>`<div class="fila">
+        <div class="quem"><b>${esc(a.nome||'Sem nome')}${a.admin?' · admin':''}</b>
+        <small>${esc(a.telefoneFormatado)}${a.bloqueado?' · suspenso':''}</small></div>
+        <button class="leve alternar" data-tel="${a.telefone}" data-bloq="${a.bloqueado?1:0}">
+          ${a.bloqueado?'Reativar':'Suspender'}</button></div>`).join('')
+        : '<div class="vazio">Ninguém entrou ainda.</div>');
+    alvo.querySelectorAll('button.alternar').forEach(b=>{
+      b.addEventListener('click', async ()=>{
+        try{
+          await api('/admin/alunos/'+b.dataset.tel, {method:'PUT',
+            body: JSON.stringify({bloqueado: b.dataset.bloq !== '1'})});
+          carregarAlunos();
+        }catch(e){ avisar(e.message,'erro'); }
+      });
+    });
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* --------------------------- configurações ------------------------------ */
+const DIAS = [['seg','Segunda'],['ter','Terça'],['qua','Quarta'],['qui','Quinta'],
+              ['sex','Sexta'],['sab','Sábado'],['dom','Domingo']];
+
+function linhaHorario(dia, hora='', capacidade=''){
+  return `<div class="linha-h" data-dia="${dia}">
+    <input type="time" value="${hora}" class="h-hora">
+    <input type="number" min="1" max="200" value="${capacidade}" class="h-cap" placeholder="padrão">
+    <button class="leve h-remover" aria-label="Remover horário">Remover</button></div>`;
+}
+
+async function carregarConfig(){
+  const alvo = document.getElementById('aba-config');
+  try{
+    const c = await api('/admin/config');
+    configAtual = c;
+    alvo.innerHTML = `
+      <h2>Configurações</h2>
+
+      <h3>Estúdio</h3>
+      <div class="campo"><label for="c-nome">Nome</label><input id="c-nome" value="${esc(c.estudio.nome)}"></div>
+      <div class="dupla">
+        <div class="campo"><label for="c-fuso">Fuso horário</label><input id="c-fuso" value="${esc(c.estudio.fuso)}"></div>
+      </div>
+      <div class="campo"><label for="c-recado">Recado na tela dos alunos</label>
+        <textarea id="c-recado" rows="2">${esc(c.estudio.recado)}</textarea></div>
+
+      <h3>Regras de agendamento</h3>
+      <div class="dupla">
+        <div class="campo"><label for="c-antec">Dias abertos além de hoje</label>
+          <input id="c-antec" type="number" min="0" max="30" value="${c.agenda.diasAntecedencia}">
+          <p class="ajuda">0 = só hoje. 1 = hoje e amanhã.</p></div>
+        <div class="campo"><label for="c-cap">Capacidade padrão</label>
+          <input id="c-cap" type="number" min="1" max="200" value="${c.agenda.capacidadePadrao}"></div>
+        <div class="campo"><label for="c-fechar">Fecha quantos min antes</label>
+          <input id="c-fechar" type="number" min="0" max="1440" value="${c.agenda.minutosAntesDeFechar}"></div>
+        <div class="campo"><label for="c-limite">Horários por aluno no dia</label>
+          <input id="c-limite" type="number" min="0" max="20" value="${c.agenda.limitePorDia}">
+          <p class="ajuda">0 = sem limite.</p></div>
+        <div class="campo"><label for="c-permcanc">Aluno pode cancelar</label>
+          <select id="c-permcanc"><option value="1"${c.agenda.permitirCancelar?' selected':''}>Sim</option>
+          <option value="0"${!c.agenda.permitirCancelar?' selected':''}>Não</option></select></div>
+        <div class="campo"><label for="c-mincanc">Cancela até quantos min antes</label>
+          <input id="c-mincanc" type="number" min="0" max="10080" value="${c.agenda.minutosParaCancelar}"></div>
+      </div>
+      <div class="campo"><label for="c-bloq">Datas fechadas</label>
+        <input id="c-bloq" value="${(c.agenda.datasBloqueadas||[]).join(', ')}" placeholder="2026-12-25, 2027-01-01">
+        <p class="ajuda">Separe por vírgula, no formato AAAA-MM-DD.</p></div>
+
+      <h3>Horários da semana</h3>
+      <p class="ajuda">Deixe a capacidade em branco para usar a padrão.</p>
+      <div id="grade">${DIAS.map(([k,nome])=>`
+        <div style="margin-bottom:18px"><label>${nome}</label>
+          <div class="lista-h" data-dia="${k}">${(c.agenda.horarios[k]||[]).map(s=>
+            linhaHorario(k, s.hora, s.capacidade||'')).join('')}</div>
+          <button class="leve h-add" data-dia="${k}">Adicionar horário</button></div>`).join('')}
+      </div>
+
+      <h3>Entrada dos alunos</h3>
+      <div class="dupla">
+        <div class="campo"><label for="c-sessao">Sessão dura quantos dias</label>
+          <input id="c-sessao" type="number" min="1" max="365" value="${c.acesso.diasDeSessao}"></div>
+        <div class="campo"><label for="c-canal">Canal do código</label>
+          <select id="c-canal">
+            <option value="log"${c.acesso.canalDoCodigo==='log'?' selected':''}>Só no log (teste)</option>
+            <option value="whatsapp"${c.acesso.canalDoCodigo==='whatsapp'?' selected':''}>WhatsApp</option>
+            <option value="sms"${c.acesso.canalDoCodigo==='sms'?' selected':''}>SMS</option>
+          </select></div>
+        <div class="campo"><label for="c-valcod">Código vale quantos min</label>
+          <input id="c-valcod" type="number" min="1" max="60" value="${c.acesso.minutosDeValidadeDoCodigo}"></div>
+        <div class="campo"><label for="c-maxped">Pedidos por hora</label>
+          <input id="c-maxped" type="number" min="1" max="50" value="${c.acesso.maxPedidosPorHora}"></div>
+      </div>
+      <div class="campo"><label for="c-aberto">Quem pode entrar</label>
+        <select id="c-aberto">
+          <option value="1"${c.acesso.cadastroAberto?' selected':''}>Qualquer telefone</option>
+          <option value="0"${!c.acesso.cadastroAberto?' selected':''}>Só telefones já cadastrados</option>
+        </select></div>
+
+      <h3>Envio do código</h3>
+      <p class="ajuda">Um POST em JSON. Serve para o seu servidor de WhatsApp e para provedores de SMS.</p>
+      <div class="campo"><label for="c-url">Endereço</label>
+        <input id="c-url" value="${esc(c.envio.url)}" placeholder="https://seu-servidor/enviar"></div>
+      <div class="dupla">
+        <div class="campo"><label for="c-cabec">Cabeçalho do token</label>
+          <input id="c-cabec" value="${esc(c.envio.nomeDoCabecalhoDoToken)}"></div>
+        <div class="campo"><label for="c-token">Token</label>
+          <input id="c-token" type="password" value="${esc(c.envio.token)}" placeholder="deixe em branco para manter"></div>
+      </div>
+      <div class="campo"><label for="c-corpo">Corpo do POST</label>
+        <textarea id="c-corpo" rows="2">${esc(c.envio.corpo)}</textarea>
+        <p class="ajuda">Use {{telefone}} e {{mensagem}}.</p></div>
+      <div class="campo"><label for="c-texto">Texto enviado</label>
+        <textarea id="c-texto" rows="2">${esc(c.envio.texto)}</textarea>
+        <p class="ajuda">Use {{codigo}} e {{minutos}}.</p></div>
+
+      <h3>Administradores</h3>
+      <div class="campo"><label for="c-admins">Telefones com DDD</label>
+        <input id="c-admins" value="${(c.administradores||[]).map(t=>t.replace(/^55/,'')).join(', ')}"
+          placeholder="31988887777, 11977776666">
+        <p class="ajuda">Separe por vírgula. Você não pode tirar o seu próprio.</p></div>
+
+      <button class="acao" id="btn-salvar" style="margin-top:22px">Salvar configurações</button>`;
+
+    alvo.querySelectorAll('.h-add').forEach(b=>b.addEventListener('click', ()=>{
+      alvo.querySelector(`.lista-h[data-dia="${b.dataset.dia}"]`)
+        .insertAdjacentHTML('beforeend', linhaHorario(b.dataset.dia));
+    }));
+    alvo.addEventListener('click', e=>{
+      const r = e.target.closest('.h-remover'); if (r) r.closest('.linha-h').remove();
+    });
+    document.getElementById('btn-salvar').addEventListener('click', salvarConfig);
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+async function salvarConfig(){
+  const v = id => document.getElementById(id).value.trim();
+  const n = id => Number(document.getElementById(id).value);
+  const horarios = {};
+  DIAS.forEach(([k])=>{
+    horarios[k] = [...document.querySelectorAll(`.lista-h[data-dia="${k}"] .linha-h`)]
+      .map(l=>({
+        hora: l.querySelector('.h-hora').value,
+        capacidade: Number(l.querySelector('.h-cap').value) || undefined,
+      }))
+      .filter(s=>s.hora);
+  });
+
+  const corpo = {
+    estudio: { nome: v('c-nome'), fuso: v('c-fuso'), recado: v('c-recado') },
+    agenda: {
+      diasAntecedencia: n('c-antec'), capacidadePadrao: n('c-cap'),
+      minutosAntesDeFechar: n('c-fechar'), limitePorDia: n('c-limite'),
+      permitirCancelar: v('c-permcanc') === '1', minutosParaCancelar: n('c-mincanc'),
+      datasBloqueadas: v('c-bloq').split(',').map(s=>s.trim()).filter(Boolean),
+      horarios,
+    },
+    acesso: {
+      diasDeSessao: n('c-sessao'), canalDoCodigo: v('c-canal'),
+      minutosDeValidadeDoCodigo: n('c-valcod'), maxPedidosPorHora: n('c-maxped'),
+      cadastroAberto: v('c-aberto') === '1',
+    },
+    envio: {
+      url: v('c-url'), nomeDoCabecalhoDoToken: v('c-cabec'),
+      corpo: v('c-corpo'), texto: v('c-texto'),
+    },
+    administradores: v('c-admins').split(',').map(s=>s.trim()).filter(Boolean),
+  };
+  if (v('c-token')) corpo.envio.token = v('c-token');
+
+  const b = document.getElementById('btn-salvar');
+  b.disabled = true; b.textContent = 'Salvando…';
+  try{
+    await api('/admin/config', {method:'PUT', body:JSON.stringify(corpo)});
+    avisar('Configurações salvas.', 'ok');
+    await comecar(true);
+  }catch(e){ avisar(e.message, 'erro'); }
+  finally{ b.disabled = false; b.textContent = 'Salvar configurações'; }
+}
+
+/* ------------------------------ início ---------------------------------- */
+async function comecar(manterAba){
+  try{
+    const r = await api('/auth/eu');
+    eu = r.aluno;
+    document.getElementById('tela-login').hidden = true;
+    document.getElementById('tela-app').hidden = false;
+    document.getElementById('nome-estudio').textContent = r.config.estudio.nome;
+    document.getElementById('quem-sou').textContent = eu.nome || eu.telefone;
+    document.querySelectorAll('.so-admin').forEach(b=>{ b.hidden = !eu.admin; });
+    if (!manterAba) abaAtiva = 'agendar';
+    desenharAba();
+  }catch{
+    document.getElementById('tela-login').hidden = false;
+    document.getElementById('tela-app').hidden = true;
+  }
+}
+
+if (cofre.get()) comecar(); else document.getElementById('in-telefone').focus();
+</script>
+</body>
+</html>

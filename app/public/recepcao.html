@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recepção · Check-ins Wellhub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --concreto:#E8E9E4; --papel:#FFFFFF; --tinta:#101317; --neutro:#6E7580;
+    --linha:#D2D4CD; --liberado:#1B6B4A; --recusado:#A8321F; --atencao:#B06A12;
+    --raio:4px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--concreto); color:var(--tinta);
+    font:400 16px/1.5 "IBM Plex Sans",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .env{max-width:820px;margin:0 auto;padding:0 20px 80px}
+
+  header.topo{
+    border-bottom:1px solid var(--linha);
+    background:var(--concreto); position:sticky; top:0; z-index:10;
+  }
+  .topo-int{max-width:820px;margin:0 auto;padding:18px 20px 14px;display:flex;
+    align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  h1{font:700 19px/1 "Space Grotesk",sans-serif;letter-spacing:-.02em}
+  h1 span{display:block;font:400 11px/1.4 "IBM Plex Mono",monospace;
+    color:var(--neutro);letter-spacing:.12em;text-transform:uppercase;margin-top:6px}
+  .placar{display:flex;gap:22px}
+  .placar div{text-align:right}
+  .placar b{display:block;font:600 22px/1 "IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+  .placar small{font:400 10px/1 "IBM Plex Mono",monospace;color:var(--neutro);
+    letter-spacing:.1em;text-transform:uppercase}
+
+  .aviso{background:var(--atencao);color:#fff;font:600 12px/1.4 "IBM Plex Mono",monospace;
+    letter-spacing:.06em;text-transform:uppercase;padding:8px 20px;text-align:center}
+
+  .busca{display:flex;gap:8px;margin:22px 0 18px}
+  input[type=text]{flex:1;min-width:0;padding:13px 14px;border:1px solid var(--linha);
+    border-radius:var(--raio);background:var(--papel);font:400 16px "IBM Plex Mono",monospace}
+  input[type=text]:focus{outline:2px solid var(--tinta);outline-offset:-1px}
+  button{font:600 14px "IBM Plex Sans",sans-serif;border:none;border-radius:var(--raio);
+    cursor:pointer;padding:13px 18px;background:var(--tinta);color:#fff;transition:opacity .15s}
+  button:hover{opacity:.85}
+  button:focus-visible{outline:2px solid var(--tinta);outline-offset:2px}
+  button[disabled]{opacity:.4;cursor:not-allowed}
+
+  .filtros{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+  .filtros button{background:transparent;color:var(--neutro);border:1px solid var(--linha);
+    padding:7px 13px;font:600 11px "IBM Plex Mono",monospace;letter-spacing:.08em;text-transform:uppercase}
+  .filtros button[aria-pressed=true]{background:var(--tinta);color:#fff;border-color:var(--tinta)}
+
+  /* Cartão: a faixa do topo é a janela de validade escoando em tempo real */
+  .cartao{background:var(--papel);border:1px solid var(--linha);border-radius:var(--raio);
+    margin-bottom:10px;overflow:hidden}
+  .faixa{height:3px;background:var(--linha)}
+  .faixa i{display:block;height:100%;background:var(--tinta);
+    transition:width 1s linear,background-color .4s}
+  .faixa.urgente i{background:var(--recusado)}
+  .corpo{padding:16px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .quem{flex:1;min-width:190px}
+  .nome{font:500 19px/1.25 "Space Grotesk",sans-serif;letter-spacing:-.01em}
+  .meta{font:400 12px/1.6 "IBM Plex Mono",monospace;color:var(--neutro);margin-top:3px}
+  .relogio{font:600 15px "IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+    color:var(--neutro);white-space:nowrap}
+  .relogio.urgente{color:var(--recusado)}
+  .selo{font:600 11px "IBM Plex Mono",monospace;letter-spacing:.1em;text-transform:uppercase;
+    padding:7px 12px;border-radius:var(--raio);white-space:nowrap}
+  .selo.validado{background:var(--liberado);color:#fff}
+  .selo.recusado{background:var(--recusado);color:#fff}
+  .selo.expirado{background:var(--linha);color:var(--neutro)}
+  .motivo{flex-basis:100%;font:400 13px "IBM Plex Sans",sans-serif;color:var(--neutro)}
+
+  .vazio{text-align:center;padding:56px 20px;color:var(--neutro)}
+  .vazio p{font:500 17px "Space Grotesk",sans-serif;color:var(--tinta);margin-bottom:6px}
+  .vazio small{font:400 13px "IBM Plex Sans",sans-serif}
+
+  .recado{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:20;
+    background:var(--tinta);color:#fff;padding:13px 20px;border-radius:var(--raio);
+    font:500 14px "IBM Plex Sans",sans-serif;max-width:calc(100% - 40px);
+    box-shadow:0 6px 24px rgba(16,19,23,.22)}
+  .recado.ok{background:var(--liberado)} .recado.erro{background:var(--recusado)}
+
+  @media (max-width:560px){
+    .topo-int{padding:14px 20px 12px} .placar{gap:16px} .placar b{font-size:18px}
+    .corpo{padding:14px} button{padding:12px 14px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="aviso" class="aviso" hidden>Modo simulação — nada é enviado ao Wellhub</div>
+
+<header class="topo">
+  <div class="topo-int">
+    <h1>Check-ins<span>Recepção · Wellhub</span></h1>
+    <div class="placar">
+      <div><b id="pl-aguardando">—</b><small>Na fila</small></div>
+      <div><b id="pl-validados">—</b><small>Hoje</small></div>
+    </div>
+  </div>
+</header>
+
+<div class="env">
+  <div class="busca">
+    <input id="entrada" type="text" inputmode="numeric" placeholder="Wellhub ID do aluno"
+           aria-label="Wellhub ID do aluno" autocomplete="off">
+    <button id="btn-liberar">Liberar</button>
+  </div>
+
+  <div class="filtros" role="group" aria-label="Filtrar check-ins">
+    <button data-f="aguardando" aria-pressed="true">Na fila</button>
+    <button data-f="validado" aria-pressed="false">Liberados</button>
+    <button data-f="todos" aria-pressed="false">Tudo</button>
+  </div>
+
+  <div id="lista"></div>
+</div>
+
+<script>
+const guarda = {
+  get(){ try{ return sessionStorage.getItem('painel-token')||'' }catch{ return this._m||'' } },
+  set(v){ this._m=v; try{ sessionStorage.setItem('painel-token',v) }catch{} }
+};
+
+let filtro = 'aguardando';
+let itens = [];
+
+function cabecalhos(){
+  const h = {'Content-Type':'application/json'};
+  const t = guarda.get(); if (t) h['X-Panel-Token'] = t;
+  return h;
+}
+
+async function api(caminho, opcoes = {}){
+  const r = await fetch('/api'+caminho, {...opcoes, headers: cabecalhos()});
+  if (r.status === 401){
+    const t = prompt('Token do painel:');
+    if (t){ guarda.set(t); return api(caminho, opcoes); }
+    throw new Error('Token do painel necessário.');
+  }
+  if (!r.ok) throw new Error((await r.json().catch(()=>({}))).erro || 'Falha na requisição.');
+  return r.json();
+}
+
+function recado(texto, tipo){
+  document.querySelector('.recado')?.remove();
+  const d = document.createElement('div');
+  d.className = 'recado' + (tipo ? ' '+tipo : '');
+  d.setAttribute('role','status');
+  d.textContent = texto;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(), 4500);
+}
+
+function restante(ate){
+  const s = Math.max(0, Math.round((new Date(ate) - Date.now())/1000));
+  return {segundos:s, texto: String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')};
+}
+
+function desenhar(){
+  const lista = document.getElementById('lista');
+  if (!itens.length){
+    lista.innerHTML = '<div class="vazio"><p>Nada na fila</p>'+
+      '<small>Os check-ins aparecem aqui assim que o aluno confirma no app.</small></div>';
+    return;
+  }
+  lista.innerHTML = itens.map(c=>{
+    const nome = [c.nome, c.sobrenome].filter(Boolean).join(' ') || 'Aluno Wellhub';
+    const r = restante(c.validoAte);
+    const total = (new Date(c.validoAte) - new Date(c.criadoEm))/1000 || 1;
+    const pct = Math.max(0, Math.min(100, r.segundos/total*100));
+    const urgente = r.segundos < 300;
+    const acao = c.situacao === 'aguardando'
+      ? `<button data-id="${c.id}" class="liberar">Liberar acesso</button>`
+      : `<span class="selo ${c.situacao}">${{validado:'Liberado',recusado:'Negado',expirado:'Expirou'}[c.situacao]}</span>`;
+    return `<article class="cartao">
+      <div class="faixa ${urgente?'urgente':''}"><i style="width:${c.situacao==='aguardando'?pct:0}%"></i></div>
+      <div class="corpo">
+        <div class="quem">
+          <div class="nome">${nome}</div>
+          <div class="meta">${c.gympassId}${c.produto ? ' · '+c.produto : ''}</div>
+        </div>
+        ${c.situacao==='aguardando' ? `<span class="relogio ${urgente?'urgente':''}" data-ate="${c.validoAte}">${r.texto}</span>` : ''}
+        ${acao}
+        ${c.motivo && c.situacao!=='validado' ? `<div class="motivo">${c.motivo}</div>` : ''}
+      </div>
+    </article>`;
+  }).join('');
+}
+
+function tiquetaque(){
+  document.querySelectorAll('.relogio[data-ate]').forEach(el=>{
+    const r = restante(el.dataset.ate);
+    el.textContent = r.texto;
+    if (r.segundos < 300) el.classList.add('urgente');
+    if (r.segundos === 0) carregar();
+  });
+}
+
+async function carregar(){
+  try{
+    const [resumo, lista] = await Promise.all([
+      api('/resumo'),
+      api('/checkins?situacao='+filtro)
+    ]);
+    document.getElementById('pl-aguardando').textContent = resumo.aguardando;
+    document.getElementById('pl-validados').textContent = resumo.validadosHoje;
+    document.getElementById('aviso').hidden = !resumo.simulacao;
+    itens = lista;
+    desenhar();
+  }catch(e){ recado(e.message, 'erro'); }
+}
+
+async function liberarPorId(id){
+  const r = await api('/checkins/'+id+'/validar', {method:'POST'});
+  recado(r.ok ? 'Acesso liberado.' : r.motivo, r.ok ? 'ok' : 'erro');
+  carregar();
+}
+
+document.getElementById('lista').addEventListener('click', e=>{
+  const b = e.target.closest('button.liberar');
+  if (!b) return;
+  b.disabled = true; b.textContent = 'Validando…';
+  liberarPorId(b.dataset.id).catch(err=>{ recado(err.message,'erro'); carregar(); });
+});
+
+document.querySelectorAll('.filtros button').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    filtro = b.dataset.f;
+    document.querySelectorAll('.filtros button')
+      .forEach(x=>x.setAttribute('aria-pressed', String(x===b)));
+    carregar();
+  });
+});
+
+async function liberarDigitado(){
+  const campo = document.getElementById('entrada');
+  const gympassId = campo.value.trim();
+  if (!gympassId) return campo.focus();
+  const btn = document.getElementById('btn-liberar');
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/validar-por-id', {
+      method:'POST', headers: cabecalhos(), body: JSON.stringify({gympassId})
+    }).then(x=>x.json());
+    recado(r.ok ? 'Acesso liberado.' : (r.motivo || r.erro), r.ok ? 'ok' : 'erro');
+    if (r.ok) campo.value = '';
+    carregar();
+  }catch(e){ recado('Não consegui falar com o servidor.', 'erro'); }
+  finally{ btn.disabled = false; }
+}
+
+document.getElementById('btn-liberar').addEventListener('click', liberarDigitado);
+document.getElementById('entrada').addEventListener('keydown', e=>{ if(e.key==='Enter') liberarDigitado(); });
+
+carregar();
+setInterval(carregar, 15000);
+setInterval(tiquetaque, 1000);
+</script>
+</body>
+</html>
