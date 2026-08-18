@@ -42,7 +42,7 @@
     box-shadow:0 2px 10px rgba(22,23,26,.18)}
   .cab{max-width:680px;margin:0 auto;padding:12px 18px 0;display:flex;
     justify-content:space-between;align-items:center;gap:12px;min-height:34px}
-  .cab h1{font-size:17px;font-weight:800;letter-spacing:.01em;color:#fff;text-transform:uppercase;
+  .cab h1{font-size:17px;font-weight:800;letter-spacing:.01em;color:var(--amarelo);text-transform:uppercase;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .cab small{font-size:12px;font-weight:500;color:rgba(255,255,255,.62);
     white-space:nowrap;flex-shrink:0}
@@ -227,6 +227,10 @@
       <label for="in-codigo">Código recebido</label>
       <input id="in-codigo" class="codigo" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
     </div>
+    <div class="campo" id="campo-senha" hidden>
+      <label for="in-senha">Senha de administrador</label>
+      <input id="in-senha" type="password" autocomplete="current-password" placeholder="••••••••">
+    </div>
     <div class="campo" id="campo-nome" hidden>
       <label for="in-nome">Como você quer ser chamado</label>
       <input id="in-nome" type="text" placeholder="Seu nome ou apelido" autocomplete="name">
@@ -281,6 +285,7 @@ const cofre = {
 
 let eu = null, configAtual = null, abaAtiva = 'agendar';
 let semCodigo = false;   // canal aberto: entra só com o telefone
+let porSenha  = false;   // administrador com senha definida
 
 async function api(caminho, opcoes={}){
   const cab = {'Content-Type':'application/json'};
@@ -321,23 +326,27 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
     document.getElementById('campo-nome').hidden = !r.precisaDeNome;
     document.getElementById('campo-aniversario').hidden = !r.precisaDeAniversario;
 
-    // Canal aberto: some o campo de código e o foco vai para o primeiro
-    // campo que a pessoa realmente precisa preencher.
+    // Três caminhos possíveis: senha (administrador), nenhum (canal aberto)
+    // ou código. Só um dos campos fica visível.
     semCodigo = Boolean(r.semCodigo);
-    document.getElementById('campo-codigo').hidden = semCodigo;
-    if (semCodigo) document.getElementById('in-codigo').value = '';
+    porSenha  = Boolean(r.precisaDeSenha);
+
+    document.getElementById('campo-codigo').hidden = semCodigo || porSenha;
+    document.getElementById('campo-senha').hidden  = !porSenha;
+    if (semCodigo || porSenha) document.getElementById('in-codigo').value = '';
 
     document.getElementById('sub-login').textContent =
-      semCodigo   ? (r.precisaDeNome ? 'Só completar o cadastro e entrar.' : 'É só entrar.')
+      porSenha    ? 'Acesso de administrador. Informe a senha.'
+      : semCodigo ? (r.precisaDeNome ? 'Só completar o cadastro e entrar.' : 'É só entrar.')
       : r.canal === 'log' ? 'Modo de teste: o código está no log do servidor.'
                           : `Código enviado para ${r.telefone}.`;
 
-    (semCodigo
-      ? (r.precisaDeNome ? document.getElementById('in-nome')
-                         : document.getElementById('btn-entrar'))
-      : document.getElementById('in-codigo')).focus();
+    (porSenha    ? document.getElementById('in-senha')
+     : semCodigo ? (r.precisaDeNome ? document.getElementById('in-nome')
+                                    : document.getElementById('btn-entrar'))
+     : document.getElementById('in-codigo')).focus();
   }catch(e){ avisar(e.message, 'erro'); }
-  finally{ b.disabled = false; b.textContent = semCodigo ? 'Continuar' : 'Receber código'; }
+  finally{ b.disabled = false; b.textContent = (semCodigo || porSenha) ? 'Continuar' : 'Receber código'; }
 });
 
 // Máscara dd/mm: barra sozinha depois do dia, sem deixar digitar letra.
@@ -357,6 +366,7 @@ document.getElementById('btn-entrar').addEventListener('click', async ()=>{
     const r = await api('/auth/entrar', {method:'POST', body:JSON.stringify({
       telefone: inTelefone.value,
       codigo: document.getElementById('in-codigo').value,
+      senha: document.getElementById('in-senha').value,
       nome: document.getElementById('in-nome').value,
       aniversario: document.getElementById('in-aniversario').value,
     })});
@@ -371,11 +381,16 @@ document.getElementById('btn-voltar').addEventListener('click', ()=>{
   document.getElementById('passo-telefone').hidden = false;
   document.getElementById('in-codigo').value = '';
   document.getElementById('campo-codigo').hidden = false;
-  semCodigo = false;
+  document.getElementById('campo-senha').hidden = true;
+  document.getElementById('in-senha').value = '';
+  semCodigo = false; porSenha = false;
   document.getElementById('btn-codigo').textContent = 'Receber código';
 });
 
 document.getElementById('in-codigo').addEventListener('keydown', e=>{
+  if (e.key === 'Enter') document.getElementById('btn-entrar').click();
+});
+document.getElementById('in-senha').addEventListener('keydown', e=>{
   if (e.key === 'Enter') document.getElementById('btn-entrar').click();
 });
 inTelefone.addEventListener('keydown', e=>{
@@ -918,6 +933,27 @@ async function carregarConfig(){
       <div class="campo"><label for="c-fuso">Fuso horário</label><input id="c-fuso" value="${esc(c.estudio.fuso)}">
         <p class="ajuda">Base de todos os horários. Ex: America/Sao_Paulo.</p></div>
 
+      <h3>Senha do administrador</h3>
+      <p class="ajuda">Com senha definida, quem está na lista de administradores entra
+        com telefone + senha, sem código. Alunos seguem pelo canal escolhido abaixo.</p>
+      <div class="campo">
+        <label for="c-senha">${c.acesso.temSenhaAdmin ? 'Trocar a senha' : 'Definir uma senha'}</label>
+        <input id="c-senha" type="password" autocomplete="new-password"
+          placeholder="${c.acesso.temSenhaAdmin ? 'deixe em branco para manter a atual' : 'mínimo 6 caracteres'}">
+        <p class="ajuda" style="margin:6px 0 0">
+          ${c.acesso.temSenhaAdmin
+            ? 'Já existe uma senha definida. Para voltar ao acesso por código, marque a opção abaixo.'
+            : 'Sem senha, o administrador entra por código como qualquer aluno.'}
+        </p>
+      </div>
+      ${c.acesso.temSenhaAdmin ? `
+      <div class="campo">
+        <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-size:13px;font-weight:600;color:var(--text)">
+          <input type="checkbox" id="c-remover-senha" style="width:auto;margin:0">
+          Remover a senha e voltar ao acesso por código
+        </label>
+      </div>` : ''}
+
       <h3>Entrada dos alunos</h3>
       <div class="dupla">
         <div class="campo"><label for="c-sessao">Sessão dura quantos dias</label>
@@ -1018,6 +1054,11 @@ async function salvarConfig(){
     administradores: v('c-admins').split(',').map(s=>s.trim()).filter(Boolean),
   };
   if (v('c-token')) corpo.envio.token = v('c-token');
+
+  // Senha em branco = mantém a atual. Só vai ao servidor quando muda.
+  const removerSenha = document.getElementById('c-remover-senha');
+  if (removerSenha && removerSenha.checked) corpo.novaSenhaAdmin = '';
+  else if (v('c-senha')) corpo.novaSenhaAdmin = v('c-senha');
 
   const b = document.getElementById('btn-salvar');
   b.disabled = true; b.textContent = 'Salvando…';
