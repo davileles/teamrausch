@@ -18,7 +18,9 @@ async function enviarCodigo(telefone, codigo) {
   const minutos = c.acesso.minutosDeValidadeDoCodigo;
   const mensagem = preencher(c.envio.texto, { codigo, minutos });
 
-  if (c.acesso.canalDoCodigo === 'log' || !c.envio.url) {
+  // No canal aberto ninguém deveria chegar aqui, mas se chegar (é o caso do
+  // administrador, que continua precisando de código), o código vai para o log.
+  if (c.acesso.canalDoCodigo === 'log' || c.acesso.canalDoCodigo === 'aberto' || !c.envio.url) {
     console.log(`[codigo] ${telefone} → ${codigo} (canal em modo log)`);
     return { ok: true, canal: 'log' };
   }
