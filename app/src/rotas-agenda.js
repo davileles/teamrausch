@@ -35,6 +35,20 @@ function ehAdmin(telefone) {
   return (config.ler().administradores || []).includes(telefone);
 }
 
+/**
+ * Canal 'aberto' = entra só com o telefone, sem código.
+ *
+ * Serve para rodar os primeiros testes antes de existir um número de WhatsApp
+ * para o estúdio. Quem souber o telefone de alguém entra como essa pessoa, e
+ * por isso ADMINISTRADOR NUNCA entra sem código, mesmo com o canal aberto:
+ * senão qualquer aluno digitaria o telefone do dono e cairia direto nas
+ * configurações e na lista de todos os alunos. O código do administrador sai
+ * pelo canal normal — em modo de teste, no log do servidor.
+ */
+function entraSemCodigo(telefone) {
+  return config.ler().acesso.canalDoCodigo === 'aberto' && !ehAdmin(telefone);
+}
+
 /* --------------------------- aniversário --------------------------------- */
 // Guardamos só dia e mês, no formato 'MM-DD'. Sem ano: não precisamos da
 // idade de ninguém, e menos dado guardado é menos dado a proteger.
@@ -113,6 +127,18 @@ rotas.post('/auth/codigo', async (req, res) => {
     return res.status(429).json({ erro: 'Muitos pedidos de código. Tente daqui a pouco.' });
   }
 
+  // Canal aberto: não gera nem envia código. A tela pula direto para o cadastro.
+  if (entraSemCodigo(telefone)) {
+    return res.json({
+      enviado: true,
+      canal: 'aberto',
+      semCodigo: true,
+      telefone: mostrarTelefone(telefone),
+      precisaDeNome: !cadastrado || !cadastrado.nome,
+      precisaDeAniversario: !cadastrado || !cadastrado.aniversario,
+    });
+  }
+
   const codigo = String(crypto.randomInt(100000, 1000000));
   store.guardarCodigo(telefone, codigo, Number(c.acesso.minutosDeValidadeDoCodigo || 10));
 
@@ -133,9 +159,13 @@ rotas.post('/auth/entrar', (req, res) => {
   const telefone = normalizarTelefone(req.body.telefone);
   if (!telefone) return res.status(400).json({ erro: 'Telefone inválido.' });
 
-  const conferencia = store.conferirCodigo(
-    telefone, String(req.body.codigo || '').trim(), Number(c.acesso.maxTentativas || 5));
-  if (!conferencia.ok) return res.status(401).json({ erro: conferencia.motivo });
+  if (!entraSemCodigo(telefone)) {
+    const conferencia = store.conferirCodigo(
+      telefone, String(req.body.codigo || '').trim(), Number(c.acesso.maxTentativas || 5));
+    if (!conferencia.ok) return res.status(401).json({ erro: conferencia.motivo });
+  } else {
+    console.warn(`[acesso] ${telefone} entrou sem código (canal aberto).`);
+  }
 
   const nome = String(req.body.nome || '').trim();
   const existente = store.aluno(telefone);
@@ -242,6 +272,13 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
       return res.status(400).json({ erro: 'Você não pode se remover da lista de administradores.' });
     }
     novo.administradores = [...new Set(limpos)];
+  }
+
+  if (novo.acesso && novo.acesso.canalDoCodigo !== undefined) {
+    const canais = ['log', 'whatsapp', 'sms', 'aberto'];
+    if (!canais.includes(novo.acesso.canalDoCodigo)) {
+      return res.status(400).json({ erro: 'Canal do código inválido.' });
+    }
   }
 
   if (novo.agenda && novo.agenda.horarios) {
