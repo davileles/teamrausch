@@ -4,38 +4,67 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Entrada · Wellhub</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta name="theme-color" content="#0E0F11">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root{--concreto:#E8E9E4;--tinta:#101317;--linha:#D2D4CD;--liberado:#1B6B4A;--recusado:#A8321F}
+  /* ── Team Rausch · totem ────────────────────────────────────────────────
+     Base preta como o logo, vermelho só para a ação, amarelo para o que a
+     pessoa está digitando. Verde e vermelho na resposta são sinal de porta,
+     não marca: quem está entrando lê de longe, sem ler texto.            */
+  :root{
+    --preto:#0E0F11;--superficie:#17191C;--linha:#2A2D32;--linha-2:#33363b;
+    --texto:#F5F5F3;--apagado:#9CA0A6;--fraco:#6B7076;
+    --vermelho:#E01F26;--amarelo:#F5C518;--liberado:#1B6B4A;
+  }
   *{box-sizing:border-box;margin:0;padding:0;user-select:none}
-  body{background:var(--concreto);color:var(--tinta);font-family:"Space Grotesk",sans-serif;
-    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-  .painel{width:100%;max-width:380px;text-align:center}
-  .chamada{font:500 20px/1.35 "Space Grotesk",sans-serif;margin-bottom:22px}
-  .chamada small{display:block;font:600 11px "IBM Plex Mono",monospace;letter-spacing:.14em;
-    text-transform:uppercase;color:#6E7580;margin-bottom:10px}
-  .visor{font:600 34px "IBM Plex Mono",monospace;letter-spacing:.12em;background:#fff;
-    border:1px solid var(--linha);border-radius:4px;padding:20px;margin-bottom:16px;min-height:78px;
-    display:flex;align-items:center;justify-content:center}
-  .visor:empty::before{content:'••••';color:var(--linha)}
-  .teclas{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-  .teclas button{font:600 24px "IBM Plex Mono",monospace;padding:20px 0;border:1px solid var(--linha);
-    background:#fff;border-radius:4px;cursor:pointer;color:var(--tinta)}
-  .teclas button:active{background:var(--tinta);color:#fff}
-  .teclas button.ok{background:var(--tinta);color:#fff;border-color:var(--tinta);font-size:15px;
-    font-family:"Space Grotesk",sans-serif}
+  body{background:var(--preto);color:var(--texto);font-family:'Work Sans',system-ui,sans-serif;
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 24px;
+    -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+  .painel{width:100%;max-width:460px;display:flex;flex-direction:column;align-items:center}
+  .logo{width:132px;height:auto;display:block;margin-bottom:32px}
+  .rotulo{font:600 11px 'Work Sans',sans-serif;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--amarelo);margin-bottom:14px}
+  .chamada{font:400 30px/1.1 Anton,sans-serif;letter-spacing:.02em;text-transform:uppercase;
+    text-align:center;margin-bottom:28px}
+  .visor{width:100%;min-height:104px;background:var(--superficie);border:1px solid var(--linha-2);
+    border-bottom:3px solid var(--amarelo);display:flex;align-items:center;justify-content:center;
+    font:400 40px Anton,sans-serif;letter-spacing:.34em;color:var(--amarelo);
+    margin-bottom:18px;padding:0 12px;word-break:break-all}
+  .visor:empty::before{content:'••••••';color:var(--linha)}
+  .teclas{width:100%;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .teclas button{height:82px;background:var(--superficie);border:1px solid var(--linha);
+    font:400 34px Anton,sans-serif;color:var(--texto);cursor:pointer}
+  .teclas button:active{background:var(--texto);color:var(--preto);border-color:var(--texto)}
+  .teclas button[data-acao=apagar]{background:#131518;font-size:28px;color:var(--apagado)}
+  .teclas button.ok{background:var(--vermelho);border-color:var(--vermelho);color:#fff;
+    font-size:20px;letter-spacing:.08em;text-transform:uppercase}
+  .rodape{font:400 13.5px/1.5 'Work Sans',sans-serif;color:var(--fraco);text-align:center;margin-top:24px}
+
   .resposta{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;
-    justify-content:center;color:#fff;padding:32px;text-align:center}
+    justify-content:center;color:#fff;padding:36px;text-align:center}
   .resposta.mostrar{display:flex}
-  .resposta.sim{background:var(--liberado)} .resposta.nao{background:var(--recusado)}
-  .resposta h2{font:700 46px/1.1 "Space Grotesk",sans-serif;letter-spacing:-.02em}
-  .resposta p{font:500 19px/1.4 "Space Grotesk",sans-serif;margin-top:14px;max-width:420px;opacity:.95}
+  .resposta.sim{background:var(--liberado)} .resposta.nao{background:var(--vermelho)}
+  .resposta h2{font:400 clamp(46px,13vw,72px)/0.95 Anton,sans-serif;letter-spacing:.02em;text-transform:uppercase}
+  .resposta h2::after{content:'';display:block;width:48px;height:4px;margin:22px auto 0;background:var(--amarelo)}
+  .resposta.nao h2::after{background:var(--preto)}
+  .resposta p{font:500 19px/1.45 'Work Sans',sans-serif;margin-top:18px;max-width:420px;opacity:.94}
+
+  @media (max-height:700px){
+    .logo{width:104px;margin-bottom:20px}
+    .chamada{font-size:24px;margin-bottom:18px}
+    .visor{min-height:84px;font-size:32px}
+    .teclas button{height:68px;font-size:28px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
   <div class="painel">
-    <div class="chamada"><small>Entrada</small>Faça o check-in no app e digite seu código</div>
+    <img src="/logo.png" alt="Team Rausch Studio" class="logo">
+    <div class="rotulo">Entrada</div>
+    <div class="chamada">Digite seu código</div>
     <div class="visor" id="visor" aria-live="polite"></div>
     <div class="teclas" id="teclas">
       <button>1</button><button>2</button><button>3</button>
@@ -44,6 +73,7 @@
       <button data-acao="apagar">←</button><button>0</button>
       <button class="ok" data-acao="entrar">Entrar</button>
     </div>
+    <p class="rodape">Faça o check-in no app do Wellhub antes de digitar. O leitor de QR também funciona.</p>
   </div>
 
   <div class="resposta" id="resposta"><h2 id="r-titulo"></h2><p id="r-texto"></p></div>
