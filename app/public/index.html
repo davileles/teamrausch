@@ -6,363 +6,321 @@
 <title>Team Rausch Studio — Agendamento</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <link rel="apple-touch-icon" href="/favicon.png">
-<meta name="theme-color" content="#16171a">
+<meta name="theme-color" content="#0E0F11">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  /* ── Paleta Team Rausch ──────────────────────────────────────────────────
-     Vermelho, preto e amarelo do logo, sobre base clara para leitura no sol
-     e em telas de celular baratas. Estrutura (raios, pesos, espaçamentos)
-     segue as convenções do painel CDV.                                     */
+  /* ── Team Rausch · app do aluno ─────────────────────────────────────────
+     Base preta como o logo, vermelho só para ação, amarelo só para o que é
+     seu (sua aula, suas conquistas). Anton nos horários e títulos, Work Sans
+     no texto. Cantos retos. Feito para o celular: abas embaixo, ao alcance
+     do polegar, e horários em dois por linha.                             */
   :root{
-    --preto:#16171a;--preto-2:#25272c;
-    --vermelho:#e01f26;--vermelho-esc:#b8161c;--vermelho-dim:rgba(224,31,38,.10);
-    --amarelo:#f5c518;--amarelo-esc:#8a6d00;--amarelo-dim:rgba(245,197,24,.16);
-
-    --bg:#f3f3f5;--surface:#ffffff;--card:#fafafa;--card-deep:#eeeef1;
-    --border:#e3e3e8;--border-ctrl:#c9cad1;
-    --text:#16171a;--muted:#5f6169;--muted2:#9a9ca4;
-
-    --accent:var(--vermelho);--accent2:var(--vermelho-esc);
-    --meu:var(--amarelo-esc);--cheio:var(--vermelho);
-    --raio:10px;--raio-card:14px;
+    color-scheme:dark;
+    --preto:#0E0F11;--preto-2:#0B0C0E;--superficie:#17191C;--fundo-2:#131518;--fundo-3:#1A1D21;
+    --linha:#1F2226;--linha-2:#2A2D32;--linha-3:#33363b;
+    --texto:#F5F5F3;--apagado:#9CA0A6;--fraco:#6B7076;--fraco-2:#5F646A;
+    --vermelho:#E01F26;--vermelho-esc:#B8161C;--amarelo:#F5C518;--amarelo-2:#C9BE86;
+    --amarelo-fundo:#1D1B12;--liberado:#1B6B4A;
+    --raio:2px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  /* A barra de rolagem some quando a aba é curta e volta quando é longa. Cada
-     ida e volta reserva ou devolve ~15px e empurra tudo que é centralizado.
+  /* A barra de rolagem some quando a aba é curta e volta quando é longa.
      Reservando o espaço sempre, nada se mexe ao trocar de aba. */
   html{scrollbar-gutter:stable;overflow-y:scroll;
-    /* Safari aumenta a fonte sozinho ao girar o aparelho; isto desliga. */
     -webkit-text-size-adjust:100%;text-size-adjust:100%}
-  /* Sem o flash cinza do toque e sem o atraso de 300ms herdado do duplo-toque. */
   a,button,summary,.chip,input,select,textarea{
     -webkit-tap-highlight-color:transparent;touch-action:manipulation}
-  body{background:var(--bg);color:var(--text);
-    font:400 15px/1.55 'Montserrat',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  body{background:var(--preto);color:var(--texto);
+    font:400 15px/1.55 'Work Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
   .env{max-width:680px;margin:0 auto;min-height:70vh;
-    padding:0 max(18px, env(safe-area-inset-left)) calc(90px + env(safe-area-inset-bottom))
+    padding:0 max(18px, env(safe-area-inset-left)) calc(104px + env(safe-area-inset-bottom))
             max(18px, env(safe-area-inset-right))}
   [hidden]{display:none!important}
 
-  /* Cabeçalho preto com faixa vermelha — a leitura do logo */
+  /* Cabeçalho: logo, nome do estúdio e quem está logado */
   header{background:var(--preto);border-bottom:3px solid var(--vermelho);position:sticky;top:0;z-index:100;
-    box-shadow:0 2px 10px rgba(22,23,26,.18);padding-top:env(safe-area-inset-top)}
-  .cab{max-width:680px;margin:0 auto;padding:12px 18px 0;display:flex;
+    padding-top:env(safe-area-inset-top)}
+  .cab{max-width:680px;margin:0 auto;padding:12px 18px;display:flex;
     justify-content:space-between;align-items:center;gap:12px;min-height:34px}
-  .cab h1{font-size:17px;font-weight:800;letter-spacing:.01em;color:var(--amarelo);text-transform:uppercase;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .cab small{font-size:12px;font-weight:500;color:rgba(255,255,255,.62);
-    white-space:nowrap;flex-shrink:0}
-  /* Altura fixa: a imagem carrega depois do HTML e, sem reservar o espaço,
-     o cabeçalho pularia ao aparecer. */
+  .cab h1{font:400 15px Anton,sans-serif;letter-spacing:.08em;color:var(--amarelo);text-transform:uppercase;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .cab small{font:600 13px 'Work Sans',sans-serif;color:var(--apagado);white-space:nowrap;flex-shrink:0}
   .cab .logo-topo{height:30px;width:auto;flex-shrink:0;display:block;align-self:center}
-  .cab .eu{display:flex;align-items:baseline;gap:10px;flex-shrink:0}
-  .cab .eu button{background:transparent;border:1px solid rgba(255,255,255,.28);color:rgba(255,255,255,.78);
-    border-radius:7px;padding:7px 12px;cursor:pointer;font:700 10.5px 'Montserrat',sans-serif;
-    letter-spacing:.06em;text-transform:uppercase;transition:all .15s;
-    min-height:34px;display:inline-flex;align-items:center}
+  .cab .eu{display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .cab .eu button{background:transparent;border:1px solid var(--linha-3);color:var(--apagado);
+    border-radius:var(--raio);padding:10px 13px;cursor:pointer;font:400 12px Anton,sans-serif;
+    letter-spacing:.1em;text-transform:uppercase;transition:all .15s;
+    min-height:40px;display:inline-flex;align-items:center}
   .cab .eu button:hover{border-color:var(--vermelho);background:var(--vermelho);color:#fff}
-  nav{max-width:680px;margin:0 auto;padding:10px 18px;display:flex;gap:4px;overflow-x:auto;
-    scrollbar-width:none;min-height:56px;align-items:center;
-    -webkit-overflow-scrolling:touch;scroll-padding-inline:18px}
+
+  /* Abas: barra fixa embaixo, no alcance do polegar */
+  nav{position:fixed;left:0;right:0;bottom:0;z-index:100;background:var(--preto-2);
+    border-top:1px solid var(--linha);display:flex;overflow-x:auto;scrollbar-width:none;
+    padding-bottom:env(safe-area-inset-bottom)}
   nav::-webkit-scrollbar{display:none}
-  nav button{background:transparent;border:1px solid transparent;border-radius:var(--raio);cursor:pointer;
-    padding:9px 15px;font:700 12.5px 'Montserrat',sans-serif;color:rgba(255,255,255,.66);
-    white-space:nowrap;flex-shrink:0;transition:color .15s,background .15s}
-  nav button[aria-selected=false]:hover{color:#fff;background:rgba(255,255,255,.09)}
-  nav button[aria-selected=true]{background:var(--vermelho);color:#fff}
+  nav button{flex:1 0 auto;min-width:92px;background:transparent;border:none;border-top:3px solid transparent;
+    cursor:pointer;padding:13px 10px 15px;font:400 12px Anton,sans-serif;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--fraco);white-space:nowrap;transition:color .15s}
+  nav button[aria-selected=false]:hover{color:var(--texto)}
+  nav button[aria-selected=true]{border-top-color:var(--vermelho);color:#fff}
 
-  h2{font-size:19px;font-weight:800;letter-spacing:-.01em;margin:24px 0 4px}
-  h3{font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
-    color:var(--text);margin:26px 0 10px;padding-left:10px;border-left:3px solid var(--amarelo)}
-  p.ajuda{font-size:12.5px;color:var(--muted);margin-bottom:12px}
+  h2{font:400 26px Anton,sans-serif;letter-spacing:.03em;text-transform:uppercase;margin:26px 0 6px}
+  h3{font:400 16px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--texto);margin:28px 0 12px;padding-left:12px;border-left:4px solid var(--amarelo)}
+  p.ajuda{font:400 13px/1.55 'Work Sans',sans-serif;color:var(--fraco);margin-bottom:12px}
 
-  label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.05em;
-    text-transform:uppercase;color:var(--muted);margin-bottom:6px}
-  input,select,textarea{width:100%;max-width:100%;min-width:0;padding:11px 13px;
-    border:1px solid var(--border-ctrl);border-radius:var(--raio);background:var(--card);
-    font:400 14px 'Montserrat',sans-serif;color:var(--text);outline:none;transition:border-color .2s}
-  /* date e time no WebKit trazem uma largura mínima interna e um botão nativo
-     que ignora o box-sizing. Sem zerar isso, eles estouram a célula do grid. */
-  input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;
-    min-height:46px;line-height:normal}
+  label{display:block;font:600 11px 'Work Sans',sans-serif;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--fraco);margin-bottom:8px}
+  input,select,textarea{width:100%;max-width:100%;min-width:0;padding:14px 15px;min-height:50px;
+    border:1px solid var(--linha-3);border-radius:var(--raio);background:var(--superficie);
+    font:500 16px 'Work Sans',sans-serif;color:var(--texto);outline:none;transition:border-color .2s}
+  textarea{min-height:auto;line-height:1.55}
+  input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;line-height:normal}
   input[type=date]::-webkit-date-and-time-value,
   input[type=time]::-webkit-date-and-time-value{text-align:left;margin:0}
   input[type=date]::-webkit-calendar-picker-indicator,
-  input[type=time]::-webkit-calendar-picker-indicator{margin-left:auto;opacity:.55}
-  /* Item de grid tem min-width:auto por padrão: não encolhe abaixo do próprio
-     conteúdo e empurra o vizinho para fora. Esta é a origem dos campos
-     encavalados no celular. */
-  .dupla > *, .gerador .grid > *, .ficha .campos > *, .linha-h > *{min-width:0}
-  input:focus,select:focus,textarea:focus{border-color:var(--vermelho)}
-  input::placeholder,textarea::placeholder{color:var(--muted2)}
+  input[type=time]::-webkit-calendar-picker-indicator{margin-left:auto;opacity:.6;filter:invert(1)}
+  input[type=checkbox]{width:auto;min-height:auto;accent-color:var(--vermelho)}
+  /* Item de grid tem min-width:auto por padrão e empurra o vizinho para fora. */
+  .dupla > *, .gerador .grid > *, .ficha .campos > *, .linha-h > *, .linha-c > *{min-width:0}
+  input:focus,select:focus,textarea:focus{border-color:var(--amarelo)}
+  input::placeholder,textarea::placeholder{color:var(--fraco)}
+  input[disabled]{background:var(--fundo-2);border-color:var(--linha);color:var(--fraco-2)}
   select{cursor:pointer}
-  .campo{margin-bottom:14px}
+  .campo{margin-bottom:16px}
   .dupla{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
-  button.acao{width:100%;padding:13px;border:none;border-radius:var(--raio);background:var(--vermelho);
-    color:#fff;font:800 14.5px 'Montserrat',sans-serif;letter-spacing:.02em;text-transform:uppercase;
-    cursor:pointer;transition:background .15s}
+  button.acao{width:100%;padding:16px;min-height:54px;border:none;border-radius:var(--raio);
+    background:var(--vermelho);color:#fff;font:400 17px Anton,sans-serif;letter-spacing:.08em;
+    text-transform:uppercase;cursor:pointer;transition:background .15s}
   button.acao:hover{background:var(--vermelho-esc)}
   button.acao[disabled]{opacity:.45;cursor:not-allowed}
-  button.leve{background:transparent;border:1px solid var(--border-ctrl);color:var(--muted);
-    padding:8px 13px;border-radius:8px;cursor:pointer;
-    font:700 11.5px 'Montserrat',sans-serif;transition:border-color .15s,color .15s,background .15s}
-  button.leve:hover{border-color:var(--vermelho);color:var(--vermelho);background:var(--vermelho-dim)}
-  button:focus-visible{outline:2px solid var(--vermelho);outline-offset:2px}
+  button.leve{background:transparent;border:1px solid var(--linha-3);color:var(--apagado);
+    padding:11px 14px;min-height:44px;border-radius:var(--raio);cursor:pointer;
+    font:400 14px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
+    transition:border-color .15s,color .15s,background .15s}
+  button.leve:hover{border-color:var(--vermelho);color:#fff;background:var(--vermelho)}
+  button:focus-visible{outline:2px solid var(--amarelo);outline-offset:2px}
 
-  /* Horário: as vagas viram marcas — dá pra ver a lotação sem ler número */
-  .slot{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
-    padding:13px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px;
+  /* Fita de dias: escolhe o dia sem rolar a página */
+  .dias-fita{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:18px 0 20px}
+  .dias-fita::-webkit-scrollbar{display:none}
+  .pilula{flex:0 0 auto;width:62px;padding:9px 0;background:var(--superficie);
+    border:1px solid var(--linha-3);border-radius:var(--raio);cursor:pointer;text-align:center}
+  .pilula small{display:block;font:600 10px 'Work Sans',sans-serif;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--fraco);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    padding:0 4px}
+  .pilula b{display:block;font:400 24px/1.1 Anton,sans-serif;color:var(--texto)}
+  .pilula.sel{background:var(--vermelho);border-color:var(--vermelho)}
+  .pilula.sel small{color:rgba(255,255,255,.78)}
+  .pilula.sel b{color:#fff}
+
+  /* Horários: dois por linha, lotação em marcas */
+  .dia{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px}
+  .dia .titulo,.dia .vazio{grid-column:1 / -1}
+  .dia .titulo{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:2px}
+  .dia .titulo b{font:400 22px Anton,sans-serif;letter-spacing:.03em;text-transform:uppercase}
+  .dia .titulo span{font:500 13px 'Work Sans',sans-serif;color:var(--fraco)}
+
+  .slot{background:var(--superficie);border:1px solid var(--linha-2);border-radius:var(--raio);
+    padding:14px;display:flex;flex-direction:column;align-items:stretch;gap:0;
     transition:border-color .15s}
-  .slot:hover{border-color:var(--border-ctrl)}
-  .slot .hora{font-size:19px;font-weight:800;letter-spacing:-.02em;min-width:62px;color:var(--text)}
-  .slot .vagas{flex:1;min-width:0}
-  .marcas{display:flex;gap:3px;margin-bottom:5px;flex-wrap:wrap}
-  .marcas i{width:11px;height:11px;border:1px solid var(--border-ctrl);border-radius:2px;background:var(--card)}
-  .marcas i.ocupada{background:var(--preto);border-color:var(--preto)}
-  .slot .conta{font-size:11.5px;font-weight:500;color:var(--muted)}
-  /* O seu horário é o único em amarelo — acha de relance na lista */
-  .slot.meu{border-color:var(--amarelo);border-left:4px solid var(--amarelo);background:#fffdf4}
-  .slot.meu .marcas i.ocupada{background:var(--amarelo);border-color:#d9ad10}
-  .slot.indisponivel{opacity:.55}
-  .slot .selo{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
-    color:var(--muted);white-space:nowrap}
-  .slot .selo.meu{color:var(--amarelo-esc)}
-  .slot .selo.cheio{color:var(--vermelho)}
+  .slot:hover{border-color:var(--linha-3)}
+  .slot .hora{font:400 30px/1 Anton,sans-serif;color:var(--texto)}
+  .slot .vagas{margin:12px 0 0}
+  .marcas{display:flex;gap:3px;margin-bottom:7px;flex-wrap:wrap}
+  .marcas i{width:10px;height:10px;border:1px solid var(--linha-2);background:transparent}
+  .marcas i.ocupada{background:var(--texto);border-color:var(--texto)}
+  .slot .conta{font:500 12px 'Work Sans',sans-serif;color:var(--apagado)}
+  .slot .leve,.slot .selo{margin-top:12px;width:100%;text-align:center}
+  /* O seu horário é o único em amarelo */
+  .slot.meu{border-color:var(--amarelo);background:var(--amarelo-fundo)}
+  .slot.meu .hora{color:var(--amarelo)}
+  .slot.meu .conta{color:var(--amarelo)}
+  .slot.meu .marcas i.ocupada{background:var(--amarelo);border-color:var(--amarelo)}
+  .slot.meu .leve{border-color:#5A5230;color:var(--amarelo-2)}
+  .slot.meu .leve:hover{border-color:var(--vermelho);color:#fff}
+  .slot.indisponivel{background:var(--fundo-2);border-color:var(--linha)}
+  .slot.indisponivel .hora{color:var(--fraco-2)}
+  .slot .selo{font:400 14px/22px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--fraco-2);border:1px solid var(--linha);padding:11px;min-height:44px}
+  .slot .selo.meu{color:var(--amarelo);border-color:#5A5230}
+  .slot .selo.cheio{color:var(--vermelho);border-color:#4A2124}
 
-  .dia{margin-bottom:26px}
-  .dia .titulo{display:flex;align-items:baseline;gap:9px;margin-bottom:10px}
-  .dia .titulo b{font-size:17px;font-weight:800;letter-spacing:-.01em;text-transform:uppercase}
-  .dia .titulo span{font-size:12px;font-weight:500;color:var(--muted)}
+  .recado{background:var(--superficie);color:var(--texto);padding:14px 16px;
+    font:500 14px/1.55 'Work Sans',sans-serif;margin:20px 0;border-left:4px solid var(--amarelo)}
+  .vazio{padding:34px 0;color:var(--fraco);font:400 13.5px 'Work Sans',sans-serif;text-align:center}
 
-  .recado{background:var(--preto);color:#fff;padding:13px 16px;border-radius:var(--raio-card);
-    font-size:13.5px;font-weight:500;margin:20px 0;border-left:4px solid var(--amarelo)}
-  .vazio{padding:32px 0;color:var(--muted);font-size:13.5px;text-align:center}
-
-  /* Como funciona: fica sempre no topo, discreto o bastante para não competir
-     com a agenda, mas legível para quem entra pela primeira vez. */
-  .guia{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--amarelo);
-    border-radius:var(--raio-card);padding:13px 16px;margin:18px 0}
-  .guia summary{cursor:pointer;font-size:12px;font-weight:800;letter-spacing:.06em;
-    text-transform:uppercase;color:var(--text);list-style:none;
-    padding:6px 0;min-height:32px;display:flex;align-items:center}
+  /* Como funciona: no topo, discreto, legível para quem entra pela 1ª vez */
+  .guia{background:var(--superficie);border:1px solid var(--linha);
+    border-left:4px solid var(--amarelo);padding:0 16px;margin:18px 0}
+  .guia summary{cursor:pointer;font:400 15px Anton,sans-serif;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--texto);list-style:none;
+    padding:14px 0;min-height:48px;display:flex;align-items:center;justify-content:space-between}
   .guia summary::-webkit-details-marker{display:none}
-  .guia summary::after{content:' ▾';color:var(--muted2)}
-  .guia[open] summary::after{content:' ▴'}
-  .guia ul{margin:11px 0 0;padding-left:18px}
-  .guia li{font-size:13px;color:var(--muted);margin-bottom:5px}
-  .guia .extra{font-size:13px;color:var(--text);margin-top:11px;padding-top:11px;
-    border-top:1px solid var(--border);white-space:pre-wrap}
+  .guia summary::after{content:'▾';color:var(--fraco);font-size:13px}
+  .guia[open] summary::after{content:'▴';color:var(--amarelo)}
+  .guia[open] summary{border-bottom:1px solid var(--linha)}
+  .guia ul{margin:14px 0 16px;padding-left:18px;list-style:none}
+  .guia li{font:400 13.5px/1.5 'Work Sans',sans-serif;color:var(--apagado);margin-bottom:8px;
+    position:relative}
+  .guia li::before{content:'·';position:absolute;left:-14px;color:var(--amarelo);font-weight:700}
+  .guia .extra{font:400 13.5px/1.55 'Work Sans',sans-serif;color:var(--apagado);
+    margin:0 0 16px;padding-top:14px;border-top:1px solid var(--linha);white-space:pre-wrap}
 
-  /* Alerta em popup: aparece uma vez por texto novo, ao entrar. */
-  .fundo-modal{position:fixed;inset:0;background:rgba(22,23,26,.62);z-index:400;
+  /* Alerta em popup: aparece uma vez por texto novo, ao entrar */
+  .fundo-modal{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:400;
     display:flex;align-items:center;justify-content:center;padding:22px}
-  .modal{background:var(--surface);border-radius:16px;max-width:420px;width:100%;
-    overflow:hidden;box-shadow:0 18px 50px rgba(22,23,26,.35)}
+  .modal{background:var(--superficie);border:1px solid var(--linha-3);max-width:420px;width:100%;
+    overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.6)}
   .modal .topo{background:var(--vermelho);color:#fff;padding:13px 20px;
-    font:800 12px 'Montserrat',sans-serif;letter-spacing:.08em;text-transform:uppercase}
-  .modal .corpo{padding:20px;font-size:14.5px;line-height:1.6;white-space:pre-wrap;color:var(--text)}
+    font:400 15px Anton,sans-serif;letter-spacing:.12em;text-transform:uppercase}
+  .modal .corpo{padding:20px;font:400 15px/1.6 'Work Sans',sans-serif;white-space:pre-wrap;color:var(--texto)}
   .modal .pe{padding:0 20px 20px}
 
-  .fila{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
-    padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
+  .fila{background:var(--superficie);border:1px solid var(--linha-2);padding:15px 16px;
+    margin-bottom:1px;display:flex;align-items:center;gap:14px}
   .fila .quem{flex:1;min-width:0}
-  .fila .quem b{font-size:15px;font-weight:700;display:block}
-  .fila .quem small{font-size:12px;font-weight:500;color:var(--muted)}
+  .fila .quem b{font:600 15px 'Work Sans',sans-serif;display:block;color:var(--texto)}
+  .fila .quem small{font:400 12.5px 'Work Sans',sans-serif;color:var(--fraco)}
 
   /* ---- números do aluno ---- */
-  .numeros{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:8px}
-  .numero{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
-    padding:16px 14px;text-align:center;border-top:3px solid var(--vermelho)}
-  .numero b{display:block;font-size:30px;font-weight:800;line-height:1.05;color:var(--text);
-    letter-spacing:-.02em}
-  .numero span{display:block;font-size:11.5px;font-weight:700;letter-spacing:.05em;
-    text-transform:uppercase;color:var(--muted);margin-top:6px}
-  .numero em{display:block;font-style:normal;font-size:11.5px;color:var(--muted2);margin-top:5px}
-  /* O destaque amarelo é do segundo cartão: a sequência é o que puxa a volta. */
-  .numeros .numero:nth-child(3){border-top-color:var(--amarelo)}
+  .numeros{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;
+    background:var(--linha);margin-bottom:10px}
+  .numero{background:var(--superficie);padding:16px 14px}
+  .numero b{display:block;font:400 32px/1 Anton,sans-serif;color:var(--texto)}
+  .numero span{display:block;font:600 10px 'Work Sans',sans-serif;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--fraco);margin-top:8px}
+  .numero em{display:block;font-style:normal;font:400 11.5px 'Work Sans',sans-serif;
+    color:var(--fraco-2);margin-top:5px}
+  .numeros .numero:first-child b{font-size:44px}
 
   /* ---- conquistas ---- */
-  .medalhas{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
-  .medalha{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amarelo);
-    border-radius:10px;padding:9px 13px;display:flex;align-items:center;gap:8px;min-width:0}
-  .medalha .cara{font-size:19px;line-height:1}
+  .medalhas{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--linha);margin-bottom:10px}
+  .medalha{background:var(--fundo-2);padding:12px 14px;display:flex;align-items:center;gap:10px;min-width:0}
+  .medalha .cara{font-size:18px;line-height:1}
   .medalha .txt{min-width:0}
-  .medalha b{display:block;font-size:12.5px;font-weight:700;color:var(--text)}
-  .medalha span{display:block;font-size:11px;color:var(--muted2)}
+  .medalha b{display:block;font:400 13px Anton,sans-serif;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--texto)}
+  .medalha span{display:block;font:500 11.5px 'Work Sans',sans-serif;color:var(--fraco)}
 
-  .proxima{background:var(--card-deep);border:1px solid var(--border);border-radius:var(--raio-card);
-    padding:14px 16px;margin-bottom:8px}
-  .proxima .linha{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
-  .proxima .linha b{font-size:13.5px;font-weight:700}
-  .proxima .linha span{font-size:11.5px;font-weight:700;color:var(--muted);white-space:nowrap}
-  .barra{height:8px;background:var(--border);border-radius:99px;overflow:hidden}
-  .barra i{display:block;height:100%;background:var(--vermelho);border-radius:99px}
+  .proxima{background:var(--superficie);border-left:4px solid var(--amarelo);padding:14px 16px;margin-bottom:10px}
+  .proxima .linha{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px}
+  .proxima .linha b{font:400 15px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--amarelo)}
+  .proxima .linha span{font:600 12px 'Work Sans',sans-serif;color:var(--apagado);white-space:nowrap}
+  .barra{height:6px;background:var(--linha-2);overflow:hidden}
+  .barra i{display:block;height:100%;background:var(--amarelo)}
 
   /* ---- linhas editáveis de conquista (configurações) ---- */
-  .linha-c{display:grid;grid-template-columns:88px 56px 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
-  .linha-c > *{min-width:0}
-  @media (max-width:560px){
-    .linha-c{grid-template-columns:1fr 1fr;padding-bottom:10px;margin-bottom:10px;
-      border-bottom:1px solid var(--border)}
-    .linha-c .c-titulo{grid-column:1 / -1}
-    .linha-c button{grid-column:1 / -1}
-    .linha-c:last-of-type{border-bottom:none}
-  }
+  .linha-c{display:grid;grid-template-columns:1fr 1fr;gap:8px;
+    padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--linha)}
+  .linha-c .c-titulo{grid-column:1 / -1}
+  .linha-c button{grid-column:1 / -1}
+  .linha-c:last-of-type{border-bottom:none}
 
   /* ---- ficha editável (meus dados e aba Alunos) ---- */
-  .ficha{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
-    padding:14px 16px;margin-bottom:10px}
+  .ficha{background:var(--superficie);border:1px solid var(--linha-2);padding:16px;margin-bottom:10px}
   .ficha .cabeca{display:flex;align-items:center;justify-content:space-between;gap:10px;
     margin-bottom:2px;flex-wrap:wrap}
-  .ficha .cabeca b{font-size:15px;font-weight:700}
-  .ficha .cabeca .tags{font-size:11.5px;font-weight:600;color:var(--muted2)}
-  .ficha .campos{display:grid;grid-template-columns:1fr 148px 96px;gap:8px;margin-top:10px}
-  .ficha .campos input{padding:9px 11px;font-size:13.5px}
-  .ficha .rodape{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+  .ficha .cabeca b{font:400 16px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase}
+  .ficha .cabeca .tags{font:600 11px 'Work Sans',sans-serif;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--amarelo)}
+  .ficha .campos{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
+  .ficha .rodape{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .ficha .rodape button{flex:1}
   .ficha.mudou{border-color:var(--amarelo)}
-  @media (max-width:560px){ .ficha .campos{grid-template-columns:1fr} }
 
   /* ---- subabas de configurações ---- */
-  .subabas{display:flex;gap:6px;margin:16px 0 22px;border-bottom:1px solid var(--border);padding-bottom:0}
-  .subabas button{background:transparent;border:none;border-bottom:3px solid transparent;
-    padding:10px 14px;cursor:pointer;font:800 12px 'Montserrat',sans-serif;letter-spacing:.05em;
-    text-transform:uppercase;color:var(--muted);transition:color .15s,border-color .15s}
-  .subabas button:hover[aria-selected=false]{color:var(--text)}
-  .subabas button[aria-selected=true]{color:var(--vermelho);border-bottom-color:var(--vermelho)}
-  .painel-config h3:first-of-type{margin-top:4px}
+  .subabas{display:flex;gap:0;margin:18px 0 22px;border-bottom:1px solid var(--linha)}
+  .subabas button{flex:1;background:transparent;border:none;border-bottom:3px solid transparent;
+    padding:14px 10px;cursor:pointer;font:400 13px Anton,sans-serif;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--fraco);transition:color .15s,border-color .15s}
+  .subabas button:hover[aria-selected=false]{color:var(--texto)}
+  .subabas button[aria-selected=true]{color:var(--texto);border-bottom-color:var(--amarelo)}
+  .painel-config h3:first-of-type{margin-top:6px}
 
-  .nota{background:var(--card-deep);border:1px solid var(--border);border-left:3px solid var(--amarelo);
-    border-radius:8px;padding:11px 14px;font-size:12.5px;color:var(--muted);margin-bottom:16px}
-  .nota b{color:var(--text);font-weight:700}
+  .nota{background:var(--fundo-2);border:1px solid var(--linha);border-left:4px solid var(--amarelo);
+    padding:12px 15px;font:400 13px/1.55 'Work Sans',sans-serif;color:var(--apagado);margin-bottom:16px}
+  .nota b{color:var(--texto);font-weight:600}
 
   /* ---- grade de horários (configurações) ---- */
-  .gerador{background:var(--card-deep);border:1px solid var(--border);border-radius:var(--raio-card);
-    padding:16px;margin-bottom:22px;border-top:3px solid var(--amarelo)}
-  .gerador h4{font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
-    color:var(--text);margin-bottom:12px}
-  .gerador .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
-  .gerador input{background:var(--surface)}
+  .gerador{background:var(--superficie);border-left:4px solid var(--amarelo);padding:16px;margin-bottom:22px}
+  .gerador h4{font:400 16px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--texto);margin-bottom:14px}
+  .gerador .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+  .gerador input{background:var(--preto)}
   .dias-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
-  .chip{background:var(--surface);border:1px solid var(--border-ctrl);border-radius:8px;
-    padding:7px 12px;cursor:pointer;font:700 11.5px 'Montserrat',sans-serif;color:var(--muted);
-    user-select:none;transition:all .15s}
-  .chip:hover{border-color:var(--vermelho)}
-  .chip.sel{border-color:var(--vermelho);color:#fff;background:var(--vermelho)}
+  .chip{background:transparent;border:1px solid var(--linha-3);padding:11px 13px;min-height:44px;
+    display:flex;align-items:center;cursor:pointer;font:400 12px Anton,sans-serif;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--apagado);user-select:none;transition:all .15s}
+  .chip:hover{border-color:var(--amarelo);color:var(--texto)}
+  .chip.sel{border-color:var(--amarelo);color:var(--preto);background:var(--amarelo)}
   .gerador .botoes{display:flex;gap:8px;flex-wrap:wrap}
+  .gerador .botoes button{flex:1}
 
-  .dia-bloco{background:var(--surface);border:1px solid var(--border);border-radius:var(--raio-card);
-    padding:14px 16px;margin-bottom:12px}
-  .dia-bloco .topo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
-  .dia-bloco .topo label{margin:0;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--text)}
-  .dia-bloco .topo .contagem{font-size:11.5px;font-weight:600;color:var(--muted2);text-transform:none;letter-spacing:0}
-  .dia-bloco .acoes{display:flex;gap:6px;flex-wrap:wrap}
-  .dia-bloco .acoes button{padding:6px 10px;font-size:11px}
-  .dia-bloco .acoes select{width:auto;padding:6px 10px;font-size:11.5px;font-weight:600;border-radius:8px}
-  .linha-h{display:flex;gap:8px;align-items:center;margin-bottom:6px}
-  .linha-h input[type=time]{width:108px;padding:8px 10px;font-weight:600}
-  .linha-h input[type=number]{width:92px;padding:8px 10px}
-  .linha-h button{padding:8px 11px;font-size:11px}
+  .dia-bloco{background:var(--superficie);border:1px solid var(--linha-2);padding:14px;margin-bottom:10px}
+  .dia-bloco .topo{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    margin-bottom:12px;flex-wrap:wrap}
+  .dia-bloco .topo label{margin:0;font:400 15px Anton,sans-serif;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--texto)}
+  .dia-bloco .topo .contagem{font:500 12px 'Work Sans',sans-serif;color:var(--fraco);
+    text-transform:none;letter-spacing:0}
+  .dia-bloco .acoes{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%}
+  .dia-bloco .acoes select{grid-column:1 / -1;width:100%;padding:12px 13px;border-radius:var(--raio)}
+  .dia-bloco .acoes button{width:100%}
+  .linha-h{display:grid;grid-template-columns:1.25fr 1fr auto;gap:8px;align-items:center;
+    padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--linha)}
+  .linha-h:last-child{border-bottom:none;margin-bottom:4px}
+  .linha-h input[type=time]{width:100%;font-weight:600}
+  .linha-h input[type=number]{width:100%}
+  .linha-h button{padding:11px 10px;white-space:nowrap;font-size:12px}
 
-  .aviso{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:300;
-    background:var(--preto);color:#fff;padding:13px 20px;border-radius:var(--raio);
-    font:600 13.5px 'Montserrat',sans-serif;max-width:calc(100% - 36px);
-    box-shadow:0 6px 24px rgba(22,23,26,.28)}
-  .aviso.ok{background:var(--preto);border-left:4px solid var(--amarelo)}
-  .aviso.erro{background:var(--vermelho)}
+  .aviso{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));
+    transform:translateX(-50%);z-index:300;background:var(--superficie);border:1px solid var(--linha-3);
+    color:var(--texto);padding:14px 22px;font:400 15px Anton,sans-serif;letter-spacing:.08em;
+    text-transform:uppercase;max-width:calc(100% - 36px);box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  .aviso.ok{background:var(--liberado);border-color:var(--liberado);color:#fff}
+  .aviso.erro{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
 
   /* login */
-  .entrada{max-width:400px;margin:0 auto;padding:56px 18px}
-  .entrada .logo-login{display:block;width:180px;max-width:60%;height:auto;margin:0 auto 22px}
-  .entrada .sub{text-align:center}
-  .entrada .marca{font-size:27px;font-weight:800;letter-spacing:.01em;margin-bottom:6px;
-    text-transform:uppercase;line-height:1.1}
-  .entrada .marca::after{content:'';display:block;width:52px;height:4px;background:var(--vermelho);
-    border-radius:2px;margin-top:9px}
-  .entrada .sub{color:var(--muted);font-size:13.5px;margin-bottom:28px}
-  .codigo{font-size:26px;font-weight:800;letter-spacing:.22em;text-align:center;padding:15px}
-  .voltar{display:block;margin:16px auto 0;background:none;border:none;color:var(--muted);
-    font:500 13px 'Montserrat',sans-serif;text-decoration:underline;cursor:pointer}
+  .entrada{max-width:420px;margin:0 auto;padding:44px 22px;min-height:100vh;
+    display:flex;flex-direction:column;justify-content:center}
+  .entrada .logo-login{display:block;width:132px;max-width:44%;height:auto;margin:0 0 34px}
+  .entrada .marca{font:400 42px/0.95 Anton,sans-serif;letter-spacing:.01em;text-transform:uppercase;
+    margin-bottom:4px}
+  .entrada .marca::after{content:'';display:block;width:56px;height:4px;background:var(--amarelo);
+    margin-top:20px}
+  .entrada .sub{color:var(--apagado);font:400 15px/1.55 'Work Sans',sans-serif;margin:16px 0 30px}
+  .entrada .campo input{border-bottom:2px solid var(--amarelo);padding:15px 16px;min-height:54px;
+    font-size:18px;letter-spacing:.02em}
+  .codigo{font:400 30px Anton,sans-serif;letter-spacing:.3em;text-align:center;padding:16px}
+  .voltar{display:block;margin:20px auto 0;background:none;border:none;color:var(--apagado);
+    font:600 13px 'Work Sans',sans-serif;border-bottom:1px solid var(--linha-3);cursor:pointer;
+    padding-bottom:2px}
+  .voltar:hover{color:var(--amarelo);border-color:var(--amarelo)}
 
-  /* ─────────────────────────── CELULAR ────────────────────────────────────
-     O estúdio usa isto no celular; o desktop é a exceção. Daqui para baixo
-     vale o que muda em tela estreita.                                       */
-  @media (max-width:560px){
-    .dupla{grid-template-columns:1fr}
-    .gerador .grid{grid-template-columns:1fr 1fr}
-    .gerador .grid > div{min-width:0}
-    .gerador input{width:100%}
-
-    /* 16px é o limite: abaixo disso o Safari do iPhone dá zoom ao focar o
-       campo e a página inteira salta de lugar. */
-    input,select,textarea{font-size:16px;padding:12px 13px;min-height:46px}
-    textarea{min-height:auto}
-    input[type=checkbox]{min-height:auto}
-    .linha-h input[type=time],.linha-h input[type=number],
-    .ficha .campos input,.dia-bloco .acoes select{font-size:16px;min-height:46px}
-    .cab .eu button{min-height:44px;padding:11px 14px;font-size:11px}
-    .guia summary{min-height:44px}
-    .codigo{font-size:24px;letter-spacing:.18em}
-
-    /* Alvos de toque: 44px é o mínimo confortável para o polegar. */
-    button.leve{padding:11px 14px;font-size:12px;min-height:44px}
-    nav button{padding:11px 15px;min-height:44px}
-    .chip{padding:11px 14px;min-height:44px;display:flex;align-items:center}
-    .subabas button{padding:13px 14px;min-height:46px}
-    button.acao{padding:15px;min-height:50px}
-
-    /* Cabeçalho: em tela estreita o nome do aluno é o primeiro a sair. */
-    .cab{padding:10px 14px 0;gap:9px}
-    .cab .logo-topo{height:26px}
-    .cab h1{font-size:15px}
-    nav{padding:8px 14px;min-height:52px}
-
-    /* Horários: a hora encolhe para sobrar espaço ao botão Reservar. */
-    .slot{padding:12px 13px;gap:10px}
-    .slot .hora{font-size:17px;min-width:54px}
-    .slot .conta{font-size:11px}
-    .marcas i{width:10px;height:10px}
-
-    /* Grade de horários: cada linha vira uma faixa própria em vez de
-       espremer três controles lado a lado. */
-    .linha-h{display:grid;grid-template-columns:1fr 1fr;gap:8px;
-      padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border)}
-    .linha-h:last-child{border-bottom:none;margin-bottom:4px}
-    .linha-h input[type=time],.linha-h input[type=number]{width:100%;min-width:0}
-    .linha-h button{grid-column:1 / -1}
-    .dia-bloco{padding:13px 14px}
-    /* O "Copiar de…" precisa da linha inteira: comprimido, o texto do
-       select é cortado pelo navegador sem reticências. */
-    .dia-bloco .acoes{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%}
-    .dia-bloco .acoes select{grid-column:1 / -1;width:100%}
-    .dia-bloco .acoes button{width:100%}
-    /* Hora e capacidade lado a lado, Remover ao lado — cabe em 360px agora
-       que os campos podem encolher. */
-    /* A hora recebe mais espaço: em aparelho configurado em inglês ela vem
-       como "06:00 AM" e a coluna igual cortaria o sufixo. */
-    .linha-h{grid-template-columns:1.25fr 1fr auto}
-    .linha-h button{grid-column:auto;padding:11px 10px;white-space:nowrap;font-size:11px}
-
-    .ficha .rodape button{flex:1}
-    .gerador{padding:14px}
-    .modal{border-radius:14px}
-    .modal .corpo{font-size:15px}
-    .entrada{padding:38px 18px}
-    h2{font-size:18px}
-  }
-
-  /* Telas bem estreitas (iPhone SE e similares). */
+  /* Telas bem estreitas (iPhone SE e similares) */
   @media (max-width:380px){
     .cab #quem-sou{display:none}
     .gerador .grid{grid-template-columns:1fr}
-    .dupla{gap:10px}
+    .dupla{grid-template-columns:1fr}
+    .medalhas{grid-template-columns:1fr}
+    .slot{padding:12px}
+    .slot .hora{font-size:26px}
+  }
+
+  /* Tela larga: o dia inteiro cabe em três colunas */
+  @media (min-width:620px){
+    .dia{grid-template-columns:1fr 1fr 1fr}
+    nav button{min-width:0}
+    .ficha .campos{grid-template-columns:1fr 148px 110px}
   }
 
   /* Celular deitado: o cabeçalho fixo come metade da tela útil. */
   @media (max-height:480px) and (orientation:landscape){
     header{position:static}
-    .entrada{padding:20px 18px}
+    .entrada{padding:22px;min-height:auto}
   }
 
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -373,8 +331,8 @@
 <!-- ======================= LOGIN ======================= -->
 <section id="tela-login" class="entrada">
   <img src="/logo.png" alt="Team Rausch Studio" class="logo-login">
-  <div class="marca" id="marca-login" hidden>Agendamento</div>
-  <div class="sub" id="sub-login">Entre com seu telefone para reservar seu horário.</div>
+  <div class="marca" id="marca-login">Reserve<br>seu <span style="color:#E01F26">horário</span></div>
+  <div class="sub" id="sub-login">Seu telefone é sua conta. Sem senha, sem cadastro longo.</div>
 
   <div id="passo-telefone">
     <div class="campo">
@@ -382,7 +340,7 @@
       <input id="in-telefone" type="tel" inputmode="numeric" enterkeyhint="go"
              placeholder="(31) 98888-7777" autocomplete="tel">
     </div>
-    <button class="acao" id="btn-codigo">Entrar</button>
+    <button class="acao" id="btn-codigo">Receber código</button>
   </div>
 
   <div id="passo-codigo" hidden>
@@ -738,10 +696,10 @@ async function carregarAgenda(){
     const recado = r.alerta ? `<div class="recado">${esc(r.alerta.texto)}</div>` : '';
     const dias = r.dias.map(d=>{
       if (d.bloqueada || !d.horarios.length){
-        return `<div class="dia"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>
+        return `<div class="dia" data-d="${d.data}"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>
           <div class="vazio">${d.bloqueada ? 'O estúdio não abre neste dia.' : 'Sem horários neste dia.'}</div></div>`;
       }
-      return `<div class="dia"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>${
+      return `<div class="dia" data-d="${d.data}"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>${
         d.horarios.map(h=>{
           const livre = h.situacao === 'aberto';
           const direita = livre
@@ -756,7 +714,23 @@ async function carregarAgenda(){
             </div>${direita}</div>`;
         }).join('')}</div>`;
     }).join('');
-    alvo.innerHTML = recado + guia + dias;
+    const fita = r.dias.length > 1
+      ? `<div class="dias-fita" id="fita">${r.dias.map((d,k)=>
+          `<button class="pilula${k?'':' sel'}" data-d="${d.data}"><small>${esc(d.rotulo)}</small><b>${String(d.data||'').slice(8,10)}</b></button>`).join('')}</div>`
+      : '';
+    alvo.innerHTML = fita + recado + guia + dias;
+
+    // Um dia por vez: a fita troca o dia sem rolar a página.
+    const mostrarDia = (data)=>{
+      alvo.querySelectorAll('.dia').forEach(el=>{ el.hidden = el.dataset.d !== data; });
+      alvo.querySelectorAll('.pilula').forEach(b=>b.classList.toggle('sel', b.dataset.d === data));
+    };
+    if (r.dias.length > 1){
+      mostrarDia(r.dias[0].data);
+      document.getElementById('fita').addEventListener('click', e=>{
+        const b = e.target.closest('.pilula'); if (b) mostrarDia(b.dataset.d);
+      });
+    }
 
     const det = document.getElementById('guia');
     if (det) det.addEventListener('toggle', ()=>{ if (!det.open) marcarGuiaVisto(); });
