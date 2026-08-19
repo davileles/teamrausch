@@ -569,6 +569,8 @@ async function sair(silencioso){
 function limparTela(){
   configAtual = null;
   subConfig = 'negocio';
+  diaAberto = '';   // conta nova, agenda nova: a fita recomeça no primeiro dia
+  dataDoDia = null;
   ['agendar','meus','perfil','dia','alunos','config'].forEach(a=>{ document.getElementById('aba-'+a).innerHTML = ''; });
   document.getElementById('quem-sou').textContent = '';
 }
@@ -594,7 +596,7 @@ function abrirAba(aba){
   ['agendar','meus','perfil','dia','alunos','config'].forEach(a=>{
     document.getElementById('aba-'+a).hidden = a !== abaAtiva;
   });
-  desenharAba();
+  return desenharAba();
 }
 
 document.getElementById('abas').addEventListener('click', e=>{
@@ -608,12 +610,27 @@ function desenharAba(){
   // exemplo), volta para uma aba que a pessoa pode ver em vez de tentar
   // carregar dados que o servidor vai recusar.
   if (!abaPermitida(abaAtiva)) return abrirAba('agendar');
-  if (abaAtiva === 'agendar') carregarAgenda();
-  if (abaAtiva === 'meus') carregarMeus();
-  if (abaAtiva === 'perfil') carregarPerfil();
-  if (abaAtiva === 'dia') carregarDia();
-  if (abaAtiva === 'alunos') carregarAlunos();
-  if (abaAtiva === 'config') carregarConfig();
+  // Devolve a promessa: quem chama precisa esperar o desenho terminar para
+  // repor a rolagem no lugar em que a pessoa estava.
+  if (abaAtiva === 'agendar') return carregarAgenda();
+  if (abaAtiva === 'meus') return carregarMeus();
+  if (abaAtiva === 'perfil') return carregarPerfil();
+  if (abaAtiva === 'dia') return carregarDia();
+  if (abaAtiva === 'alunos') return carregarAlunos();
+  if (abaAtiva === 'config') return carregarConfig();
+}
+
+/**
+ * Redesenho depois de uma ação (reservar, cancelar, salvar): a tela é remontada
+ * do zero, então sem isto a pessoa perde o lugar — volta ao topo da lista e,
+ * na agenda, ao primeiro dia da fita. O dia é guardado em `diaAberto`; aqui
+ * cuidamos da rolagem vertical da página.
+ */
+async function redesenhar(){
+  const y = window.scrollY;
+  try{ await desenharAba(); }finally{
+    requestAnimationFrame(()=>window.scrollTo(0, y));
+  }
 }
 
 /* ---------------------------- agendar ---------------------------------- */
@@ -679,6 +696,10 @@ function mostrarAlerta(alerta){
   fundo.querySelector('#modal-ok').focus();
 }
 
+// Dia aberto na fita. Sobrevive ao redesenho: depois de reservar ou cancelar,
+// a pessoa continua no dia em que estava, e não no primeiro da lista.
+let diaAberto = '';
+
 async function carregarAgenda(){
   const alvo = document.getElementById('aba-agendar');
   try{
@@ -724,14 +745,24 @@ async function carregarAgenda(){
 
     // Um dia por vez: a fita troca o dia sem rolar a página.
     const mostrarDia = (data)=>{
+      diaAberto = data;
       alvo.querySelectorAll('.dia').forEach(el=>{ el.hidden = el.dataset.d !== data; });
       alvo.querySelectorAll('.pilula').forEach(b=>b.classList.toggle('sel', b.dataset.d === data));
+      // A fita rola sozinha para mostrar o dia escolhido (só ela, na
+      // horizontal — a página não se mexe).
+      const fitaEl = document.getElementById('fita');
+      const sel = fitaEl && fitaEl.querySelector('.pilula.sel');
+      if (fitaEl && sel) fitaEl.scrollLeft = sel.offsetLeft - (fitaEl.clientWidth - sel.offsetWidth) / 2;
     };
     if (r.dias.length > 1){
-      mostrarDia(r.dias[0].data);
+      // Se o dia guardado ainda existe na agenda (não passou), volta para ele.
+      const manter = r.dias.some(d=>d.data === diaAberto) ? diaAberto : r.dias[0].data;
+      mostrarDia(manter);
       document.getElementById('fita').addEventListener('click', e=>{
         const b = e.target.closest('.pilula'); if (b) mostrarDia(b.dataset.d);
       });
+    } else if (r.dias.length === 1){
+      diaAberto = r.dias[0].data;
     }
 
     const det = document.getElementById('guia');
@@ -750,7 +781,7 @@ document.body.addEventListener('click', async e=>{
       await api('/agenda/reservar', {method:'POST', body:JSON.stringify({data:res.dataset.data, hora:res.dataset.hora})});
       avisar('Horário reservado.', 'ok');
     }catch(err){ avisar(err.message, 'erro'); }
-    desenharAba();
+    redesenhar();
   }
   if (can){
     if (!confirm('Cancelar este horário?')) return;
@@ -759,7 +790,7 @@ document.body.addEventListener('click', async e=>{
       await api('/agenda/cancelar', {method:'POST', body:JSON.stringify({id:can.dataset.id})});
       avisar('Horário cancelado.', 'ok');
     }catch(err){ avisar(err.message, 'erro'); }
-    desenharAba();
+    redesenhar();
   }
 });
 
@@ -968,7 +999,7 @@ async function carregarAlunos(){
             ...(trocouFone ? { novoTelefone: fone.value } : {}),
           })});
           avisar('Aluno atualizado.', 'ok');
-          carregarAlunos();
+          redesenhar();
         }catch(e){
           avisar(e.message, 'erro');
           salvar.disabled = false; salvar.textContent = 'Salvar';
@@ -979,7 +1010,7 @@ async function carregarAlunos(){
         try{
           await api('/admin/alunos/'+tel, {method:'PUT',
             body: JSON.stringify({bloqueado: ficha.querySelector('button.alternar').dataset.bloq !== '1'})});
-          carregarAlunos();
+          redesenhar();
         }catch(e){ avisar(e.message,'erro'); }
       });
     });
@@ -1428,7 +1459,11 @@ async function salvarConfig(){
     // o popup pule na cara logo após salvar — e, principalmente, evita que o
     // administrador o dispense sem querer antes dos alunos verem.
     if (corpo.estudio.alerta) marcarAlertaComoVisto(corpo.estudio.alerta);
+    // Salvar não pode jogar o administrador para o topo da página: guarda a
+    // rolagem e devolve depois que a tela termina de ser remontada.
+    const y = window.scrollY;
     await comecar(true);
+    requestAnimationFrame(()=>window.scrollTo(0, y));
   }catch(e){ avisar(e.message, 'erro'); }
   finally{ b.disabled = false; b.textContent = 'Salvar configurações'; }
 }
@@ -1445,7 +1480,7 @@ async function comecar(manterAba){
     document.getElementById('nome-estudio').textContent = r.config.estudio.nome;
     document.getElementById('quem-sou').textContent = eu.nome || eu.telefone;
     document.querySelectorAll('.so-admin').forEach(b=>{ b.hidden = !eu.admin; });
-    abrirAba(manterAba ? abaAtiva : 'agendar');
+    await abrirAba(manterAba ? abaAtiva : 'agendar');
   }catch{
     document.getElementById('tela-login').hidden = false;
     document.getElementById('tela-app').hidden = true;
