@@ -17,11 +17,13 @@
      do polegar, e horários em dois por linha.                             */
   :root{
     color-scheme:dark;
-    --preto:#0E0F11;--preto-2:#0B0C0E;--superficie:#17191C;--fundo-2:#131518;--fundo-3:#1A1D21;
-    --linha:#1F2226;--linha-2:#2A2D32;--linha-3:#33363b;
-    --texto:#F5F5F3;--apagado:#9CA0A6;--fraco:#6B7076;--fraco-2:#5F646A;
+    /* Fundo bem escuro e superficies claramente acima dele: e o degrau de
+       luminancia (nao a sombra) que delimita bloco em tema escuro. */
+    --preto:#08090B;--preto-2:#0E1013;--superficie:#1C2026;--fundo-2:#141619;--fundo-3:#252A31;
+    --linha:#2E333A;--linha-2:#3C424A;--linha-3:#4C525B;
+    --texto:#F5F5F3;--apagado:#A6ABB2;--fraco:#767C84;--fraco-2:#5F646A;
     --vermelho:#E01F26;--vermelho-esc:#B8161C;--amarelo:#F5C518;--amarelo-2:#C9BE86;
-    --amarelo-fundo:#1D1B12;--liberado:#1B6B4A;
+    --amarelo-fundo:#211E12;--liberado:#1B6B4A;
     --raio:2px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -148,12 +150,12 @@
   .slot .selo.meu{color:var(--amarelo);border-color:#5A5230}
   .slot .selo.cheio{color:var(--vermelho);border-color:#4A2124}
 
-  .recado{background:var(--superficie);color:var(--texto);padding:14px 16px;
+  .recado{background:var(--superficie);border:1px solid var(--linha-2);color:var(--texto);padding:14px 16px;
     font:500 14px/1.55 'Work Sans',sans-serif;margin:20px 0;border-left:4px solid var(--amarelo)}
   .vazio{padding:34px 0;color:var(--fraco);font:400 13.5px 'Work Sans',sans-serif;text-align:center}
 
   /* Como funciona: no topo, discreto, legível para quem entra pela 1ª vez */
-  .guia{background:var(--superficie);border:1px solid var(--linha);
+  .guia{background:var(--superficie);border:1px solid var(--linha-2);
     border-left:4px solid var(--amarelo);padding:0 16px;margin:18px 0}
   .guia summary{cursor:pointer;font:400 15px Anton,sans-serif;letter-spacing:.08em;
     text-transform:uppercase;color:var(--texto);list-style:none;
@@ -188,7 +190,7 @@
   /* ---- números do aluno ---- */
   .numeros{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;
     background:var(--linha);margin-bottom:10px}
-  .numero{background:var(--superficie);padding:16px 14px}
+  .numero{background:var(--superficie);border:1px solid var(--linha-2);padding:16px 14px}
   .numero b{display:block;font:400 32px/1 Anton,sans-serif;color:var(--texto)}
   .numero span{display:block;font:600 10px 'Work Sans',sans-serif;letter-spacing:.14em;
     text-transform:uppercase;color:var(--fraco);margin-top:8px}
@@ -198,14 +200,14 @@
 
   /* ---- conquistas ---- */
   .medalhas{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--linha);margin-bottom:10px}
-  .medalha{background:var(--fundo-2);padding:12px 14px;display:flex;align-items:center;gap:10px;min-width:0}
+  .medalha{background:var(--fundo-2);border:1px solid var(--linha);padding:12px 14px;display:flex;align-items:center;gap:10px;min-width:0}
   .medalha .cara{font-size:18px;line-height:1}
   .medalha .txt{min-width:0}
   .medalha b{display:block;font:400 13px Anton,sans-serif;letter-spacing:.06em;
     text-transform:uppercase;color:var(--texto)}
   .medalha span{display:block;font:500 11.5px 'Work Sans',sans-serif;color:var(--fraco)}
 
-  .proxima{background:var(--superficie);border-left:4px solid var(--amarelo);padding:14px 16px;margin-bottom:10px}
+  .proxima{background:var(--superficie);border:1px solid var(--linha-2);border-left:4px solid var(--amarelo);padding:14px 16px;margin-bottom:10px}
   .proxima .linha{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px}
   .proxima .linha b{font:400 15px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--amarelo)}
   .proxima .linha span{font:600 12px 'Work Sans',sans-serif;color:var(--apagado);white-space:nowrap}
@@ -245,7 +247,7 @@
   .nota b{color:var(--texto);font-weight:600}
 
   /* ---- grade de horários (configurações) ---- */
-  .gerador{background:var(--superficie);border-left:4px solid var(--amarelo);padding:16px;margin-bottom:22px}
+  .gerador{background:var(--superficie);border:1px solid var(--linha-2);border-left:4px solid var(--amarelo);padding:16px;margin-bottom:22px}
   .gerador h4{font:400 16px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
     color:var(--texto);margin-bottom:14px}
   .gerador .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
