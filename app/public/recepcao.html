@@ -15,9 +15,9 @@
      que exige atenção (fila, validade escoando). Verde só na confirmação:
      é sinal de porta aberta, lido de longe.                              */
   :root{
-    --preto:#0E0F11;--superficie:#17191C;--fundo-2:#131518;
-    --linha:#1F2226;--linha-2:#2A2D32;--linha-3:#33363b;
-    --texto:#F5F5F3;--apagado:#9CA0A6;--fraco:#6B7076;--fraco-2:#5F646A;
+    --preto:#08090B;--superficie:#1C2026;--fundo-2:#141619;
+    --linha:#2E333A;--linha-2:#3C424A;--linha-3:#4C525B;
+    --texto:#F5F5F3;--apagado:#A6ABB2;--fraco:#767C84;--fraco-2:#5F646A;
     --vermelho:#E01F26;--amarelo:#F5C518;--liberado:#1B6B4A;
     --raio:2px;
   }
@@ -37,7 +37,7 @@
   h1 span{display:block;font:600 10.5px 'Work Sans',sans-serif;color:var(--amarelo);
     letter-spacing:.16em;text-transform:uppercase;margin-top:5px}
   .placar{display:flex;gap:1px;background:var(--linha)}
-  .placar div{background:var(--superficie);padding:10px 20px;text-align:right;min-width:96px}
+  .placar div{background:var(--superficie);border:1px solid var(--linha-2);padding:10px 20px;text-align:right;min-width:96px}
   .placar b{display:block;font:400 30px/1 Anton,sans-serif;color:var(--texto);font-variant-numeric:tabular-nums}
   .placar div:first-child b{color:var(--amarelo)}
   .placar small{display:block;font:600 10px 'Work Sans',sans-serif;color:var(--fraco);
