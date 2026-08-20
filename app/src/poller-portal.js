@@ -142,4 +142,12 @@ function iniciar() {
   setInterval(() => rodarUmaVez().catch((e) => log('erro:', e.message)), MINUTOS * 60000);
 }
 
-module.exports = { iniciar, rodarUmaVez };
+/** Dispara um aviso de teste imediato (sem depender de check-in na fila). */
+async function testarAviso() {
+  await avisar('✅ Wellhub: teste de aviso',
+    'Este é um e-mail de teste do poller do portal Wellhub.\n\n'
+    + 'Se você recebeu isto, o canal de aviso está funcionando.');
+  return { ok: true, email: EMAIL_DESTINO, whatsapp: Boolean(process.env.WHATSAPP_URL) };
+}
+
+module.exports = { iniciar, rodarUmaVez, testarAviso };
