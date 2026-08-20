@@ -178,6 +178,20 @@ app.post('/acesso', async (req, res) => {
 /* ---------------------------------------------------------------------------
    Utilitários
 --------------------------------------------------------------------------- */
+/* Dispara um e-mail (e WhatsApp, se houver) de teste. Protegido por PANEL_TOKEN. */
+app.get('/wellhub/teste-aviso', async (req, res) => {
+  const esperado = process.env.PANEL_TOKEN || '';
+  if (esperado && req.query.token !== esperado) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  try {
+    const r = await pollerPortal.testarAviso();
+    res.json(r);
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
 app.get('/saude', (_req, res) => {
   res.json({
     ok: true,
