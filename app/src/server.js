@@ -4,6 +4,7 @@ const express = require('express');
 const path = require('path');
 const store = require('./store');
 const wellhub = require('./wellhub');
+const pollerPortal = require('./poller-portal');
 const { lerCheckin } = require('./payload-map');
 
 const app = express();
@@ -211,4 +212,5 @@ app.use((erro, _req, res, _next) => {
 
 app.listen(PORTA, () => {
   log(`Serviço no ar na porta ${PORTA}${wellhub.SIMULAR ? ' — MODO SIMULAÇÃO' : ''}`);
+  pollerPortal.iniciar(); // poller do portal Wellhub (só roda se POLLER_PORTAL_ATIVO=true)
 });
