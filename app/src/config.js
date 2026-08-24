@@ -69,6 +69,14 @@ const PADRAO = {
     corpo: '{"telefone":"{{telefone}}","mensagem":"{{mensagem}}"}',
     texto: 'Seu código de acesso é {{codigo}}. Vale por {{minutos}} minutos.',
   },
+  // Quem recebe os avisos do check-in Wellhub (e-mail e/ou WhatsApp).
+  // Editável em Configurações → Avisos de check-in. Listas vazias = canal
+  // desligado; sem e-mail cadastrado o sistema cai no WELLHUB_ALERTA_EMAIL.
+  avisos: {
+    checkinConfirmado: true,    // false = não avisa quando um check-in é confirmado
+    emails: [],                 // ['fulano@estudio.com', 'recepcao@estudio.com']
+    telefones: [],              // E.164: ['5531988887777', '5511977776666']
+  },
   administradores: [],          // telefones em E.164: ['5531988887777']
 };
 
