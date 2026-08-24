@@ -162,15 +162,9 @@ function horaCurta(iso) {
   } catch (e) { return '—'; }
 }
 
-/** Uma linha por aluno, com o que a recepção precisa para reconhecer quem é. */
+/** Uma linha por aluno: nome, hora do check-in e hora da confirmação. */
 function linhaDoAluno(c) {
-  const partes = [`• ${rotulo(c)}`];
-  if (c.gympassId) partes.push(`ID ${c.gympassId}`);
-  if (c.produto) partes.push(c.produto);
-  partes.push(`check-in ${horaCurta(c.criadoEm)}`);
-  partes.push(`confirmado ${horaCurta(c.confirmadoEm)}`);
-  if (c.primeiraVez) partes.push('1ª visita');
-  return partes.join(' — ');
+  return `• ${rotulo(c)} — check-in ${horaCurta(c.criadoEm)} — confirmado ${horaCurta(c.confirmadoEm)}`;
 }
 
 /**
@@ -296,7 +290,7 @@ async function rodarUmaVez(opcoes = {}) {
       if (rel.naoConferidos.length) {
         corpo.push('');
         corpo.push('⚠️ O portal ainda não mostra como validado:');
-        corpo.push(rel.naoConferidos.map((c) => `• ${rotulo(c)} — ID ${c.gympassId || '?'}`).join('\n'));
+        corpo.push(rel.naoConferidos.map((c) => `• ${rotulo(c)}`).join('\n'));
         corpo.push('Confira em https://partners.gympass.com/validation/' + portal.SLUG);
       } else if (rel.conferidosNoPortal.length === n) {
         corpo.push('');
