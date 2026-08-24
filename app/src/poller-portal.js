@@ -174,12 +174,41 @@ async function enviarEmail(assunto, texto) {
  * `mensagem` no corpo e o token em `Authorization: Bearer` — mandar só a
  * mensagem, como era antes, voltava 400 e nada chegava.
  */
+/**
+ * Traduz o erro de rede do fetch. 'fetch failed' sozinho não diz nada; o
+ * código em `cause` é que separa porta errada (ECONNREFUSED) de host errado
+ * (ENOTFOUND) de serviço lento (timeout).
+ */
+function motivoDeRede(e) {
+  if (e.name === 'AbortError') return 'tempo esgotado (10s sem resposta)';
+  const codigo = e.cause && (e.cause.code || e.cause.errno);
+  const dicas = {
+    ECONNREFUSED: 'conexão recusada — o endereço responde, mas nada escuta nessa porta',
+    ENOTFOUND: 'host não encontrado — confira o nome do serviço no endereço',
+    EAI_AGAIN: 'DNS não resolveu o host',
+    ETIMEDOUT: 'a conexão expirou antes de completar',
+    ECONNRESET: 'a conexão caiu no meio do envio',
+  };
+  if (codigo) return `${codigo}: ${dicas[codigo] || e.message}`;
+  return e.message;
+}
+
+/**
+ * Um POST por telefone. Devolve o resultado de cada um para que o endpoint de
+ * teste possa mostrar o que aconteceu, em vez de só "mandei".
+ */
 async function enviarWhatsApp(texto) {
   const telefones = telefonesDestino();
-  if (!telefones.length) return; // ninguém cadastrado para receber
+  if (!telefones.length) return [];  // ninguém cadastrado para receber
   const { url, token } = canalWhatsApp();
-  if (!url) { log('sem endereço do serviço de WhatsApp; nada enviado.'); return; }
+  if (!url) {
+    log('sem endereço do serviço de WhatsApp; nada enviado.');
+    return telefones.map((telefone) => ({
+      telefone, ok: false, erro: 'endereço do serviço de WhatsApp não configurado',
+    }));
+  }
 
+  const resultados = [];
   for (const telefone of telefones) {
     const controle = new AbortController();
     const timer = setTimeout(() => controle.abort(), 10000);
@@ -193,18 +222,23 @@ async function enviarWhatsApp(texto) {
         body: JSON.stringify({ telefone, mensagem: texto }),
         signal: controle.signal,
       });
+      const corpo = (await r.text().catch(() => '')).slice(0, 200);
       if (!r.ok) {
-        const t = (await r.text().catch(() => '')).slice(0, 200);
-        log('WhatsApp recusado para', telefone, '-', r.status, t);
+        log('WhatsApp recusado para', telefone, '-', r.status, corpo);
+        resultados.push({ telefone, ok: false, status: r.status, erro: corpo || `HTTP ${r.status}` });
       } else {
         log('WhatsApp enviado para', telefone);
+        resultados.push({ telefone, ok: true, status: r.status });
       }
     } catch (e) {
-      log('falha ao avisar WhatsApp', telefone, '-', e.message);
+      const motivo = motivoDeRede(e);
+      log('falha ao avisar WhatsApp', telefone, '-', motivo);
+      resultados.push({ telefone, ok: false, erro: motivo });
     } finally {
       clearTimeout(timer);
     }
   }
+  return resultados;
 }
 
 /** Dispara o aviso pelos canais configurados. */
@@ -400,14 +434,21 @@ function iniciar() {
 
 /** Dispara um aviso de teste imediato (sem depender de check-in na fila). */
 async function testarAviso() {
-  await avisar('✅ Wellhub: teste de aviso',
-    'Este é um teste de aviso do check-in Wellhub.\n\n'
-    + 'Se você recebeu isto, o canal está funcionando.');
+  const assunto = '✅ Wellhub: teste de aviso';
+  const texto = 'Este é um teste de aviso do check-in Wellhub.\n\n'
+    + 'Se você recebeu isto, o canal está funcionando.';
+
+  await enviarEmail(assunto, texto);
+  const whatsapp = await enviarWhatsApp(texto);
+  const { url } = canalWhatsApp();
+
   return {
-    ok: true,
+    ok: whatsapp.every((r) => r.ok),
     emails: emailsDestino(),
-    telefones: telefonesDestino(),
-    whatsapp: Boolean(canalWhatsApp().url) && telefonesDestino().length > 0,
+    // Endereço sem credencial: é o campo que mais erra e o que ninguém consegue
+    // conferir sem abrir o volume.
+    enderecoWhatsApp: url ? url.replace(/\/\/[^@/]+@/, '//***@') : null,
+    whatsapp,
   };
 }
 
