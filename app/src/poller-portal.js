@@ -452,4 +452,7 @@ async function testarAviso() {
   };
 }
 
-module.exports = { iniciar, rodarUmaVez, testarAviso, situacao, definirAuto };
+module.exports = {
+  iniciar, rodarUmaVez, testarAviso, situacao, definirAuto,
+  motivoDeRede, canalWhatsApp,
+};
