@@ -240,6 +240,51 @@ app.all('/wellhub/poller/rodar', async (req, res) => {
   }
 });
 
+/**
+ * Sonda o serviço de WhatsApp pela rede privada, sem enviar mensagem nenhuma.
+ * Existe porque "fetch failed" no envio não distingue nome de serviço errado
+ * de porta errada, e o hostname interno só aparece no painel do Railway.
+ *
+ *   /wellhub/whatsapp/sondar?token=...&host=whatsapp&porta=8080
+ *
+ * Restrito à rede interna do Railway de propósito: este endpoint não serve
+ * para buscar endereço arbitrário.
+ */
+app.all('/wellhub/whatsapp/sondar', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  const q = { ...(req.body || {}), ...req.query };
+  const bruto = String(q.host || 'whatsapp').trim().toLowerCase();
+  const porta = Number(q.porta || 8080);
+  const caminho = String(q.caminho || '/status');
+
+  if (!/^[a-z0-9][a-z0-9-]*(\.railway\.internal)?$/.test(bruto)) {
+    return res.status(400).json({ ok: false, erro: 'Host inválido. Use só o nome do serviço.' });
+  }
+  if (!Number.isInteger(porta) || porta < 1 || porta > 65535) {
+    return res.status(400).json({ ok: false, erro: 'Porta inválida.' });
+  }
+  if (!/^\/[a-z0-9/_-]*$/.test(caminho)) {
+    return res.status(400).json({ ok: false, erro: 'Caminho inválido.' });
+  }
+
+  const host = bruto.endsWith('.railway.internal') ? bruto : `${bruto}.railway.internal`;
+  const alvo = `http://${host}:${porta}${caminho}`;
+
+  const controle = new AbortController();
+  const timer = setTimeout(() => controle.abort(), 8000);
+  try {
+    const r = await fetch(alvo, { signal: controle.signal });
+    const corpo = (await r.text().catch(() => '')).slice(0, 300);
+    res.json({ ok: r.ok, alvo, status: r.status, corpo });
+  } catch (e) {
+    res.json({ ok: false, alvo, erro: pollerPortal.motivoDeRede(e) });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 app.get('/saude', (_req, res) => {
   res.json({
     ok: true,
