@@ -569,6 +569,46 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     novo.conquistas = limpas.sort((x, y) => x.aulas - y.aulas);
   }
 
+  // Avisos de check-in: listas de e-mail e de telefone, com repetidos removidos.
+  if (novo.avisos !== undefined) {
+    const a = novo.avisos || {};
+
+    if (a.emails !== undefined) {
+      if (!Array.isArray(a.emails)) {
+        return res.status(400).json({ erro: 'Lista de e-mails inválida.' });
+      }
+      const limpos = [];
+      for (const bruto of a.emails) {
+        const email = String(bruto || '').trim().toLowerCase();
+        if (!email) continue;
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+          return res.status(400).json({ erro: `E-mail inválido: ${email}` });
+        }
+        limpos.push(email.slice(0, 120));
+      }
+      a.emails = [...new Set(limpos)];
+    }
+
+    if (a.telefones !== undefined) {
+      if (!Array.isArray(a.telefones)) {
+        return res.status(400).json({ erro: 'Lista de telefones inválida.' });
+      }
+      const limpos = [];
+      for (const bruto of a.telefones) {
+        if (!String(bruto || '').trim()) continue;
+        const tel = normalizarTelefone(bruto);
+        if (!tel) {
+          return res.status(400).json({ erro: `Telefone inválido: ${bruto}. Use DDD + 9 dígitos.` });
+        }
+        limpos.push(tel);
+      }
+      a.telefones = [...new Set(limpos)];
+    }
+
+    if (a.checkinConfirmado !== undefined) a.checkinConfirmado = Boolean(a.checkinConfirmado);
+    novo.avisos = a;
+  }
+
   if (novo.acesso && novo.acesso.canalDoCodigo !== undefined) {
     const canais = ['log', 'whatsapp', 'sms', 'aberto'];
     if (!canais.includes(novo.acesso.canalDoCodigo)) {
