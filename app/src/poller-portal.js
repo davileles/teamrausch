@@ -150,6 +150,29 @@ async function avisar(assunto, texto) {
 
 function rotulo(c) { return c.nome || c.gympassId || '?'; }
 
+const FUSO = process.env.TZ_ESTUDIO || 'America/Sao_Paulo';
+
+/** '14:32' no fuso do estúdio; devolve '—' se a data não vier. */
+function horaCurta(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleTimeString('pt-BR', {
+      timeZone: FUSO, hour: '2-digit', minute: '2-digit',
+    });
+  } catch (e) { return '—'; }
+}
+
+/** Uma linha por aluno, com o que a recepção precisa para reconhecer quem é. */
+function linhaDoAluno(c) {
+  const partes = [`• ${rotulo(c)}`];
+  if (c.gympassId) partes.push(`ID ${c.gympassId}`);
+  if (c.produto) partes.push(c.produto);
+  partes.push(`check-in ${horaCurta(c.criadoEm)}`);
+  partes.push(`confirmado ${horaCurta(c.confirmadoEm)}`);
+  if (c.primeiraVez) partes.push('1ª visita');
+  return partes.join(' — ');
+}
+
 /**
  * Roda um ciclo completo e devolve o relatório do que aconteceu.
  * @param {object} opcoes
@@ -224,7 +247,16 @@ async function rodarUmaVez(opcoes = {}) {
     try {
       const r = await portal.confirmar(c);
       log('confirmar', c.gympassId, r.ok ? 'OK' : `falhou (${r.motivo})`);
-      if (r.ok) rel.confirmados.push({ gympassId: c.gympassId, nome: c.nome });
+      if (r.ok) {
+        rel.confirmados.push({
+          gympassId: c.gympassId,
+          nome: c.nome,
+          produto: c.produto,
+          criadoEm: c.criadoEm,
+          primeiraVez: c.primeiraVez,
+          confirmadoEm: new Date().toISOString(),
+        });
+      }
       else rel.falhas.push({ gympassId: c.gympassId, nome: c.nome, motivo: r.motivo });
     } catch (e) {
       log('confirmar', c.gympassId, 'erro:', e.message);
@@ -248,12 +280,30 @@ async function rodarUmaVez(opcoes = {}) {
     }
 
     if (querAvisar) {
-      const conferidos = rel.conferidosNoPortal.map(rotulo).join(', ') || '—';
-      const pendura = rel.naoConferidos.length
-        ? `\n\nConfirmei mas o portal ainda não mostra como validado: ${rel.naoConferidos.map(rotulo).join(', ')}`
-        : '';
-      await avisar(`✅ Wellhub: ${rel.confirmados.length} check-in(s) confirmado(s)`,
-        `Confirmei automaticamente:\n\n${conferidos}${pendura}`);
+      const n = rel.confirmados.length;
+      const assunto = n === 1
+        ? `✅ Check-in confirmado — ${rotulo(rel.confirmados[0])}`
+        : `✅ ${n} check-ins confirmados no Wellhub`;
+
+      const corpo = [];
+      corpo.push(n === 1
+        ? 'Check-in confirmado automaticamente no Wellhub:'
+        : `${n} check-ins confirmados automaticamente no Wellhub:`);
+      corpo.push('');
+      corpo.push(rel.confirmados.map(linhaDoAluno).join('\n'));
+
+      // A conferência é o que separa "mandei confirmar" de "o portal registrou".
+      if (rel.naoConferidos.length) {
+        corpo.push('');
+        corpo.push('⚠️ O portal ainda não mostra como validado:');
+        corpo.push(rel.naoConferidos.map((c) => `• ${rotulo(c)} — ID ${c.gympassId || '?'}`).join('\n'));
+        corpo.push('Confira em https://partners.gympass.com/validation/' + portal.SLUG);
+      } else if (rel.conferidosNoPortal.length === n) {
+        corpo.push('');
+        corpo.push('Todos conferidos como validados no portal.');
+      }
+
+      await avisar(assunto, corpo.join('\n'));
     }
   }
 
