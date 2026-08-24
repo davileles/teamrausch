@@ -178,15 +178,63 @@ app.post('/acesso', async (req, res) => {
 /* ---------------------------------------------------------------------------
    Utilitários
 --------------------------------------------------------------------------- */
+/* Token do painel aceito na querystring (?token=) ou no cabeçalho X-Panel-Token.
+   A querystring existe para você conseguir abrir isto do celular, sem ferramenta. */
+function tokenPainelConfere(req) {
+  const esperado = process.env.PANEL_TOKEN || '';
+  if (!esperado) return true; // sem token configurado, acesso liberado
+  return req.query.token === esperado || req.get('X-Panel-Token') === esperado;
+}
+
 /* Dispara um e-mail (e WhatsApp, se houver) de teste. Protegido por PANEL_TOKEN. */
 app.get('/wellhub/teste-aviso', async (req, res) => {
-  const esperado = process.env.PANEL_TOKEN || '';
-  if (esperado && req.query.token !== esperado) {
+  if (!tokenPainelConfere(req)) {
     return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
   }
   try {
     const r = await pollerPortal.testarAviso();
     res.json(r);
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
+/* ---------------------------------------------------------------------------
+   Poller do portal Wellhub — estado, chave liga/desliga e ciclo sob demanda
+   Tudo protegido por PANEL_TOKEN. Aceita GET para abrir direto do navegador.
+--------------------------------------------------------------------------- */
+
+/** Como está agora: modo, intervalo e relatório do último ciclo. */
+app.all('/wellhub/poller', (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  res.json({ ok: true, ...pollerPortal.situacao() });
+});
+
+/** Liga/desliga a confirmação automática. ?auto=true | ?auto=false */
+app.all('/wellhub/poller/auto', (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  const bruto = req.query.auto !== undefined ? req.query.auto : (req.body || {}).auto;
+  if (bruto === undefined) {
+    return res.status(400).json({ ok: false, erro: 'Informe auto=true ou auto=false.' });
+  }
+  const ligado = bruto === true || String(bruto).toLowerCase() === 'true';
+  log('[poller] auto-confirmar →', ligado);
+  res.json({ ok: true, ...pollerPortal.definirAuto(ligado, 'endpoint') });
+});
+
+/** Roda um ciclo agora, sem esperar os 15 min. ?avisar=false suprime o e-mail. */
+app.all('/wellhub/poller/rodar', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  const querAvisar = String(req.query.avisar || 'true').toLowerCase() !== 'false';
+  try {
+    const rel = await pollerPortal.rodarUmaVez({ origem: 'manual', avisar: querAvisar });
+    res.json({ ok: !rel.erro, relatorio: rel });
   } catch (e) {
     res.status(500).json({ ok: false, erro: e.message });
   }
