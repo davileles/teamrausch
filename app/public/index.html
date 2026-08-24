@@ -246,6 +246,36 @@
     padding:12px 15px;font:400 13px/1.55 'Work Sans',sans-serif;color:var(--apagado);margin-bottom:16px}
   .nota b{color:var(--texto);font-weight:600}
 
+  /* ---- matrículas: cadastro interno e grade fixa ---- */
+  .filtros-mat{margin-bottom:14px}
+  .filtros-mat input{margin-bottom:10px}
+  .chips-mat{display:flex;gap:6px;flex-wrap:wrap}
+  .chips-mat .chip{padding:9px 11px;min-height:38px;font-size:11px}
+  .lista-slots{display:flex;flex-direction:column;gap:8px}
+  .slot-grade{display:grid;grid-template-columns:84px minmax(0,1fr) auto;gap:8px;align-items:center}
+  /* min-width:0 nos filhos: sem isso o campo de hora estoura a coluna e o
+     horário aparece cortado no celular. */
+  .slot-grade input,.slot-grade select{background:var(--preto);min-width:0}
+  .slot-grade .sg-remover{padding:9px 10px;font-size:11px;white-space:nowrap}
+  .grupo-filtro{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}
+  .grupo-filtro > span{font:600 10px 'Work Sans',sans-serif;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--fraco);min-width:58px}
+  .encaixe{display:grid;grid-template-columns:minmax(0,1fr) 104px auto;gap:8px;align-items:center;
+    margin-bottom:14px}
+  .encaixe select,.encaixe input{background:var(--preto);min-width:0;margin:0}
+  .mat-item .rodape{margin-top:10px}
+  .sem-tel{color:var(--amarelo-2);margin:0}
+  .alerta-rev{border-left:3px solid var(--amarelo);padding-left:10px;margin:12px 0 0}
+  .barra-dia{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;margin-bottom:12px}
+  .barra-dia input{background:var(--preto);margin:0}
+  .lista-nomes{display:flex;flex-direction:column;gap:2px;margin-top:10px}
+  .nome-linha{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:9px 0;border-top:1px solid var(--linha);font:400 14px 'Work Sans',sans-serif}
+  .nome-linha:first-child{border-top:none}
+  .nome-linha button{padding:6px 10px;min-height:34px;font-size:11px}
+  .marca-extra{font:600 10px 'Work Sans',sans-serif;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--amarelo-2);font-style:normal;margin-left:6px}
+
   /* ---- grade de horários (configurações) ---- */
   .gerador{background:var(--superficie);border:1px solid var(--linha-2);border-left:4px solid var(--amarelo);padding:16px;margin-bottom:22px}
   .gerador h4{font:400 16px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
@@ -387,6 +417,7 @@
       <button data-aba="perfil" aria-selected="false">Meus dados</button>
       <button data-aba="dia" aria-selected="false" class="so-admin" hidden>Lista do dia</button>
       <button data-aba="alunos" aria-selected="false" class="so-admin" hidden>Alunos</button>
+      <button data-aba="matriculas" aria-selected="false" class="so-admin" hidden>Matrículas</button>
       <button data-aba="config" aria-selected="false" class="so-admin" hidden>Configurações</button>
     </nav>
   </header>
@@ -397,6 +428,7 @@
     <section id="aba-perfil" hidden></section>
     <section id="aba-dia" hidden></section>
     <section id="aba-alunos" hidden></section>
+    <section id="aba-matriculas" hidden></section>
     <section id="aba-config" hidden></section>
   </div>
 </div>
@@ -571,16 +603,18 @@ function limparTela(){
   subConfig = 'negocio';
   diaAberto = '';   // conta nova, agenda nova: a fita recomeça no primeiro dia
   dataDoDia = null;
-  ['agendar','meus','perfil','dia','alunos','config'].forEach(a=>{ document.getElementById('aba-'+a).innerHTML = ''; });
+  matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false, data:null, aberta:null };
+  TODAS_ABAS.forEach(a=>{ document.getElementById('aba-'+a).innerHTML = ''; });
   document.getElementById('quem-sou').textContent = '';
 }
 
 /* ------------------------------ abas ----------------------------------- */
-const ABAS_ADMIN = ['dia','alunos','config'];
+const TODAS_ABAS  = ['agendar','meus','perfil','dia','alunos','matriculas','config'];
+const ABAS_ADMIN  = ['dia','alunos','matriculas','config'];
 
 /** Uma aba só vale se existir e, sendo de admin, se a pessoa for admin. */
 function abaPermitida(aba){
-  if (!['agendar','meus','perfil','dia','alunos','config'].includes(aba)) return false;
+  if (!TODAS_ABAS.includes(aba)) return false;
   return !ABAS_ADMIN.includes(aba) || Boolean(eu && eu.admin);
 }
 
@@ -593,7 +627,7 @@ function abrirAba(aba){
   abaAtiva = abaPermitida(aba) ? aba : 'agendar';
   document.querySelectorAll('#abas button').forEach(x=>
     x.setAttribute('aria-selected', String(x.dataset.aba === abaAtiva)));
-  ['agendar','meus','perfil','dia','alunos','config'].forEach(a=>{
+  TODAS_ABAS.forEach(a=>{
     document.getElementById('aba-'+a).hidden = a !== abaAtiva;
   });
   return desenharAba();
@@ -617,6 +651,7 @@ function desenharAba(){
   if (abaAtiva === 'perfil') return carregarPerfil();
   if (abaAtiva === 'dia') return carregarDia();
   if (abaAtiva === 'alunos') return carregarAlunos();
+  if (abaAtiva === 'matriculas') return carregarMatriculas();
   if (abaAtiva === 'config') return carregarConfig();
 }
 
@@ -1012,6 +1047,315 @@ async function carregarAlunos(){
             body: JSON.stringify({bloqueado: ficha.querySelector('button.alternar').dataset.bloq !== '1'})});
           redesenhar();
         }catch(e){ avisar(e.message,'erro'); }
+      });
+    });
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* ---------------------------- matrículas -------------------------------- */
+/* Cadastro interno do estúdio: a base que veio da planilha, com a grade fixa
+   de cada aluno. É separada da aba "Alunos" de propósito — lá ficam os
+   telefones que fazem login; aqui fica quem treina, tenha número ou não. */
+
+const DIAS_SEM = [[1,'Seg'],[2,'Ter'],[3,'Qua'],[4,'Qui'],[5,'Sex'],[6,'Sáb'],[0,'Dom']];
+const NOME_DIA = {0:'dom',1:'seg',2:'ter',3:'qua',4:'qui',5:'sex',6:'sáb'};
+
+let matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false, data:null, aberta:null };
+
+/** Grade em uma linha: agrupa os dias que compartilham o mesmo horário. */
+function gradeEmTexto(grade){
+  if (!grade || !grade.length) return 'sem horário definido';
+  const porHora = new Map();
+  grade.forEach(s=>{ if(!porHora.has(s.hora)) porHora.set(s.hora,[]); porHora.get(s.hora).push(s.dia); });
+  return [...porHora.entries()].sort((a,b)=>a[0].localeCompare(b[0]))
+    .map(([hora,dias])=>`${hora} · ${dias.sort().map(d=>NOME_DIA[d]).join(', ')}`).join('  |  ');
+}
+
+function linhaSlot(dia=1, hora=''){
+  return `<div class="slot-grade">
+    <select class="sg-dia">${DIAS_SEM.map(([v,r])=>
+      `<option value="${v}"${v===dia?' selected':''}>${r}</option>`).join('')}</select>
+    <input type="time" class="sg-hora" value="${esc(hora)}">
+    <button class="leve sg-remover" aria-label="Remover horário">Remover</button>
+  </div>`;
+}
+
+/** Formulário de uma matrícula. `m` vazio = cadastro novo. */
+function fichaMatricula(m){
+  const novo = !m.id;
+  const mens = (m.vinculo || 'mensalista') === 'mensalista';
+  return `<div class="ficha mat-form" data-id="${esc(m.id||'')}">
+    <div class="cabeca"><b>${novo ? 'Novo aluno' : esc(m.nome)}</b>
+      <span class="tags">${novo ? '' : (m.ativo ? 'ativo' : 'inativo')}</span></div>
+    <div class="campos">
+      <input class="mf-nome" value="${esc(m.nome||'')}" maxlength="60" placeholder="Nome do aluno">
+      <input class="mf-tel" type="tel" inputmode="numeric" value="${esc(m.telefone||'')}"
+        placeholder="Telefone (opcional)">
+      <select class="mf-vinculo">
+        <option value="mensalista"${mens?' selected':''}>Mensalista</option>
+        <option value="wellhub"${mens?'':' selected'}>Wellhub</option>
+      </select>
+    </div>
+    <div class="campos mf-cobranca" ${mens?'':'hidden'}>
+      <select class="mf-ciclo">${['mensal','trimestral','semestral','anual'].map(x=>
+        `<option value="${x}"${(m.ciclo||'mensal')===x?' selected':''}>${x[0].toUpperCase()+x.slice(1)}</option>`).join('')}</select>
+      <input class="mf-venc" type="number" min="1" max="31" value="${m.diaVencimento??''}"
+        placeholder="Dia do vencimento">
+    </div>
+    <p class="ajuda" style="margin:14px 0 6px">Horários fixos da semana</p>
+    <div class="lista-slots">${(m.grade||[]).map(s=>linhaSlot(s.dia,s.hora)).join('')}</div>
+    <button class="leve mf-add" style="margin-top:8px">+ Adicionar horário</button>
+    <div class="campos" style="margin-top:12px">
+      <input class="mf-obs" value="${esc(m.observacao||'')}" maxlength="140" placeholder="Observação (opcional)">
+    </div>
+    ${(m.revisar||[]).length ? `<p class="ajuda alerta-rev">⚠︎ ${m.revisar.map(esc).join(' · ')}<br>
+      <span style="opacity:.75">Da planilha: ${esc(m.freqOriginal||'—')}</span></p>` : ''}
+    <div class="rodape">
+      <button class="leve mf-salvar">${novo ? 'Cadastrar' : 'Salvar'}</button>
+      <button class="leve mf-cancelar">Cancelar</button>
+      ${novo ? '' : `<button class="leve mf-inativar">${m.ativo?'Inativar':'Reativar'}</button>`}
+    </div>
+  </div>`;
+}
+
+/** Lê o formulário e devolve o corpo do PUT/POST. */
+function lerFicha(el){
+  const grade = [...el.querySelectorAll('.slot-grade')]
+    .map(l=>({ dia: Number(l.querySelector('.sg-dia').value), hora: l.querySelector('.sg-hora').value }))
+    .filter(s=>s.hora);
+  const corpo = {
+    nome: el.querySelector('.mf-nome').value,
+    telefone: el.querySelector('.mf-tel').value,
+    vinculo: el.querySelector('.mf-vinculo').value,
+    observacao: el.querySelector('.mf-obs').value,
+    grade,
+    revisado: true,
+  };
+  if (corpo.vinculo === 'mensalista'){
+    corpo.ciclo = el.querySelector('.mf-ciclo').value;
+    corpo.diaVencimento = el.querySelector('.mf-venc').value;
+  }
+  return corpo;
+}
+
+function ligarFicha(el, id){
+  el.querySelector('.mf-add').addEventListener('click', ()=>{
+    el.querySelector('.lista-slots').insertAdjacentHTML('beforeend', linhaSlot());
+  });
+  el.querySelector('.lista-slots').addEventListener('click', e=>{
+    if (e.target.closest('.sg-remover')) e.target.closest('.slot-grade').remove();
+  });
+  el.querySelector('.mf-vinculo').addEventListener('change', e=>{
+    el.querySelector('.mf-cobranca').hidden = e.target.value !== 'mensalista';
+  });
+  el.querySelector('.mf-cancelar').addEventListener('click', ()=>{
+    matEstado.aberta = null; redesenhar();
+  });
+  el.querySelector('.mf-salvar').addEventListener('click', async ()=>{
+    const b = el.querySelector('.mf-salvar');
+    b.disabled = true; b.textContent = 'Salvando…';
+    try{
+      await api('/matriculas' + (id ? '/'+id : ''), {
+        method: id ? 'PUT' : 'POST', body: JSON.stringify(lerFicha(el)) });
+      avisar(id ? 'Matrícula atualizada.' : 'Aluno cadastrado.', 'ok');
+      matEstado.aberta = null; redesenhar();
+    }catch(e){
+      avisar(e.message,'erro'); b.disabled = false; b.textContent = id ? 'Salvar' : 'Cadastrar';
+    }
+  });
+  const inat = el.querySelector('.mf-inativar');
+  if (inat) inat.addEventListener('click', async ()=>{
+    const ativo = inat.textContent.trim() === 'Inativar';
+    if (ativo && !confirm('Inativar este aluno? Ele sai da grade a partir de hoje, mas o histórico fica.')) return;
+    try{
+      if (ativo) await api('/matriculas/'+id, {method:'DELETE'});
+      else await api('/matriculas/'+id, {method:'PUT', body: JSON.stringify({ativo:true})});
+      matEstado.aberta = null; redesenhar();
+    }catch(e){ avisar(e.message,'erro'); }
+  });
+}
+
+async function carregarMatriculas(){
+  const alvo = document.getElementById('aba-matriculas');
+  const q = new URLSearchParams({ situacao: matEstado.situacao });
+  if (matEstado.busca) q.set('busca', matEstado.busca);
+  if (matEstado.vinculo) q.set('vinculo', matEstado.vinculo);
+  if (matEstado.revisar) q.set('revisar','1');
+
+  try{
+    const { resumo, matriculas } = await api('/matriculas?'+q);
+
+    alvo.innerHTML = `<h2>Matrículas</h2>
+      <div class="subabas" id="sub-mat">
+        <button data-sub="alunos" aria-selected="${matEstado.sub==='alunos'}">Alunos</button>
+        <button data-sub="grade" aria-selected="${matEstado.sub==='grade'}">Grade do dia</button>
+      </div>
+      <div data-painel="alunos" ${matEstado.sub==='alunos'?'':'hidden'}>
+        <p class="ajuda">${resumo.ativas} ativos · ${resumo.mensalistas} mensalistas ·
+          ${resumo.wellhub} Wellhub · ${resumo.semTelefone} sem telefone${
+          resumo.aRevisar ? ` · <b>${resumo.aRevisar} a revisar</b>` : ''}</p>
+        <div class="filtros-mat">
+          <input id="mat-busca" value="${esc(matEstado.busca)}" placeholder="Buscar por nome">
+          <div class="chips-mat">
+            <div class="grupo-filtro"><span>Situação</span>
+              ${[['ativos','Ativos'],['inativos','Inativos'],['todos','Todos']].map(([v,r])=>
+                `<button class="chip${matEstado.situacao===v?' sel':''}" data-sit="${v}">${r}</button>`).join('')}
+            </div>
+            <div class="grupo-filtro"><span>Vínculo</span>
+              ${[['','Ambos'],['mensalista','Mensalista'],['wellhub','Wellhub']].map(([v,r])=>
+                `<button class="chip${matEstado.vinculo===v?' sel':''}" data-vin="${v}">${r}</button>`).join('')}
+            </div>
+            <div class="grupo-filtro"><span></span>
+              <button class="chip${matEstado.revisar?' sel':''}" data-rev="1">A revisar</button>
+            </div>
+          </div>
+        </div>
+        <button class="leve" id="mat-novo" style="margin-bottom:12px">+ Novo aluno</button>
+        <div id="mat-lista">${
+          matEstado.aberta === 'novo' ? fichaMatricula({}) : ''}${
+          matriculas.length ? matriculas.map(m=>
+            matEstado.aberta === m.id ? fichaMatricula(m) : `
+            <div class="ficha mat-item" data-id="${esc(m.id)}">
+              <div class="cabeca"><b>${esc(m.nome)}</b>
+                <span class="tags">${m.vinculo==='wellhub'?'wellhub':'mensal'} ·
+                  ${m.diasSemana}×/sem${m.ativo?'':' · inativo'}${m.precisaRevisar?' · revisar':''}</span></div>
+              <p class="ajuda" style="margin:8px 0 0">${esc(gradeEmTexto(m.grade))}</p>
+              ${m.telefone ? '' : '<p class="ajuda sem-tel" style="margin:4px 0 0">sem telefone cadastrado</p>'}
+              <div class="rodape"><button class="leve mat-editar">Editar</button></div>
+            </div>`).join('')
+          : '<div class="vazio">Nenhum aluno com esses filtros.</div>'}</div>
+      </div>
+      <div data-painel="grade" ${matEstado.sub==='grade'?'':'hidden'}>
+        <div id="mat-grade"><div class="vazio">Carregando…</div></div>
+      </div>`;
+
+    alvo.querySelector('#sub-mat').addEventListener('click', e=>{
+      const b = e.target.closest('button[data-sub]'); if (!b) return;
+      matEstado.sub = b.dataset.sub; matEstado.aberta = null; redesenhar();
+    });
+
+    const busca = alvo.querySelector('#mat-busca');
+    let timer = null;
+    busca.addEventListener('input', ()=>{
+      clearTimeout(timer);
+      timer = setTimeout(()=>{
+        matEstado.busca = busca.value.trim();
+        matEstado.aberta = null;
+        const fim = busca.selectionStart;
+        redesenhar().then(()=>{
+          const novo = document.getElementById('mat-busca');
+          if (novo){ novo.focus(); novo.setSelectionRange(fim, fim); }
+        });
+      }, 320);
+    });
+
+    alvo.querySelector('.chips-mat').addEventListener('click', e=>{
+      const b = e.target.closest('.chip'); if (!b) return;
+      if (b.dataset.sit) matEstado.situacao = b.dataset.sit;
+      else if (b.dataset.vin !== undefined) matEstado.vinculo = b.dataset.vin;
+      else if (b.dataset.rev) matEstado.revisar = !matEstado.revisar;
+      matEstado.aberta = null; redesenhar();
+    });
+
+    alvo.querySelector('#mat-novo').addEventListener('click', ()=>{
+      matEstado.aberta = 'novo'; redesenhar();
+    });
+
+    alvo.querySelectorAll('.mat-item').forEach(item=>{
+      item.querySelector('.mat-editar').addEventListener('click', ()=>{
+        matEstado.aberta = item.dataset.id; redesenhar();
+      });
+    });
+
+    alvo.querySelectorAll('.mat-form').forEach(f=> ligarFicha(f, f.dataset.id || null));
+
+    if (matEstado.sub === 'grade') await carregarGradeDoDia();
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* ------------------------- grade projetada do dia ------------------------ */
+
+async function carregarGradeDoDia(){
+  const alvo = document.getElementById('mat-grade');
+  if (!alvo) return;
+  try{
+    const [dia, base] = await Promise.all([
+      api('/matriculas/grade/dia' + (matEstado.data ? '?data='+matEstado.data : '')),
+      api('/matriculas?situacao=ativos'),
+    ]);
+    matEstado.data = dia.data;
+
+    alvo.innerHTML = `
+      <div class="barra-dia">
+        <button class="leve" data-passo="-1">◀</button>
+        <input type="date" id="mat-data" value="${dia.data}">
+        <button class="leve" data-passo="1">▶</button>
+        <button class="leve" data-passo="0">Hoje</button>
+      </div>
+      <p class="ajuda">${dia.porExtenso} · ${dia.total} ${dia.total===1?'aula':'aulas'} previstas.
+        A grade é projetada dos horários fixos — o que você mexer aqui vale só para este dia.</p>
+      <div class="encaixe">
+        <select id="mat-encaixe-quem">
+          <option value="">Encaixar aluno…</option>
+          ${base.matriculas.map(m=>`<option value="${esc(m.id)}">${esc(m.nome)}</option>`).join('')}
+        </select>
+        <input type="time" id="mat-encaixe-hora">
+        <button class="leve" id="mat-encaixe-ok">Encaixar</button>
+      </div>
+      ${dia.horarios.length ? dia.horarios.map(h=>`
+        <div class="ficha">
+          <div class="cabeca"><b>${h.hora}</b><span class="tags">${h.total} ${h.total===1?'aluno':'alunos'}</span></div>
+          <div class="lista-nomes">${h.alunos.map(a=>`
+            <div class="nome-linha" data-mat="${esc(a.matriculaId)}" data-hora="${h.hora}"
+                 data-exc="${esc(a.excecaoId||'')}">
+              <span>${esc(a.nome)}${a.origem==='extra'?' <i class="marca-extra">extra</i>':''}</span>
+              <button class="leve n-desmarcar">${a.origem==='extra'?'Remover':'Desmarcar'}</button>
+            </div>`).join('')}</div>
+        </div>`).join('')
+      : '<div class="vazio">Nenhuma aula neste dia.</div>'}`;
+
+    alvo.querySelector('.barra-dia').addEventListener('click', e=>{
+      const b = e.target.closest('button[data-passo]'); if (!b) return;
+      const passo = Number(b.dataset.passo);
+      if (passo === 0){ matEstado.data = null; }
+      else {
+        const d = new Date(matEstado.data + 'T12:00:00Z');
+        d.setUTCDate(d.getUTCDate() + passo);
+        matEstado.data = d.toISOString().slice(0,10);
+      }
+      carregarGradeDoDia();
+    });
+    alvo.querySelector('#mat-data').addEventListener('change', e=>{
+      matEstado.data = e.target.value || null;
+      carregarGradeDoDia();
+    });
+
+    alvo.querySelector('#mat-encaixe-ok').addEventListener('click', async ()=>{
+      const quem = alvo.querySelector('#mat-encaixe-quem').value;
+      const hora = alvo.querySelector('#mat-encaixe-hora').value;
+      if (!quem || !hora) return avisar('Escolha o aluno e o horário.', 'erro');
+      try{
+        await api('/matriculas/excecoes', {method:'POST', body: JSON.stringify({
+          matriculaId: quem, data: matEstado.data, tipo:'extra', hora })});
+        avisar('Aula extra encaixada.', 'ok');
+        await carregarGradeDoDia();
+      }catch(e){ avisar(e.message,'erro'); }
+    });
+
+    alvo.querySelectorAll('.n-desmarcar').forEach(b=>{
+      b.addEventListener('click', async ()=>{
+        const linha = b.closest('.nome-linha');
+        b.disabled = true;
+        try{
+          if (linha.dataset.exc){
+            await api('/matriculas/excecoes/'+linha.dataset.exc, {method:'DELETE'});
+          } else {
+            await api('/matriculas/excecoes', {method:'POST', body: JSON.stringify({
+              matriculaId: linha.dataset.mat, data: matEstado.data,
+              tipo:'cancelou', hora: linha.dataset.hora })});
+          }
+          await carregarGradeDoDia();
+        }catch(e){ avisar(e.message,'erro'); b.disabled = false; }
       });
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }

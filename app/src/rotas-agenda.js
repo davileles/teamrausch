@@ -685,6 +685,12 @@ rotas.get('/admin/backup', exigirLogin, exigirAdmin, (_req, res) => {
   res.json(store.backup.situacao());
 });
 
+/* --------------------- cadastro interno e grade fixa ---------------------- */
+// Base própria, com chave por id em vez de telefone: veio da planilha do
+// estúdio e a maioria dos alunos ainda não tem número cadastrado. Montada aqui
+// para reaproveitar a sessão e a checagem de administrador desta rota.
+rotas.use('/matriculas', require('./rotas-matriculas')({ exigirLogin, exigirAdmin }));
+
 rotas.delete('/admin/alunos/:telefone', exigirLogin, exigirAdmin, (req, res) => {
   const telefone = normalizarTelefone(req.params.telefone);
   if (!telefone) return res.status(400).json({ erro: 'Telefone inválido.' });

@@ -1,0 +1,470 @@
+'use strict';
+
+/**
+ * app/src/matriculas-store.js — davileles/teamrausch
+ *
+ * Cadastro interno dos alunos do estúdio, com a grade fixa de horários.
+ *
+ * Por que é uma base separada de `agenda-store.alunos`:
+ *   `agenda-store` guarda quem faz login no app e a chave primária dele é o
+ *   TELEFONE. A base que veio da planilha não tem telefone nenhum — 120 alunos
+ *   identificados só pelo nome. Forçar os dois no mesmo lugar exigiria trocar a
+ *   chave primária do login, mexendo em sessão, código de acesso e nas rotas
+ *   `/admin/alunos/:telefone`. Aqui a chave é um `id` próprio e `telefone` é um
+ *   campo opcional: quando você preencher, ele vira a ponte com o cadastro de
+ *   login, sem que nada precise ser refeito.
+ *
+ * Persistência: arquivo próprio no volume + backup no GitHub (repo privado).
+ */
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const backupGithub = require('./backup-github');
+const grade = require('./grade');
+
+const DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const ARQUIVO = path.join(DIR, 'matriculas.json');
+const CAMINHO_BACKUP = process.env.GITHUB_PATH_MATRICULAS || 'teamrausch/matriculas.json';
+
+const VINCULOS = ['wellhub', 'mensalista'];
+const CICLOS = ['mensal', 'trimestral', 'semestral', 'anual'];
+
+const backup = backupGithub.criar(CAMINHO_BACKUP, 'Matrículas do estúdio');
+
+let dados = { matriculas: [], excecoes: [] };
+let pendente = null;
+let semeando = false;
+
+/* --------------------------- disco e backup ------------------------------ */
+
+function carregar() {
+  try {
+    fs.mkdirSync(DIR, { recursive: true });
+    if (fs.existsSync(ARQUIVO)) {
+      const lido = JSON.parse(fs.readFileSync(ARQUIVO, 'utf8'));
+      dados.matriculas = Array.isArray(lido.matriculas) ? lido.matriculas : [];
+      dados.excecoes = Array.isArray(lido.excecoes) ? lido.excecoes : [];
+    }
+  } catch (erro) {
+    console.error('[matriculas] não consegui ler, começando vazio:', erro.message);
+  }
+}
+
+function montar() {
+  return JSON.stringify({
+    atualizadoEm: new Date().toISOString(),
+    total: dados.matriculas.length,
+    matriculas: dados.matriculas,
+    excecoes: dados.excecoes,
+  }, null, 2);
+}
+
+function gravar() {
+  if (!pendente) {
+    pendente = setTimeout(() => {
+      pendente = null;
+      try {
+        fs.mkdirSync(DIR, { recursive: true });
+        const temp = `${ARQUIVO}.tmp`;
+        fs.writeFileSync(temp, montar());
+        fs.renameSync(temp, ARQUIVO);
+      } catch (erro) {
+        console.error('[matriculas] falha ao gravar:', erro.message);
+      }
+    }, 300);
+    if (pendente.unref) pendente.unref();
+  }
+  backup.sincronizar(montar);
+}
+
+/**
+ * Primeiro boot com o volume vazio: puxa a base do backup. É assim que os 120
+ * alunos da planilha entram — o arquivo é commitado no repo privado e o serviço
+ * se serve dele sozinho, sem endpoint de importação e sem upload manual.
+ *
+ * Só semeia quando a base local está vazia. Base com conteúdo nunca é
+ * sobrescrita pelo backup: o volume manda.
+ */
+async function semear() {
+  if (semeando || dados.matriculas.length || !backup.ligado) return;
+  semeando = true;
+  try {
+    const remoto = await backup.baixar();
+    if (!remoto || !Array.isArray(remoto.matriculas) || !remoto.matriculas.length) {
+      console.log('[matriculas] sem backup para semear; base começa vazia.');
+      return;
+    }
+    if (dados.matriculas.length) return;   // alguém cadastrou enquanto baixava
+    dados.matriculas = remoto.matriculas;
+    dados.excecoes = Array.isArray(remoto.excecoes) ? remoto.excecoes : [];
+    // Grava direto no disco, sem chamar gravar(): não faz sentido devolver ao
+    // GitHub exatamente aquilo que acabou de vir de lá.
+    fs.mkdirSync(DIR, { recursive: true });
+    fs.writeFileSync(ARQUIVO, montar());
+    console.log(`[matriculas] base semeada do backup: ${dados.matriculas.length} matrículas.`);
+  } catch (erro) {
+    console.error('[matriculas] falha ao semear do backup:', erro.message);
+  } finally {
+    semeando = false;
+  }
+}
+
+/* ------------------------------ validação -------------------------------- */
+
+function ehHora(h) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(h || ''));
+}
+
+/** Normaliza a grade e recusa entrada torta em vez de gravar lixo silenciosamente. */
+function limparGrade(bruta) {
+  if (bruta === undefined) return { ok: true, grade: undefined };
+  if (!Array.isArray(bruta)) return { ok: false, motivo: 'Grade inválida.' };
+
+  const vistos = new Set();
+  const limpa = [];
+  for (const s of bruta) {
+    const dia = Number(s.dia);
+    const hora = String(s.hora || '').trim();
+    if (!Number.isInteger(dia) || dia < 0 || dia > 6) {
+      return { ok: false, motivo: `Dia da semana inválido: ${s.dia}` };
+    }
+    if (!ehHora(hora)) return { ok: false, motivo: `Horário inválido: ${s.hora}` };
+    const chave = `${dia}|${hora}`;
+    if (vistos.has(chave)) continue;   // repetido é engano de digitação, não erro
+    vistos.add(chave);
+    limpa.push({ dia, hora });
+  }
+  limpa.sort((a, b) => a.dia - b.dia || a.hora.localeCompare(b.hora));
+  return { ok: true, grade: limpa };
+}
+
+function mesmaGrade(a = [], b = []) {
+  if (a.length !== b.length) return false;
+  return a.every((s, i) => s.dia === b[i].dia && s.hora === b[i].hora);
+}
+
+/* ------------------------------ matrículas ------------------------------- */
+
+function novoId() {
+  return 'm' + crypto.randomBytes(6).toString('hex');
+}
+
+function hojeISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function listar() {
+  return dados.matriculas
+    .slice()
+    .sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+}
+
+function porId(id) {
+  return dados.matriculas.find((m) => m.id === id) || null;
+}
+
+function comMesmoNome(nome, exceto) {
+  const alvo = String(nome).trim().toLocaleLowerCase('pt-BR');
+  return dados.matriculas.find((m) =>
+    m.id !== exceto && String(m.nome).trim().toLocaleLowerCase('pt-BR') === alvo) || null;
+}
+
+function criar(campos = {}) {
+  const nome = String(campos.nome || '').trim();
+  if (!nome) return { ok: false, motivo: 'Informe o nome do aluno.' };
+  if (comMesmoNome(nome)) return { ok: false, motivo: 'Já existe um aluno com esse nome.' };
+
+  const vinculo = String(campos.vinculo || 'mensalista');
+  if (!VINCULOS.includes(vinculo)) return { ok: false, motivo: 'Vínculo inválido.' };
+
+  const g = limparGrade(campos.grade === undefined ? [] : campos.grade);
+  if (!g.ok) return { ok: false, motivo: g.motivo };
+
+  const registro = {
+    id: novoId(),
+    nome,
+    telefone: String(campos.telefone || '').trim() || null,
+    ativo: campos.ativo === undefined ? true : Boolean(campos.ativo),
+    vinculo,
+    grade: g.grade,
+    vigenteDe: String(campos.vigenteDe || hojeISO()),
+    gradeAnterior: [],
+    observacao: String(campos.observacao || '').trim() || null,
+    criadoEm: new Date().toISOString(),
+    atualizadoEm: new Date().toISOString(),
+  };
+
+  if (vinculo === 'mensalista') {
+    const r = aplicarCobranca(registro, campos);
+    if (!r.ok) return r;
+  }
+
+  dados.matriculas.push(registro);
+  gravar();
+  return { ok: true, matricula: registro };
+}
+
+/** Ciclo e dia de vencimento existem só para mensalista. */
+function aplicarCobranca(registro, campos) {
+  if (campos.ciclo !== undefined) {
+    const ciclo = String(campos.ciclo || 'mensal');
+    if (!CICLOS.includes(ciclo)) return { ok: false, motivo: 'Ciclo de pagamento inválido.' };
+    registro.ciclo = ciclo;
+  } else if (!registro.ciclo) {
+    registro.ciclo = 'mensal';
+  }
+
+  if (campos.diaVencimento !== undefined) {
+    const bruto = String(campos.diaVencimento).trim();
+    if (!bruto) {
+      registro.diaVencimento = null;
+    } else {
+      const dia = Number(bruto);
+      if (!Number.isInteger(dia) || dia < 1 || dia > 31) {
+        return { ok: false, motivo: 'Dia de vencimento inválido. Use um número de 1 a 31.' };
+      }
+      registro.diaVencimento = dia;
+    }
+  } else if (registro.diaVencimento === undefined) {
+    registro.diaVencimento = null;
+  }
+
+  if (campos.obsVencimento !== undefined) {
+    registro.obsVencimento = String(campos.obsVencimento || '').trim() || null;
+  }
+  return { ok: true };
+}
+
+function atualizar(id, campos = {}) {
+  const m = porId(id);
+  if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+
+  if (campos.nome !== undefined) {
+    const nome = String(campos.nome).trim();
+    if (!nome) return { ok: false, motivo: 'Informe o nome do aluno.' };
+    if (comMesmoNome(nome, id)) return { ok: false, motivo: 'Já existe um aluno com esse nome.' };
+    m.nome = nome;
+  }
+
+  if (campos.telefone !== undefined) {
+    m.telefone = String(campos.telefone || '').trim() || null;
+  }
+  if (campos.ativo !== undefined) m.ativo = Boolean(campos.ativo);
+  if (campos.observacao !== undefined) {
+    m.observacao = String(campos.observacao || '').trim() || null;
+  }
+
+  if (campos.vinculo !== undefined) {
+    const vinculo = String(campos.vinculo);
+    if (!VINCULOS.includes(vinculo)) return { ok: false, motivo: 'Vínculo inválido.' };
+    m.vinculo = vinculo;
+  }
+
+  if (m.vinculo === 'mensalista') {
+    const r = aplicarCobranca(m, campos);
+    if (!r.ok) return r;
+  } else {
+    // Deixou de ser mensalista: os campos de cobrança somem em vez de ficarem
+    // pendurados com valor velho aparecendo na ficha.
+    delete m.ciclo;
+    delete m.diaVencimento;
+    delete m.obsVencimento;
+  }
+
+  if (campos.grade !== undefined) {
+    const g = limparGrade(campos.grade);
+    if (!g.ok) return { ok: false, motivo: g.motivo };
+    if (!mesmaGrade(m.grade || [], g.grade)) {
+      // Arquiva a grade que estava valendo até ontem. Sem isto, a tela de um dia
+      // passado mostraria o aluno no horário novo, como se sempre tivesse sido.
+      const ontem = grade.somarDias(hojeISO(), -1);
+      const desde = m.vigenteDe || m.criadoEm?.slice(0, 10) || ontem;
+      if (desde <= ontem) {
+        m.gradeAnterior = [
+          { grade: m.grade || [], vigenteDe: desde, vigenteAte: ontem },
+          ...(m.gradeAnterior || []),
+        ].slice(0, 12);
+      }
+      m.grade = g.grade;
+      m.vigenteDe = hojeISO();
+    }
+  }
+
+  // "Revisar" é a marca dos registros importados com ambiguidade na planilha.
+  // Some assim que você confirma a ficha.
+  if (campos.revisado) delete m.revisar;
+
+  m.atualizadoEm = new Date().toISOString();
+  gravar();
+  return { ok: true, matricula: m };
+}
+
+/** Inativar preserva o histórico. Remover apaga de vez, com as exceções junto. */
+function inativar(id) {
+  const m = porId(id);
+  if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+  m.ativo = false;
+  m.atualizadoEm = new Date().toISOString();
+  gravar();
+  return { ok: true, matricula: m };
+}
+
+function remover(id) {
+  const antes = dados.matriculas.length;
+  dados.matriculas = dados.matriculas.filter((m) => m.id !== id);
+  if (dados.matriculas.length === antes) {
+    return { ok: false, motivo: 'Matrícula não encontrada.' };
+  }
+  dados.excecoes = dados.excecoes.filter((e) => e.matriculaId !== id);
+  gravar();
+  return { ok: true };
+}
+
+/* ------------------------------- exceções -------------------------------- */
+
+function excecoes({ de, ate, matriculaId } = {}) {
+  return dados.excecoes.filter((e) =>
+    (!de || e.data >= de) &&
+    (!ate || e.data <= ate) &&
+    (!matriculaId || e.matriculaId === matriculaId));
+}
+
+function registrarExcecao({ matriculaId, data, tipo, hora, motivo }) {
+  const m = porId(matriculaId);
+  if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(data || ''))) {
+    return { ok: false, motivo: 'Data inválida.' };
+  }
+  if (!['cancelou', 'extra'].includes(tipo)) {
+    return { ok: false, motivo: 'Tipo de exceção inválido.' };
+  }
+  if (tipo === 'extra' && !ehHora(hora)) {
+    return { ok: false, motivo: 'Informe o horário da aula extra.' };
+  }
+  if (tipo === 'cancelou' && hora && !ehHora(hora)) {
+    return { ok: false, motivo: 'Horário inválido.' };
+  }
+
+  const igual = dados.excecoes.find((e) =>
+    e.matriculaId === matriculaId && e.data === data && e.tipo === tipo &&
+    (e.hora || null) === (hora || null));
+  if (igual) return { ok: true, excecao: igual };
+
+  const registro = {
+    id: 'e' + crypto.randomBytes(6).toString('hex'),
+    matriculaId,
+    nome: m.nome,
+    data,
+    tipo,
+    hora: hora || null,
+    motivo: String(motivo || '').trim() || null,
+    criadoEm: new Date().toISOString(),
+  };
+  dados.excecoes.push(registro);
+  gravar();
+  return { ok: true, excecao: registro };
+}
+
+function apagarExcecao(id) {
+  const antes = dados.excecoes.length;
+  dados.excecoes = dados.excecoes.filter((e) => e.id !== id);
+  if (dados.excecoes.length === antes) return { ok: false, motivo: 'Exceção não encontrada.' };
+  gravar();
+  return { ok: true };
+}
+
+/** Guarda um ano de exceções: passado disso não alimenta mais nenhuma tela. */
+function limparAntigas(dias = 365) {
+  const corte = grade.somarDias(hojeISO(), -dias);
+  const antes = dados.excecoes.length;
+  dados.excecoes = dados.excecoes.filter((e) => e.data >= corte);
+  if (dados.excecoes.length !== antes) gravar();
+}
+
+/* ------------------------------ importação ------------------------------- */
+
+/**
+ * Importa uma lista de matrículas. Por segurança só roda com a base vazia,
+ * a menos que `substituir` venha explicitamente — importar por cima de uma base
+ * em uso apagaria cadastros feitos na tela.
+ */
+function importar(lista, { substituir = false } = {}) {
+  if (!Array.isArray(lista) || !lista.length) {
+    return { ok: false, motivo: 'Nada para importar.' };
+  }
+  if (dados.matriculas.length && !substituir) {
+    return {
+      ok: false,
+      motivo: `A base já tem ${dados.matriculas.length} matrículas. Use substituir=true para trocar tudo.`,
+    };
+  }
+
+  const agora = new Date().toISOString();
+  const hoje = hojeISO();
+  const novas = [];
+  const recusadas = [];
+
+  for (const bruta of lista) {
+    const nome = String(bruta.nome || '').trim();
+    if (!nome) { recusadas.push({ nome: bruta.nome, motivo: 'sem nome' }); continue; }
+
+    const g = limparGrade(bruta.grade || []);
+    if (!g.ok) { recusadas.push({ nome, motivo: g.motivo }); continue; }
+
+    const vinculo = VINCULOS.includes(bruta.vinculo) ? bruta.vinculo : 'mensalista';
+    const registro = {
+      id: bruta.id || novoId(),
+      nome,
+      telefone: String(bruta.telefone || '').trim() || null,
+      ativo: bruta.ativo === undefined ? true : Boolean(bruta.ativo),
+      vinculo,
+      grade: g.grade,
+      vigenteDe: String(bruta.vigenteDe || hoje),
+      gradeAnterior: [],
+      freqOriginal: bruta.freqOriginal || null,
+      criadoEm: agora,
+      atualizadoEm: agora,
+    };
+    if (vinculo === 'mensalista') {
+      registro.ciclo = CICLOS.includes(bruta.ciclo) ? bruta.ciclo : 'mensal';
+      const dia = Number(bruta.diaVencimento);
+      registro.diaVencimento = Number.isInteger(dia) && dia >= 1 && dia <= 31 ? dia : null;
+      if (bruta.obsVencimento) registro.obsVencimento = String(bruta.obsVencimento);
+    }
+    if (Array.isArray(bruta.revisar) && bruta.revisar.length) registro.revisar = bruta.revisar;
+    novas.push(registro);
+  }
+
+  dados.matriculas = novas;
+  dados.excecoes = [];
+  gravar();
+  return { ok: true, importadas: novas.length, recusadas };
+}
+
+/* -------------------------------- resumo --------------------------------- */
+
+function resumo() {
+  const ativas = dados.matriculas.filter((m) => m.ativo);
+  return {
+    total: dados.matriculas.length,
+    ativas: ativas.length,
+    inativas: dados.matriculas.length - ativas.length,
+    wellhub: ativas.filter((m) => m.vinculo === 'wellhub').length,
+    mensalistas: ativas.filter((m) => m.vinculo === 'mensalista').length,
+    semTelefone: ativas.filter((m) => !m.telefone).length,
+    aRevisar: dados.matriculas.filter((m) => (m.revisar || []).length).length,
+    excecoes: dados.excecoes.length,
+  };
+}
+
+carregar();
+semear();
+setInterval(() => limparAntigas(), 24 * 3600000).unref();
+
+module.exports = {
+  listar, porId, criar, atualizar, inativar, remover,
+  excecoes, registrarExcecao, apagarExcecao,
+  importar, resumo, backup,
+  VINCULOS, CICLOS,
+};
