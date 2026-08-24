@@ -18,7 +18,12 @@
  *
  * CANAIS DE AVISO (usa os que estiverem configurados):
  *   - E-mail via Resend  (RESEND_API_KEY presente)
- *   - WhatsApp via Baileys (WHATSAPP_URL presente)
+ *   - WhatsApp via Baileys (WHATSAPP_URL/envio.url presente)
+ *
+ * QUEM RECEBE: as listas de Configurações → Avisos de check-in
+ * (config.avisos.emails e config.avisos.telefones). Aceitam mais de um
+ * destinatário. Sem e-mail cadastrado, cai no WELLHUB_ALERTA_EMAIL; sem
+ * telefone cadastrado, o canal WhatsApp simplesmente não dispara.
  *
  * VARIÁVEIS:
  *   POLLER_PORTAL_ATIVO=true
@@ -34,6 +39,7 @@
 const fs = require('fs');
 const path = require('path');
 const portal = require('./wellhub-portal');
+const config = require('./config');
 
 const ATIVO = String(process.env.POLLER_PORTAL_ATIVO || 'false') === 'true';
 const MINUTOS = Number(process.env.POLLER_PORTAL_MINUTOS || 15);
@@ -88,6 +94,9 @@ function situacao() {
     atualizadoEm: estado.atualizadoEm,
     slug: portal.SLUG || null,
     emailAviso: EMAIL_DESTINO,
+    avisoCheckinLigado: preferencias().checkinConfirmado !== false,
+    emailsAviso: emailsDestino(),
+    telefonesAviso: telefonesDestino(),
     ultimoCiclo: estado.ultimoCiclo,
   };
 }
@@ -104,44 +113,116 @@ function definirAuto(valor, origem = 'api') {
  *  AVISOS
  * ------------------------------------------------------------------------- */
 
+/** Bloco `avisos` do config.json, com tolerância a config antigo. */
+function preferencias() {
+  try { return config.ler().avisos || {}; } catch (e) { return {}; }
+}
+
+/** Destinatários de e-mail. Sem lista cadastrada, cai no e-mail do ambiente. */
+function emailsDestino() {
+  const lista = (preferencias().emails || [])
+    .map((e) => String(e || '').trim())
+    .filter(Boolean);
+  if (lista.length) return lista;
+  return EMAIL_DESTINO ? [EMAIL_DESTINO] : [];
+}
+
+/** Destinatários de WhatsApp em E.164. Lista vazia = canal desligado. */
+function telefonesDestino() {
+  return (preferencias().telefones || [])
+    .map((t) => String(t || '').replace(/\D/g, ''))
+    .filter(Boolean);
+}
+
+/** Endereço e token do serviço de WhatsApp: config primeiro, ambiente depois. */
+function canalWhatsApp() {
+  let url = '';
+  let token = '';
+  try {
+    const c = config.ler();
+    url = (c.envio && c.envio.url) || '';
+    token = (c.envio && c.envio.token) || '';
+  } catch (e) { /* usa o ambiente abaixo */ }
+  return {
+    url: url || process.env.WHATSAPP_URL || '',
+    token: token || process.env.WHATSAPP_TOKEN || '',
+  };
+}
+
 async function enviarEmail(assunto, texto) {
   const key = process.env.RESEND_API_KEY;
   if (!key) { log('RESEND_API_KEY ausente; e-mail não enviado.'); return; }
+  const destinos = emailsDestino();
+  if (!destinos.length) { log('nenhum e-mail cadastrado; e-mail não enviado.'); return; }
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'authorization': `Bearer ${key}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ from: EMAIL_FROM, to: [EMAIL_DESTINO], subject: assunto, text: texto }),
+      body: JSON.stringify({ from: EMAIL_FROM, to: destinos, subject: assunto, text: texto }),
     });
     if (!r.ok) {
       const t = (await r.text().catch(() => '')).slice(0, 200);
       log('e-mail recusado:', r.status, t);
     } else {
-      log('e-mail enviado para', EMAIL_DESTINO);
+      log('e-mail enviado para', destinos.join(', '));
     }
   } catch (e) { log('falha ao enviar e-mail:', e.message); }
 }
 
+/**
+ * Um POST por telefone. O serviço whatsapp/index.js exige `telefone` e
+ * `mensagem` no corpo e o token em `Authorization: Bearer` — mandar só a
+ * mensagem, como era antes, voltava 400 e nada chegava.
+ */
 async function enviarWhatsApp(texto) {
-  const url = process.env.WHATSAPP_URL;
-  if (!url) return; // canal ainda não configurado
-  try {
-    await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(process.env.WHATSAPP_TOKEN ? { 'x-token': process.env.WHATSAPP_TOKEN } : {}),
-      },
-      body: JSON.stringify({ mensagem: texto }),
-    });
-    log('WhatsApp enviado.');
-  } catch (e) { log('falha ao avisar WhatsApp:', e.message); }
+  const telefones = telefonesDestino();
+  if (!telefones.length) return; // ninguém cadastrado para receber
+  const { url, token } = canalWhatsApp();
+  if (!url) { log('sem endereço do serviço de WhatsApp; nada enviado.'); return; }
+
+  for (const telefone of telefones) {
+    const controle = new AbortController();
+    const timer = setTimeout(() => controle.abort(), 10000);
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { authorization: /^Bearer /i.test(token) ? token : `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ telefone, mensagem: texto }),
+        signal: controle.signal,
+      });
+      if (!r.ok) {
+        const t = (await r.text().catch(() => '')).slice(0, 200);
+        log('WhatsApp recusado para', telefone, '-', r.status, t);
+      } else {
+        log('WhatsApp enviado para', telefone);
+      }
+    } catch (e) {
+      log('falha ao avisar WhatsApp', telefone, '-', e.message);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /** Dispara o aviso pelos canais configurados. */
 async function avisar(assunto, texto) {
   await enviarEmail(assunto, texto);
   await enviarWhatsApp(texto);
+}
+
+/**
+ * Aviso de check-in confirmado. Respeita a chave liga/desliga de
+ * Configurações → Avisos de check-in; os avisos de falha seguem sempre.
+ */
+async function avisarCheckin(assunto, texto) {
+  if (preferencias().checkinConfirmado === false) {
+    log('aviso de check-in confirmado desligado nas configurações.');
+    return;
+  }
+  await avisar(assunto, texto);
 }
 
 /* ------------------------------------------------------------------------- *
@@ -297,7 +378,7 @@ async function rodarUmaVez(opcoes = {}) {
         corpo.push('Todos conferidos como validados no portal.');
       }
 
-      await avisar(assunto, corpo.join('\n'));
+      await avisarCheckin(assunto, corpo.join('\n'));
     }
   }
 
@@ -311,7 +392,8 @@ async function rodarUmaVez(opcoes = {}) {
 
 function iniciar() {
   if (!ATIVO) return;
-  log(`ligado: a cada ${MINUTOS}min, auto-confirmar=${estado.autoConfirmar}, e-mail=${EMAIL_DESTINO}`);
+  log(`ligado: a cada ${MINUTOS}min, auto-confirmar=${estado.autoConfirmar}, `
+    + `e-mail=[${emailsDestino().join(', ') || '-'}], whatsapp=[${telefonesDestino().join(', ') || '-'}]`);
   rodarUmaVez().catch((e) => log('erro:', e.message));
   setInterval(() => rodarUmaVez().catch((e) => log('erro:', e.message)), MINUTOS * 60000);
 }
@@ -319,9 +401,14 @@ function iniciar() {
 /** Dispara um aviso de teste imediato (sem depender de check-in na fila). */
 async function testarAviso() {
   await avisar('✅ Wellhub: teste de aviso',
-    'Este é um e-mail de teste do poller do portal Wellhub.\n\n'
-    + 'Se você recebeu isto, o canal de aviso está funcionando.');
-  return { ok: true, email: EMAIL_DESTINO, whatsapp: Boolean(process.env.WHATSAPP_URL) };
+    'Este é um teste de aviso do check-in Wellhub.\n\n'
+    + 'Se você recebeu isto, o canal está funcionando.');
+  return {
+    ok: true,
+    emails: emailsDestino(),
+    telefones: telefonesDestino(),
+    whatsapp: Boolean(canalWhatsApp().url) && telefonesDestino().length > 0,
+  };
 }
 
 module.exports = { iniciar, rodarUmaVez, testarAviso, situacao, definirAuto };
