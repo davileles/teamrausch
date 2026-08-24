@@ -1182,6 +1182,7 @@ async function carregarConfig(){
   try{
     const c = await api('/admin/config');
     configAtual = c;
+    const av = c.avisos || {};
     alvo.innerHTML = `
       <h2>Configurações</h2>
 
@@ -1289,6 +1290,24 @@ async function carregarConfig(){
           placeholder="31988887777, 11977776666">
         <p class="ajuda">Separe por vírgula. Quem está aqui vê as abas Lista do dia,
           Alunos e Configurações. Você não pode tirar o seu próprio número.</p></div>
+
+      <h3>Avisos de check-in</h3>
+      <p class="ajuda">Quem é avisado quando um check-in do Wellhub é confirmado. Pode ser
+        mais de um e-mail e mais de um telefone — separe por vírgula. Deixe a lista em
+        branco para desligar aquele canal.</p>
+      <div class="campo"><label for="c-aviso-ligado">Avisar check-in confirmado</label>
+        <select id="c-aviso-ligado">
+          <option value="1"${av.checkinConfirmado !== false ? ' selected' : ''}>Sim</option>
+          <option value="0"${av.checkinConfirmado === false ? ' selected' : ''}>Não</option>
+        </select></div>
+      <div class="campo"><label for="c-aviso-emails">E-mails</label>
+        <input id="c-aviso-emails" value="${esc((av.emails||[]).join(', '))}"
+          placeholder="voce@estudio.com, recepcao@estudio.com"></div>
+      <div class="campo"><label for="c-aviso-tels">Telefones no WhatsApp</label>
+        <input id="c-aviso-tels" value="${esc((av.telefones||[]).map(t=>t.replace(/^55/,'')).join(', '))}"
+          placeholder="31988887777, 11977776666">
+        <p class="ajuda">Com DDD. O aviso sai pelo mesmo número do estúdio que envia os
+          códigos de acesso.</p></div>
 
       </div><!-- fim negócio -->
 
@@ -1440,6 +1459,11 @@ async function salvarConfig(){
     envio: {
       url: v('c-url'), nomeDoCabecalhoDoToken: v('c-cabec'),
       corpo: v('c-corpo'), texto: v('c-texto'),
+    },
+    avisos: {
+      checkinConfirmado: v('c-aviso-ligado') === '1',
+      emails: v('c-aviso-emails').split(',').map(s=>s.trim()).filter(Boolean),
+      telefones: v('c-aviso-tels').split(',').map(s=>s.trim()).filter(Boolean),
     },
     administradores: v('c-admins').split(',').map(s=>s.trim()).filter(Boolean),
   };
