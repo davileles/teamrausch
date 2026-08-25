@@ -98,6 +98,7 @@ async function semear() {
     if (dados.matriculas.length) return;   // alguém cadastrou enquanto baixava
     dados.matriculas = remoto.matriculas;
     dados.excecoes = Array.isArray(remoto.excecoes) ? remoto.excecoes : [];
+    normalizarHorarios();
     // Grava direto no disco, sem chamar gravar(): não faz sentido devolver ao
     // GitHub exatamente aquilo que acabou de vir de lá.
     fs.mkdirSync(DIR, { recursive: true });
@@ -116,6 +117,21 @@ function ehHora(h) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(h || ''));
 }
 
+/**
+ * O estúdio trabalha em horas cheias. A planilha de origem trazia horários
+ * quebrados (05:20, 06:40, 17:30) que eram a hora de chegada de cada um, não
+ * turmas diferentes — e cada minuto distinto virava um horário próprio na
+ * agenda, com lotação própria, invisível para quem quisesse reservar.
+ *
+ * Descartamos os minutos em vez de arredondar para o mais próximo: 06:40
+ * pertence à turma das 06:00, não à das 07:00. O texto original da planilha
+ * continua guardado em `freqOriginal`, então nada se perde.
+ */
+function horaCheia(h) {
+  const bruto = String(h || '').trim();
+  return ehHora(bruto) ? `${bruto.slice(0, 2)}:00` : bruto;
+}
+
 /** Normaliza a grade e recusa entrada torta em vez de gravar lixo silenciosamente. */
 function limparGrade(bruta) {
   if (bruta === undefined) return { ok: true, grade: undefined };
@@ -130,10 +146,11 @@ function limparGrade(bruta) {
       return { ok: false, motivo: `Dia da semana inválido: ${s.dia}` };
     }
     if (!ehHora(hora)) return { ok: false, motivo: `Horário inválido: ${s.hora}` };
-    const chave = `${dia}|${hora}`;
+    const cheia = horaCheia(hora);
+    const chave = `${dia}|${cheia}`;
     if (vistos.has(chave)) continue;   // repetido é engano de digitação, não erro
     vistos.add(chave);
-    limpa.push({ dia, hora });
+    limpa.push({ dia, hora: cheia });
   }
   limpa.sort((a, b) => a.dia - b.dia || a.hora.localeCompare(b.hora));
   return { ok: true, grade: limpa };
@@ -406,6 +423,52 @@ function limparAntigas(dias = 365) {
   if (dados.excecoes.length !== antes) gravar();
 }
 
+/* ----------------------------- migração ---------------------------------- */
+
+/**
+ * Passa a base inteira para hora cheia — a que já estava gravada antes de
+ * `limparGrade` normalizar. Roda no boot e é idem­potente: sem horário quebrado
+ * na base, não grava nada e não devolve o arquivo ao GitHub à toa.
+ *
+ * Mexe também no histórico (`gradeAnterior`) e nas exceções: uma exceção
+ * apontando para 06:40 deixaria de casar com a aula, que agora é 06:00, e a
+ * falta desapareceria da projeção.
+ */
+function normalizarHorarios() {
+  let mudou = 0;
+
+  const arrumarGrade = (lista) => {
+    const vistos = new Set();
+    const saida = [];
+    for (const s of lista || []) {
+      const cheia = horaCheia(s.hora);
+      if (cheia !== s.hora) mudou += 1;
+      const chave = `${s.dia}|${cheia}`;
+      if (vistos.has(chave)) continue;
+      vistos.add(chave);
+      saida.push({ ...s, hora: cheia });
+    }
+    saida.sort((a, b) => a.dia - b.dia || a.hora.localeCompare(b.hora));
+    return saida;
+  };
+
+  for (const m of dados.matriculas) {
+    m.grade = arrumarGrade(m.grade);
+    for (const h of m.gradeAnterior || []) h.grade = arrumarGrade(h.grade);
+  }
+  for (const e of dados.excecoes) {
+    if (!e.hora) continue;
+    const cheia = horaCheia(e.hora);
+    if (cheia !== e.hora) { e.hora = cheia; mudou += 1; }
+  }
+
+  if (mudou) {
+    console.log(`[matriculas] ${mudou} horários quebrados passaram para a hora cheia.`);
+    gravar();
+  }
+  return mudou;
+}
+
 /* ------------------------------ importação ------------------------------- */
 
 /**
@@ -483,12 +546,13 @@ function resumo() {
 }
 
 carregar();
+normalizarHorarios();
 semear();
 setInterval(() => limparAntigas(), 24 * 3600000).unref();
 
 module.exports = {
   listar, porId, porTelefone, criar, atualizar, inativar, remover,
   excecoes, registrarExcecao, apagarExcecao,
-  importar, resumo, backup,
+  importar, resumo, backup, normalizarHorarios, horaCheia,
   VINCULOS, CICLOS,
 };
