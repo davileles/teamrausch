@@ -27,6 +27,13 @@ const PADRAO = {
     capacidadePadrao: 8,
     minutosAntesDeFechar: 30,   // fecha o horário X min antes de começar
     limitePorDia: 1,            // quantos horários a mesma pessoa pega no mesmo dia
+    // As aulas fixas das matrículas ocupam lugar na agenda como qualquer
+    // reserva. Desligar volta a contar só quem reservou pelo app — e a tela
+    // passa a oferecer vagas que na prática já têm dono.
+    contarMatriculasNaLotacao: true,
+    // Ninguém reserva mais dias na semana do que a matrícula prevê. Quem não
+    // tem matrícula vinculada continua sem limite semanal.
+    respeitarFrequencia: true,
     permitirCancelar: true,
     minutosParaCancelar: 120,   // até X min antes do horário
     horarios: {
@@ -148,6 +155,7 @@ function publica() {
       permitirCancelar: c.agenda.permitirCancelar,
       minutosParaCancelar: c.agenda.minutosParaCancelar,
       limitePorDia: c.agenda.limitePorDia,
+      respeitarFrequencia: c.agenda.respeitarFrequencia !== false,
     },
   };
 }
