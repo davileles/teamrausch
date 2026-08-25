@@ -238,6 +238,83 @@ function definirGympassId(id, gympassId) {
   return { ok: true, matricula: m };
 }
 
+/**
+ * Caixa do nome vindo do portal.
+ *
+ * O Wellhub costuma mandar tudo em maiúsculas. Copiar literal deixaria a base
+ * gritando — e, pior, a cobrança automática sairia como "Oi, MARIA!", porque
+ * ela usa o primeiro nome do cadastro. Então: nome que chega todo em uma caixa
+ * só é arrumado; nome que chega com caixa mista já veio escrito por gente e é
+ * preservado como está.
+ *
+ * As partículas ficam minúsculas ('Maria da Silva', não 'Maria Da Silva').
+ * WELLHUB_NOME_LITERAL=true desliga tudo isto e grava exatamente o que veio.
+ */
+const PARTICULAS = ['da', 'de', 'do', 'das', 'dos', 'e', 'del', 'di', 'du',
+  'la', 'las', 'los', 'van', 'von', 'der', 'den', 'y'];
+
+function arrumarCaixa(nome) {
+  const bruto = String(nome || '').trim().replace(/\s+/g, ' ');
+  if (!bruto) return '';
+  if (String(process.env.WELLHUB_NOME_LITERAL || 'false') === 'true') return bruto;
+
+  const soMaiusculas = bruto === bruto.toLocaleUpperCase('pt-BR');
+  const soMinusculas = bruto === bruto.toLocaleLowerCase('pt-BR');
+  if (!soMaiusculas && !soMinusculas) return bruto;   // veio bem escrito
+
+  return bruto.split(' ').map((palavra, i) => {
+    const p = palavra.toLocaleLowerCase('pt-BR');
+    if (i > 0 && PARTICULAS.includes(p)) return p;
+    return p.charAt(0).toLocaleUpperCase('pt-BR') + p.slice(1);
+  }).join(' ');
+}
+
+/**
+ * Adota o nome que o Wellhub usa para este aluno.
+ *
+ * Roda quando o check-in é vinculado à matrícula. A base veio de uma planilha
+ * com apelidos e abreviações; o portal tem o nome do cadastro real, e é por ele
+ * que a pessoa é identificada na hora de conferir a fila.
+ *
+ * APLICA UMA VEZ POR NOME, NÃO A CADA CHECK-IN
+ *   `nomeWellhub` guarda o último nome que veio do portal. Se ele já é o que
+ *   está gravado, nada acontece — assim, se você corrigir o nome na tela depois,
+ *   a correção fica de pé em vez de ser desfeita no próximo check-in. Só quando
+ *   o portal passa a mandar um nome diferente é que a troca acontece de novo.
+ *
+ * O nome que estava na planilha vai para `nomeOriginal` e nunca se perde.
+ */
+function renomearDoWellhub(id, nomeDoPortal) {
+  const m = porId(id);
+  if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+
+  const literal = String(nomeDoPortal || '').trim().replace(/\s+/g, ' ');
+  if (!literal) return { ok: true, mudou: false };
+
+  // Este nome do portal já foi processado (adotado ou recusado). Não insiste.
+  if (m.nomeWellhub === literal) return { ok: true, mudou: false };
+  m.nomeWellhub = literal;
+
+  const novo = arrumarCaixa(literal);
+  if (!novo || novo === m.nome) { gravar(); return { ok: true, mudou: false }; }
+
+  // Nome único continua sendo regra: dois cadastros com o mesmo nome quebram a
+  // busca e o vínculo por nome. Aqui a colisão é sinal de matrícula duplicada,
+  // que é coisa para você olhar — não para o sistema resolver sozinho.
+  const conflito = comMesmoNome(novo, id);
+  if (conflito) {
+    gravar();
+    return { ok: false, mudou: false, motivo: `Já existe outro aluno chamado ${novo}.` };
+  }
+
+  if (!m.nomeOriginal) m.nomeOriginal = m.nome;
+  const antes = m.nome;
+  m.nome = novo;
+  m.atualizadoEm = new Date().toISOString();
+  gravar();
+  return { ok: true, mudou: true, de: antes, para: novo };
+}
+
 function comMesmoNome(nome, exceto) {
   const alvo = String(nome).trim().toLocaleLowerCase('pt-BR');
   return dados.matriculas.find((m) =>
@@ -320,6 +397,9 @@ function atualizar(id, campos = {}) {
     if (!nome) return { ok: false, motivo: 'Informe o nome do aluno.' };
     if (comMesmoNome(nome, id)) return { ok: false, motivo: 'Já existe um aluno com esse nome.' };
     m.nome = nome;
+    // Voltou ao nome da planilha: a marca de "renomeado pelo Wellhub" não faz
+    // mais sentido e some da ficha.
+    if (m.nomeOriginal === nome) delete m.nomeOriginal;
   }
 
   if (campos.telefone !== undefined) {
@@ -592,7 +672,7 @@ semear();
 setInterval(() => limparAntigas(), 24 * 3600000).unref();
 
 module.exports = {
-  listar, porId, porTelefone, porGympassId, definirGympassId,
+  listar, porId, porTelefone, porGympassId, definirGympassId, renomearDoWellhub, arrumarCaixa,
   criar, atualizar, inativar, remover,
   excecoes, registrarExcecao, apagarExcecao,
   importar, resumo, backup, normalizarHorarios, horaCheia,
