@@ -164,6 +164,30 @@ function porId(id) {
   return dados.matriculas.find((m) => m.id === id) || null;
 }
 
+/**
+ * Telefone é a ponte com o cadastro de login (`agenda-store`), onde ele é a
+ * chave primária. Comparamos só os dígitos e aceitamos casar pelos 8 finais:
+ * o mesmo número aparece ora com DDI, ora sem, ora com o nono dígito — exigir
+ * igualdade literal deixaria a matrícula desvinculada por causa de um '55'.
+ */
+function soDigitos(t) {
+  return String(t || '').replace(/\D/g, '');
+}
+
+function mesmoTelefone(a, b) {
+  const x = soDigitos(a);
+  const y = soDigitos(b);
+  if (x.length < 8 || y.length < 8) return false;
+  return x === y || x.slice(-8) === y.slice(-8);
+}
+
+/** Matrícula ativa ligada a um telefone de login, ou null. */
+function porTelefone(telefone) {
+  const t = soDigitos(telefone);
+  if (t.length < 8) return null;
+  return dados.matriculas.find((m) => m.ativo && mesmoTelefone(m.telefone, t)) || null;
+}
+
 function comMesmoNome(nome, exceto) {
   const alvo = String(nome).trim().toLocaleLowerCase('pt-BR');
   return dados.matriculas.find((m) =>
@@ -463,7 +487,7 @@ semear();
 setInterval(() => limparAntigas(), 24 * 3600000).unref();
 
 module.exports = {
-  listar, porId, criar, atualizar, inativar, remover,
+  listar, porId, porTelefone, criar, atualizar, inativar, remover,
   excecoes, registrarExcecao, apagarExcecao,
   importar, resumo, backup,
   VINCULOS, CICLOS,
