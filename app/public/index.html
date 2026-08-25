@@ -180,8 +180,16 @@
   .lot-tabela th{font:400 13px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
     color:var(--fraco);padding:6px 2px;text-align:center}
   .lot-tabela th.h{text-align:right;padding-right:10px;color:var(--texto)}
-  .lot-tabela td{border:1px solid var(--linha);padding:7px 2px;text-align:center;color:var(--fraco)}
-  .lot-tabela td.vazia{border-color:transparent;color:var(--fraco-2)}
+  .lot-tabela td{border:1px solid var(--linha);padding:7px 2px;text-align:center;
+    color:var(--fraco);cursor:pointer}
+  /* Célula sem ninguém continua desenhada: some-la abria buracos na grade e
+     dava a impressão de tabela quebrada, justamente nos horários vazios. */
+  .lot-tabela td.vazia{color:var(--fraco-2)}
+  .lot-tabela td.sel{border-color:var(--amarelo);color:var(--amarelo);font-weight:700}
+  .lot-detalhe{background:var(--superficie);border:1px solid var(--linha-2);
+    border-left:4px solid var(--amarelo);padding:14px 16px;margin-top:12px}
+  .lot-detalhe b{font:400 15px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--amarelo);display:block;margin-bottom:2px}
   .lot-tabela td.cheio{color:var(--vermelho);border-color:#4A2124;font-weight:700}
   .lot-tabela td.fora{background:var(--fundo-2);color:var(--amarelo-2)}
   .lot-legenda{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;
@@ -1903,18 +1911,59 @@ async function carregarLotacao(){
         <tbody>${horas.map(h=>`<tr>
           <th class="h">${h}</th>
           ${dias.map(d=>{ const s = achar(d,h);
-            if (!s) return '<td class="vazia">·</td>';
+            if (!s) return `<td class="vazia" data-dia="${d}" data-hora="${h}">·</td>`;
             const cheio = s.capacidade && s.total > s.capacidade;
             return `<td class="${s.naAgenda?'':'fora'} ${cheio?'cheio':''}"
+              data-dia="${d}" data-hora="${h}"
               title="${s.naAgenda ? `capacidade ${s.capacidade}` : 'fora da agenda'}">${
               s.total}${s.capacidade?'/'+s.capacidade:''}</td>`;
           }).join('')}
         </tr>`).join('')}</tbody>
       </table>
+      <div id="lot-detalhe" class="lot-detalhe" hidden></div>
       <div class="lot-legenda">
+        <span>toque numa célula para ver quem está na turma</span>
         <span><i class="fora">amarelo</i> — horário não existe na aba Agendar</span>
         <span><i class="cheio">vermelho</i> — mais alunos fixos do que a capacidade</span>
       </div>`;
+
+    // A célula abre a lista com os nomes daquela turma. Os alunos já vêm no
+    // mesmo `/grade/ocupacao`, então abrir e fechar não custa nova requisição.
+    const detalhe = alvo.querySelector('#lot-detalhe');
+    alvo.querySelector('.lot-tabela').addEventListener('click', e=>{
+      const td = e.target.closest('td'); if (!td) return;
+      const jaAberta = td.classList.contains('sel');
+      alvo.querySelectorAll('.lot-tabela td.sel').forEach(x=>x.classList.remove('sel'));
+      if (jaAberta){ detalhe.hidden = true; return; }   // segundo toque fecha
+      td.classList.add('sel');
+
+      const d = Number(td.dataset.dia), hora = td.dataset.hora;
+      const s = achar(d, hora);
+      const alunos = (s && s.alunos) || [];
+      const linha = alunos.length
+        ? `${alunos.length} ${alunos.length===1?'aluno':'alunos'} com horário fixo`
+          + (s.naAgenda ? ` · capacidade ${s.capacidade}` : ' · horário fora da aba Agendar')
+        : 'Ninguém com horário fixo nesta turma.';
+
+      detalhe.hidden = false;
+      detalhe.innerHTML = `
+        <b>${NOME_DIA[d]} · ${esc(hora)}</b>
+        <p class="ajuda" style="margin:0">${linha}</p>
+        ${alunos.length ? `<div class="lista-nomes">${alunos.map(a=>`
+          <div class="nome-linha" data-mat="${esc(a.id)}">
+            <span>${esc(a.nome)}${a.vinculo==='wellhub'?' <i class="marca-extra">wellhub</i>':''}</span>
+            <button class="leve lot-ficha">Abrir ficha</button>
+          </div>`).join('')}</div>` : ''}`;
+
+      detalhe.querySelectorAll('.lot-ficha').forEach(b=>{
+        b.addEventListener('click', ()=>{
+          matEstado.sub = 'alunos';
+          matEstado.aberta = b.closest('.nome-linha').dataset.mat;
+          matEstado.situacao = 'ativos'; matEstado.vinculo = '';
+          redesenhar();
+        });
+      });
+    });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
