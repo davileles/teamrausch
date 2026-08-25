@@ -14,28 +14,12 @@ const rotas = express.Router();
 /* --------------------------- telefone ------------------------------------ */
 
 /** Aceita (31) 98888-7777, 31988887777, +55 31 98888-7777 → 5531988887777 */
-function normalizarTelefone(entrada) {
-  let n = String(entrada || '').replace(/\D/g, '');
-  if (n.startsWith('55') && n.length >= 12) n = n.slice(2);
-  if (n.length === 10) {
-    // fixo ou celular antigo: completa o nono dígito quando for celular
-    if (['6', '7', '8', '9'].includes(n[2])) n = n.slice(0, 2) + '9' + n.slice(2);
-  }
-  if (n.length !== 11) return null;
-  const ddd = Number(n.slice(0, 2));
-  if (ddd < 11 || ddd > 99) return null;
-  if (n[2] !== '9') return null;
-  return '55' + n;
-}
-
-function mostrarTelefone(e164) {
-  const n = e164.replace(/^55/, '');
-  return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
-}
-
-function ehAdmin(telefone) {
-  return (config.ler().administradores || []).includes(telefone);
-}
+// Formato do telefone e lista de administradores vêm de módulos compartilhados:
+// a tela de matrículas faz a mesma checagem desde que absorveu a aba Alunos.
+const telefoneUtil = require('./telefone');
+const normalizarTelefone = telefoneUtil.normalizar;
+const mostrarTelefone = telefoneUtil.mostrar;
+const ehAdmin = config.ehAdmin;
 
 /* ------------------------- senha do administrador ------------------------- */
 
@@ -692,55 +676,11 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
   res.json(config.paraAdmin());
 });
 
-rotas.get('/admin/alunos', exigirLogin, exigirAdmin, (_req, res) => {
-  res.json(store.listarAlunos().map((a) => ({
-    ...a,
-    telefoneFormatado: mostrarTelefone(a.telefone),
-    aniversarioFormatado: mostrarAniversario(a.aniversario),
-    admin: ehAdmin(a.telefone),
-  })));
-});
-
-rotas.put('/admin/alunos/:telefone', exigirLogin, exigirAdmin, (req, res) => {
-  let telefone = normalizarTelefone(req.params.telefone);
-  if (!telefone) return res.status(400).json({ erro: 'Telefone inválido.' });
-
-  // Trocar o telefone vem primeiro: os outros campos são gravados na ficha nova.
-  if (req.body.novoTelefone !== undefined && String(req.body.novoTelefone).trim()) {
-    const novo = normalizarTelefone(req.body.novoTelefone);
-    if (!novo) return res.status(400).json({ erro: 'Novo telefone inválido. Use DDD + 9 dígitos.' });
-    if (novo !== telefone) {
-      if (ehAdmin(telefone)) {
-        return res.status(400).json({
-          erro: 'Este número é de administrador. Ajuste a lista em Configurações antes de trocar.',
-        });
-      }
-      const r = store.trocarTelefone(telefone, novo);
-      if (!r.ok) return res.status(409).json({ erro: r.motivo });
-      telefone = novo;
-    }
-  }
-
-  const campos = {};
-  if (req.body.nome !== undefined) campos.nome = String(req.body.nome).trim() || null;
-  if (req.body.bloqueado !== undefined) campos.bloqueado = Boolean(req.body.bloqueado);
-  if (req.body.aniversario !== undefined) {
-    const texto = String(req.body.aniversario).trim();
-    if (!texto) {
-      campos.aniversario = null;
-    } else {
-      const limpo = normalizarAniversario(texto);
-      if (!limpo) return res.status(400).json({ erro: 'Aniversário inválido. Use dia e mês, como 07/03.' });
-      campos.aniversario = limpo;
-    }
-  }
-  const aluno = store.salvarAluno(telefone, campos);
-  res.json({
-    ...aluno,
-    telefoneFormatado: mostrarTelefone(aluno.telefone),
-    aniversarioFormatado: mostrarAniversario(aluno.aniversario),
-  });
-});
+/* A gestão do cadastro de login — nome, telefone, suspensão e remoção — mudou
+   para a ficha da matrícula, em `rotas-matriculas.js`. A aba Alunos deixou de
+   existir e as rotas /admin/alunos foram embora junto: mantê-las de pé sem tela
+   seria código sem dono, e a mesma edição em dois caminhos diferentes é como se
+   perde a sincronia entre a matrícula e a ficha de acesso. */
 
 rotas.get('/admin/backup', exigirLogin, exigirAdmin, (_req, res) => {
   res.json(store.backup.situacao());
@@ -751,14 +691,6 @@ rotas.get('/admin/backup', exigirLogin, exigirAdmin, (_req, res) => {
 // estúdio e a maioria dos alunos ainda não tem número cadastrado. Montada aqui
 // para reaproveitar a sessão e a checagem de administrador desta rota.
 rotas.use('/matriculas', require('./rotas-matriculas')({ exigirLogin, exigirAdmin }));
-
-rotas.delete('/admin/alunos/:telefone', exigirLogin, exigirAdmin, (req, res) => {
-  const telefone = normalizarTelefone(req.params.telefone);
-  if (!telefone) return res.status(400).json({ erro: 'Telefone inválido.' });
-  if (ehAdmin(telefone)) return res.status(400).json({ erro: 'Remova da lista de administradores primeiro.' });
-  store.removerAluno(telefone);
-  res.json({ ok: true });
-});
 
 module.exports = {
   rotas, normalizarTelefone, mostrarTelefone, ehAdmin,
