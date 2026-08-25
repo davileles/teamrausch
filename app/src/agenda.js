@@ -199,6 +199,8 @@ function montarDia(data, telefone, minhaMatricula) {
       // Desmarcar aula fixa não cancela agendamento nenhum: registra uma
       // exceção na matrícula. Por isso vai num campo separado.
       podeDesmarcar: Boolean(meuFixo) && !meu && aTempo,
+      // Trocar vale para as duas naturezas: aula da matrícula e reserva.
+      podeTrocar: Boolean(meuFixo || meu) && aTempo,
     };
   });
 
@@ -348,20 +350,138 @@ function desmarcarFixa(aluno, data, hora) {
   if (!c.agenda.permitirCancelar) {
     return { ok: false, motivo: 'Cancelamento pelo app está desligado. Fale com o estúdio.' };
   }
-  if (!fixosDaMatricula(minha, data).some((x) => x.hora === hora)) {
-    return { ok: false, motivo: 'Você não tem aula fixa nesse horário.' };
-  }
+  const item = fixosDaMatricula(minha, data).find((x) => x.hora === hora);
+  if (!item) return { ok: false, motivo: 'Você não tem aula fixa nesse horário.' };
+
   const faltam = minutosAte(data, hora, c.estudio.fuso);
   const minimo = Number(c.agenda.minutosParaCancelar || 0);
   if (faltam < minimo) {
     return { ok: false, motivo: `Cancelamento só até ${minimo} minutos antes do horário.` };
   }
-  const r = matriculas.registrarExcecao({
-    matriculaId: minha.id, data, tipo: 'cancelou', hora,
+  const r = soltarAulaFixa(minha, data, item);
+  if (!r.ok) return r;
+  return { ok: true, excecao: r.excecao || null };
+}
+
+/**
+ * Trocar a aula de lugar: larga o horário atual e pega outro, num passo só.
+ *
+ * Fazer isso em dois toques — desmarcar e depois reservar — tem um buraco no
+ * meio: entre um e outro, a última vaga do horário novo pode acabar, e a
+ * pessoa fica sem nenhum dos dois. Aqui as checagens e a gravação acontecem no
+ * mesmo passo síncrono; se o destino não der, nada é mexido e a aula original
+ * continua de pé.
+ *
+ * A frequência da matrícula não é checada de propósito: trocar não acrescenta
+ * uma ida na semana, no máximo tira uma.
+ */
+function trocar(aluno, de, para) {
+  const c = config.ler();
+  const fuso = c.estudio.fuso;
+
+  if (!de || !para || !de.data || !de.hora || !para.data || !para.hora) {
+    return { ok: false, motivo: 'Informe o horário atual e o novo.' };
+  }
+  if (de.data === para.data && de.hora === para.hora) {
+    return { ok: false, motivo: 'Esse já é o seu horário.' };
+  }
+  if (!c.agenda.permitirCancelar) {
+    return { ok: false, motivo: 'Trocar de horário pelo app está desligado. Fale com o estúdio.' };
+  }
+
+  /* ---- o que ele tem hoje ---- */
+  const minha = matriculas.porTelefone(aluno.telefone);
+  const atual = fixosDaMatricula(minha, de.data).find((x) => x.hora === de.hora) || null;
+  const reserva = store.doHorario(de.data, de.hora)
+    .find((r) => r.telefone === aluno.telefone) || null;
+  if (!atual && !reserva) return { ok: false, motivo: 'Você não tem aula nesse horário.' };
+
+  const minimo = Number(c.agenda.minutosParaCancelar || 0);
+  if (minutosAte(de.data, de.hora, fuso) < minimo) {
+    return { ok: false, motivo: `Troca só até ${minimo} minutos antes do horário.` };
+  }
+
+  /* ---- o destino serve? ---- */
+  if (!datasAbertas().includes(para.data)) {
+    return { ok: false, motivo: 'Esse dia não está aberto para agendamento.' };
+  }
+  if ((c.agenda.datasBloqueadas || []).includes(para.data)) {
+    return { ok: false, motivo: 'O estúdio não abre nesse dia.' };
+  }
+  const slot = (c.agenda.horarios[diaDaSemana(para.data)] || [])
+    .find((s) => s.hora === para.hora);
+  if (!slot) return { ok: false, motivo: 'Esse horário não existe na agenda.' };
+  if (minutosAte(para.data, para.hora, fuso) < Number(c.agenda.minutosAntesDeFechar || 0)) {
+    return { ok: false, motivo: 'Esse horário já fechou.' };
+  }
+
+  const fixosDestino = fixosDaMatricula(minha, para.data);
+  if (fixosDestino.some((x) => x.hora === para.hora) ||
+      store.jaTem(aluno.telefone, para.data, para.hora)) {
+    return { ok: false, motivo: 'Você já está nesse horário.' };
+  }
+
+  // Limite do dia no destino, descontando a aula que está saindo quando a
+  // troca é dentro do mesmo dia.
+  const limite = Number(c.agenda.limitePorDia) || 0;
+  if (limite > 0) {
+    const saiDoDestino = para.data === de.data ? 1 : 0;
+    const noDia = store.contarNoDia(aluno.telefone, para.data) + fixosDestino.length - saiDoDestino;
+    if (noDia >= limite) {
+      return {
+        ok: false,
+        motivo: limite === 1
+          ? 'Você já tem um horário nesse dia.'
+          : `Você já tem ${limite} horários nesse dia.`,
+      };
+    }
+  }
+
+  // A vaga que ele está largando conta a favor dele quando a troca é no mesmo
+  // horário de outro dia? Não: a lotação do destino é a do destino.
+  const capacidade = Number(slot.capacidade) || Number(c.agenda.capacidadePadrao) || 0;
+  const naGrade = fixosDoDia(para.data).get(para.hora) || [];
+  if (lotacao(para.data, para.hora, naGrade).ocupadas >= capacidade) {
+    return { ok: false, motivo: 'As vagas desse horário acabaram.' };
+  }
+
+  /* ---- aplica: solta o antigo, pega o novo ---- */
+  if (atual) {
+    const r = soltarAulaFixa(minha, de.data, atual);
+    if (!r.ok) return r;
+  }
+  if (reserva) store.cancelar(reserva.id, 'aluno');
+
+  // Quem tem matrícula ganha uma aula extra na própria matrícula, não uma
+  // reserva solta: assim a troca aparece na Grade do dia do estúdio, junto das
+  // outras aulas daquele horário, e não numa lista paralela.
+  if (minha) {
+    const r = matriculas.registrarExcecao({
+      matriculaId: minha.id, data: para.data, tipo: 'extra', hora: para.hora,
+      motivo: `Troca do horário de ${porExtenso(de.data)} ${de.hora}`,
+    });
+    if (!r.ok) return r;
+    return { ok: true, excecao: r.excecao };
+  }
+
+  const registro = store.reservar({
+    telefone: aluno.telefone, nome: aluno.nome, data: para.data, hora: para.hora,
+  });
+  return { ok: true, agendamento: registro };
+}
+
+/**
+ * Solta uma aula da matrícula. Aula da grade vira exceção de cancelamento;
+ * aula extra é apagada, porque cancelar um encaixe é desfazer o encaixe.
+ */
+function soltarAulaFixa(minha, data, item) {
+  if (item.origem === 'extra' && item.excecaoId) {
+    return matriculas.apagarExcecao(item.excecaoId);
+  }
+  return matriculas.registrarExcecao({
+    matriculaId: minha.id, data, tipo: 'cancelou', hora: item.hora,
     motivo: 'Desmarcado pelo aluno no app',
   });
-  if (!r.ok) return r;
-  return { ok: true, excecao: r.excecao };
 }
 
 /** Lista de presença de um dia, para o administrador. */
@@ -405,7 +525,7 @@ function listaDoDia(data) {
 }
 
 module.exports = {
-  hoje, montarDia, montarDias, datasAbertas, reservar, cancelar, desmarcarFixa,
+  hoje, montarDia, montarDias, datasAbertas, reservar, cancelar, desmarcarFixa, trocar,
   listaDoDia, minhaMatricula, semanaDaMatricula, fixosDaMatricula,
   diaDaSemana, porExtenso, minutosAte, DIAS, NOME_DO_DIA,
 };
