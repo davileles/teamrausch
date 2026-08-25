@@ -98,35 +98,12 @@ function entraSemCodigo(telefone) {
 }
 
 /* --------------------------- aniversário --------------------------------- */
-// Guardamos só dia e mês, no formato 'MM-DD'. Sem ano: não precisamos da
-// idade de ninguém, e menos dado guardado é menos dado a proteger.
+// A validação mora em `aniversario.js`: a matrícula guarda o mesmo campo e as
+// duas telas precisam concordar sobre o que é uma data válida.
 
-const DIAS_NO_MES = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-
-/** Aceita '07/03', '7/3', '03-07' (dia-mês) ou já no formato 'MM-DD'. */
-function normalizarAniversario(entrada) {
-  const texto = String(entrada || '').trim();
-  if (!texto) return null;
-
-  const partes = texto.split(/[\/\-.]/).map((p) => p.trim());
-  if (partes.length !== 2 || partes.some((p) => !/^\d{1,2}$/.test(p))) return null;
-
-  // 'MM-DD' vem do próprio banco; o resto vem do usuário como dia/mês.
-  const ehCanonico = /^\d{2}-\d{2}$/.test(texto);
-  const dia = Number(ehCanonico ? partes[1] : partes[0]);
-  const mes = Number(ehCanonico ? partes[0] : partes[1]);
-
-  if (mes < 1 || mes > 12) return null;
-  if (dia < 1 || dia > DIAS_NO_MES[mes - 1]) return null;
-  return `${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-}
-
-/** 'MM-DD' → '07/03', para mostrar na tela. */
-function mostrarAniversario(mmdd) {
-  if (!mmdd) return null;
-  const [m, d] = mmdd.split('-');
-  return `${d}/${m}`;
-}
+const aniversario = require('./aniversario');
+const normalizarAniversario = aniversario.normalizar;
+const mostrarAniversario = aniversario.mostrar;
 
 /* ----------------------------- sessão ------------------------------------ */
 
