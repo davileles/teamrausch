@@ -17,6 +17,8 @@ const grade = require('./grade');
 const config = require('./config');
 const agenda = require('./agenda');
 const checkins = require('./checkins-store');
+const alunosLogin = require('./agenda-store');
+const aniversario = require('./aniversario');
 const frequencia = require('./frequencia');
 const alertas = require('./alertas-frequencia');
 const poller = require('./poller-portal');
@@ -27,11 +29,46 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
 
   const hoje = () => agenda.hoje(config.ler().estudio.fuso);
 
+  /**
+   * Casa a matrícula com a ficha de login pelos 8 dígitos finais do telefone.
+   * O mesmo número aparece ora com DDI, ora sem o nono dígito; exigir igualdade
+   * literal deixaria as duas fichas separadas por causa de um '55'.
+   */
+  function fichaDeLogin(m) {
+    const meu = String(m.telefone || '').replace(/\D/g, '');
+    if (meu.length < 8) return null;
+    return alunosLogin.listarAlunos().find((a) => {
+      const dele = String(a.telefone || '').replace(/\D/g, '');
+      return dele.length >= 8 && dele.slice(-8) === meu.slice(-8);
+    }) || null;
+  }
+
+  /**
+   * O nascimento agora se cadastra aqui, mas o app do aluno também pergunta a
+   * data no primeiro acesso e a mostra em "Meus dados". Manter os dois lados
+   * iguais evita o aluno ver uma data e você ver outra.
+   *
+   * A matrícula manda: se ela tem data, a ficha de login recebe. Só quando a
+   * matrícula está vazia é que o caminho se inverte — assim o que o aluno já
+   * preencheu no app não se perde ao aparecer nesta tela.
+   */
+  function sincronizarNascimento(m) {
+    const login = fichaDeLogin(m);
+    if (!login) return;
+    if (m.aniversario && login.aniversario !== m.aniversario) {
+      alunosLogin.salvarAluno(login.telefone, { aniversario: m.aniversario });
+    } else if (!m.aniversario && login.aniversario) {
+      store.atualizar(m.id, { aniversario: login.aniversario });
+    }
+  }
+
   function ficha(m) {
     return {
       ...m,
       diasSemana: grade.diasPorSemana(m),
       precisaRevisar: Boolean((m.revisar || []).length),
+      aniversarioFormatado: aniversario.mostrar(m.aniversario),
+      temLogin: Boolean(fichaDeLogin(m)),
     };
   }
 
@@ -53,6 +90,11 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
         String(m.nome).toLocaleLowerCase('pt-BR').includes(busca) ||
         String(m.telefone || '').includes(busca));
     }
+
+    // Puxa para a matrícula o que já existe na ficha de login. Roda na listagem
+    // porque é a primeira tela que se abre — quem tinha data no app aparece
+    // aqui já com ela, sem passo de importação.
+    lista.forEach(sincronizarNascimento);
 
     res.json({ resumo: store.resumo(), matriculas: lista.map(ficha) });
   });
@@ -146,6 +188,11 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     res.json(r);
   });
 
+  /** Aplica em todas as fichas o nome que o Wellhub usa hoje. */
+  rotas.post('/checkins/aplicar-nomes', (_req, res) => {
+    res.json(checkins.aplicarNomesDoPortal());
+  });
+
   /** Reprocessa os órfãos depois de cadastrar ou corrigir alunos. */
   rotas.post('/checkins/revincular', (_req, res) => {
     res.json(checkins.revincularOrfaos());
@@ -154,6 +201,7 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   rotas.get('/:id', (req, res) => {
     const m = store.porId(req.params.id);
     if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+    sincronizarNascimento(m);
     const dias = alertas.JANELA_DIAS;
     const ate = hoje();
     // Do dia 1º: `frequencia.avaliar` trunca a janela no mês e ainda calcula o
@@ -173,12 +221,14 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   rotas.post('/', (req, res) => {
     const r = store.criar(req.body || {});
     if (!r.ok) return res.status(400).json({ erro: r.motivo });
+    sincronizarNascimento(r.matricula);
     res.status(201).json(ficha(r.matricula));
   });
 
   rotas.put('/:id', (req, res) => {
     const r = store.atualizar(req.params.id, req.body || {});
     if (!r.ok) return res.status(400).json({ erro: r.motivo });
+    sincronizarNascimento(r.matricula);
     res.json(ficha(r.matricula));
   });
 
