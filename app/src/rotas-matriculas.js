@@ -156,7 +156,9 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
     const dias = alertas.JANELA_DIAS;
     const ate = hoje();
-    const de = grade.somarDias(ate, -(dias - 1));
+    // Do dia 1º: `frequencia.avaliar` trunca a janela no mês e ainda calcula o
+    // acumulado do ciclo, que precisa das exceções do mês inteiro.
+    const de = frequencia.inicioDoMes(ate);
     res.json({
       ...ficha(m),
       proximas: grade.proximasDaMatricula(
