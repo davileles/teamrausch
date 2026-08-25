@@ -152,6 +152,7 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
     nome: matricula.nome,
     telefone: matricula.telefone || null,
     vinculo: matricula.vinculo || null,
+    experimental: Boolean(matricula.experimental),
     gympassId: matricula.gympassId || null,
     janela: {
       de, ate,
@@ -187,6 +188,10 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
  * que numa semana de duas aulas significa que a pessoa sumiu.
  */
 function classificar(saldo, esperado, matricula) {
+  // Experimental vem antes de tudo: quem está em teste não tem grade ainda e
+  // seria classificado como 'sem-grade', que na tela parece cadastro pela
+  // metade. Também não pode virar devedor — não há combinado para cobrar.
+  if (matricula.experimental) return 'experimental';
   if (!(matricula.grade || []).length) return 'sem-grade';
   if (!esperado) return 'sem-aula';       // janela sem nenhuma aula prevista
   if (saldo >= 0) return 'em-dia';
@@ -199,7 +204,8 @@ function diferencaEmDias(de, ate) {
   return Math.round((Date.UTC(a2, m2 - 1, d2) - Date.UTC(a1, m1 - 1, d1)) / 86400000);
 }
 
-const ORDEM = { critico: 0, atrasado: 1, 'sem-aula': 2, 'em-dia': 3, 'sem-grade': 4 };
+const ORDEM = { critico: 0, atrasado: 1, experimental: 2, 'sem-aula': 3,
+  'em-dia': 4, 'sem-grade': 5 };
 
 /**
  * Painel completo. `mapaDatas` é o Map matriculaId → datas de `checkins-store`.
@@ -241,6 +247,7 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
       criticos: conta('critico'),
       semGrade: conta('sem-grade'),
       semAula: conta('sem-aula'),
+      experimentais: conta('experimental'),
     },
     alunos: lista,
   };
