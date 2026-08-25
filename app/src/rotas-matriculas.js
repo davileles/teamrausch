@@ -104,9 +104,26 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     });
   });
 
-  /** Mapa de lotação da semana — para enxergar os horários cheios de uma vez. */
+  /**
+   * Mapa de lotação da semana — para enxergar os horários cheios de uma vez.
+   *
+   * `naAgenda` diz se aquele horário da grade também existe na aba Agendar.
+   * Sem isso, um horário como 06:40 ficaria invisível: os alunos têm aula, mas
+   * a agenda nunca o oferece e a lotação dele não aparece em lugar nenhum.
+   */
   rotas.get('/grade/ocupacao', (_req, res) => {
-    res.json({ slots: grade.ocupacaoSemanal(store.listar()) });
+    const c = config.ler();
+    const capacidadePadrao = Number(c.agenda.capacidadePadrao) || 0;
+    const slots = grade.ocupacaoSemanal(store.listar()).map((s) => {
+      const doDia = c.agenda.horarios[agenda.DIAS[s.dia]] || [];
+      const naAgenda = doDia.find((x) => x.hora === s.hora) || null;
+      return {
+        ...s,
+        naAgenda: Boolean(naAgenda),
+        capacidade: naAgenda ? (Number(naAgenda.capacidade) || capacidadePadrao) : null,
+      };
+    });
+    res.json({ slots, foraDaAgenda: slots.filter((s) => !s.naAgenda).length });
   });
 
   /* ------------------------------ exceções ------------------------------- */
