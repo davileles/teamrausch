@@ -305,6 +305,8 @@
   .encaixe select,.encaixe input{background:var(--preto);min-width:0;margin:0}
   .mat-item .rodape{margin-top:10px}
   .sem-tel{color:var(--amarelo-2);margin:0}
+  .nome-antigo{margin:10px 0 0;padding-left:10px;border-left:3px solid var(--linha-2)}
+  .nome-antigo b{color:var(--texto);font-weight:600}
   /* ---- frequência: combinado x realizado ---- */
   .freq-item{background:var(--superficie);border:1px solid var(--linha-2);
     border-left:4px solid var(--linha-2);padding:14px 16px;margin-bottom:8px}
@@ -1334,6 +1336,8 @@ function fichaMatricula(m){
         <option value="wellhub"${mens?'':' selected'}>Wellhub</option>
       </select>
     </div>
+    ${m.nomeOriginal ? `<p class="ajuda nome-antigo">Renomeado pelo Wellhub · na planilha era
+      <b>${esc(m.nomeOriginal)}</b></p>` : ''}
     <!-- O número do Wellhub é o que faz o check-in do portal cair nesta ficha.
          Fica em branco até o primeiro check-in casar pelo nome; a partir daí o
          sistema preenche sozinho e o vínculo passa a ser exato. -->
@@ -1711,9 +1715,10 @@ async function carregarFrequencia(){
         try{
           const r = await api('/matriculas/checkins/'+el.dataset.id+'/vincular',
             {method:'POST', body: JSON.stringify({matriculaId: quem})});
-          avisar(r.arrastados
-            ? `Vinculado — e mais ${r.arrastados} check-in(s) do mesmo ID junto.`
-            : 'Check-in vinculado.', 'ok');
+          const extra = r.arrastados ? ` (+${r.arrastados} do mesmo ID)` : '';
+          avisar(r.renomeado
+            ? `Vinculado${extra}. Ficha renomeada para "${r.nome}".`
+            : `Check-in vinculado${extra}.`, 'ok');
           await carregarFrequencia();
         }catch(err){ avisar(err.message,'erro'); }
       });
