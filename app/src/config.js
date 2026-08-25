@@ -173,4 +173,15 @@ function paraAdmin() {
   };
 }
 
-module.exports = { ler, gravar, publica, paraAdmin, DIAS, PADRAO };
+/**
+ * Telefone (E.164) está na lista de administradores.
+ *
+ * Mora aqui porque a lista mora aqui: quando a gestão de acesso passou da aba
+ * Alunos para a matrícula, dois arquivos de rota passaram a precisar da mesma
+ * resposta, e uma segunda cópia da comparação acabaria divergindo.
+ */
+function ehAdmin(telefone) {
+  return (ler().administradores || []).includes(telefone);
+}
+
+module.exports = { ler, gravar, publica, paraAdmin, ehAdmin, DIAS, PADRAO };
