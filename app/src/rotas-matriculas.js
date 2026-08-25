@@ -275,6 +275,54 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     res.json(r);
   });
 
+  /**
+   * Cria a ficha na hora, a partir do próprio check-in, e já vincula.
+   *
+   * Nem todo órfão é erro de nome: às vezes é gente nova, que ainda não existe
+   * na base. Sem isto seria preciso sair da aba Frequência, abrir Alunos, criar
+   * a ficha, copiar o Wellhub ID na mão e voltar — quatro passos para o caso
+   * mais comum de aluno novo entrando pelo Wellhub.
+   *
+   * Entra como vínculo Wellhub e sem grade: a grade se define depois, na ficha,
+   * quando os horários do aluno estiverem combinados.
+   */
+  rotas.post('/checkins/:id/criar-aluno', (req, res) => {
+    const c = checkins.porId(req.params.id);
+    if (!c) return res.status(404).json({ erro: 'Check-in não encontrado.' });
+    if (c.matriculaId) return res.status(400).json({ erro: 'Este check-in já está vinculado.' });
+
+    // O nome do portal vai preenchido na tela; se você corrigiu lá, vale o seu.
+    const nome = String(req.body.nome || c.nome || '').trim();
+    if (!nome) return res.status(400).json({ erro: 'Informe o nome do aluno.' });
+
+    // O Wellhub ID pode já estar em outra ficha (nome diferente, mesma pessoa).
+    // Criar a segunda deixaria os treinos do mesmo aluno com dois donos.
+    const dono = c.gympassId ? store.porGympassId(c.gympassId) : null;
+    if (dono) {
+      return res.status(409).json({
+        erro: `Este Wellhub ID já é da ficha de ${dono.nome}. Use "Vincular a…".`,
+      });
+    }
+
+    const r = store.criar({
+      nome,
+      vinculo: req.body.vinculo || 'wellhub',
+      gympassId: c.gympassId || undefined,
+      grade: [],
+    });
+    if (!r.ok) return res.status(400).json({ erro: r.motivo });
+
+    const v = checkins.vincular(c.id, r.matricula.id);
+    if (!v.ok) return res.status(400).json({ erro: v.motivo });
+
+    res.status(201).json({
+      ok: true,
+      matricula: ficha(store.porId(r.matricula.id)),
+      nome: r.matricula.nome,
+      arrastados: v.arrastados,
+    });
+  });
+
   rotas.post('/checkins/:id/desvincular', (req, res) => {
     const r = checkins.desvincular(req.params.id);
     if (!r.ok) return res.status(404).json({ erro: r.motivo });
