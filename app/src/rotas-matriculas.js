@@ -16,6 +16,10 @@ const store = require('./matriculas-store');
 const grade = require('./grade');
 const config = require('./config');
 const agenda = require('./agenda');
+const checkins = require('./checkins-store');
+const frequencia = require('./frequencia');
+const alertas = require('./alertas-frequencia');
+const poller = require('./poller-portal');
 
 module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   const rotas = express.Router();
@@ -53,13 +57,114 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     res.json({ resumo: store.resumo(), matriculas: lista.map(ficha) });
   });
 
+  /* ----------------------------- frequência ------------------------------ *
+   * Estas rotas vêm ANTES de '/:id' de propósito: '/frequencia' e '/checkins'
+   * têm um segmento só e seriam capturadas pelo parâmetro, devolvendo
+   * "Matrícula não encontrada" para um caminho que existe.
+   * ---------------------------------------------------------------------- */
+
+  /** Panorama: quem está em dia e quem deve treino na janela. */
+  rotas.get('/frequencia', (req, res) => {
+    const dias = Number(req.query.dias) > 0 ? Number(req.query.dias) : alertas.JANELA_DIAS;
+    // Sem `vinculo` na querystring avalia só Wellhub, que é quem faz check-in.
+    // `vinculo=todos` inclui mensalista, útil quando você registrar presença
+    // deles por outro caminho.
+    const vinculo = req.query.vinculo === 'todos' ? null : (req.query.vinculo || 'wellhub');
+    const painel = alertas.montarPainel({ dias, vinculo, ate: req.query.ate || undefined });
+
+    const filtro = String(req.query.situacao || '');
+    const alunos = filtro === 'devendo'
+      ? frequencia.devedores(painel)
+      : (filtro ? painel.alunos.filter((a) => a.situacao === filtro) : painel.alunos);
+
+    res.json({
+      ...painel,
+      alunos,
+      checkins: checkins.resumo(),
+      aviso: alertas.situacao(),
+    });
+  });
+
+  /** Pré-visualiza o aviso diário; ?enviar=1 dispara na hora. */
+  rotas.post('/frequencia/aviso', async (req, res) => {
+    try {
+      const r = await alertas.rodar({
+        avisar: req.query.enviar === '1' || req.body.enviar === true,
+        mesmoSemDevedores: true,
+        dias: Number(req.body.dias) || undefined,
+      });
+      res.json(r);
+    } catch (e) { res.status(500).json({ erro: e.message }); }
+  });
+
+  /** Cobra um aluno pelo WhatsApp. Texto livre opcional. */
+  rotas.post('/frequencia/cobrar', async (req, res) => {
+    const r = await alertas.cobrar(String(req.body.matriculaId || ''), req.body.texto);
+    if (!r.ok) return res.status(400).json({ erro: r.motivo, texto: r.texto || null });
+    res.json(r);
+  });
+
+  /* ------------------------------ check-ins ------------------------------ */
+
+  rotas.get('/checkins', (req, res) => {
+    res.json({
+      resumo: checkins.resumo(),
+      checkins: checkins.listar({
+        de: req.query.de || undefined,
+        ate: req.query.ate || undefined,
+        matriculaId: req.query.matriculaId || undefined,
+        semVinculo: req.query.semVinculo === '1',
+        limite: Number(req.query.limite || 200),
+      }),
+    });
+  });
+
+  /** Puxa a lista de validados do portal agora, sem esperar o ciclo de 15 min. */
+  rotas.post('/checkins/sincronizar', async (_req, res) => {
+    try {
+      const rel = await poller.rodarUmaVez({ origem: 'manual', avisar: false });
+      res.json({
+        ok: !rel.erro,
+        erro: rel.erro,
+        validados: rel.validados,
+        registrados: rel.registrados,
+        resumo: checkins.resumo(),
+      });
+    } catch (e) { res.status(500).json({ erro: e.message }); }
+  });
+
+  /** Liga um check-in órfão a um aluno — e o Wellhub ID junto, para o futuro. */
+  rotas.post('/checkins/:id/vincular', (req, res) => {
+    const r = checkins.vincular(req.params.id, String(req.body.matriculaId || ''));
+    if (!r.ok) return res.status(400).json({ erro: r.motivo });
+    res.json(r);
+  });
+
+  rotas.post('/checkins/:id/desvincular', (req, res) => {
+    const r = checkins.desvincular(req.params.id);
+    if (!r.ok) return res.status(404).json({ erro: r.motivo });
+    res.json(r);
+  });
+
+  /** Reprocessa os órfãos depois de cadastrar ou corrigir alunos. */
+  rotas.post('/checkins/revincular', (_req, res) => {
+    res.json(checkins.revincularOrfaos());
+  });
+
   rotas.get('/:id', (req, res) => {
     const m = store.porId(req.params.id);
     if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+    const dias = alertas.JANELA_DIAS;
+    const ate = hoje();
+    const de = grade.somarDias(ate, -(dias - 1));
     res.json({
       ...ficha(m),
       proximas: grade.proximasDaMatricula(
-        m, store.excecoes({ matriculaId: m.id }), { de: hoje(), dias: 21 }),
+        m, store.excecoes({ matriculaId: m.id }), { de: ate, dias: 21 }),
+      frequencia: frequencia.avaliar(
+        m, checkins.datasDaMatricula(m.id),
+        store.excecoes({ matriculaId: m.id, de, ate }), { dias, ate }),
+      checkins: checkins.listar({ matriculaId: m.id, limite: 60 }),
     });
   });
 
