@@ -135,6 +135,16 @@ function semanaDaMatricula(matricula, telefone, data) {
 
 /* ------------------------------ agenda ----------------------------------- */
 
+/** Minutos viram texto de gente: 90 → "1h30", 120 → "2 horas". */
+function emTextoDeTempo(min) {
+  const n = Number(min) || 0;
+  if (n < 60) return `${n} minutos`;
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  if (m) return `${h}h${String(m).padStart(2, '0')}`;
+  return h === 1 ? '1 hora' : `${h} horas`;
+}
+
 /** Minutos entre agora e o começo do horário. Negativo = já passou. */
 function minutosAte(data, hora, fuso) {
   return diferencaEmDias(hoje(fuso), data) * 1440 + emMinutos(hora) - agoraEmMinutos(fuso);
@@ -153,17 +163,49 @@ function montarDia(data, telefone, minhaMatricula) {
   const c = config.ler();
   const fuso = c.estudio.fuso;
   const bloqueada = (c.agenda.datasBloqueadas || []).includes(data);
-  const modelo = (c.agenda.horarios[diaDaSemana(data)] || [])
-    .slice()
-    .sort((a, b) => emMinutos(a.hora) - emMinutos(b.hora));
+  const padrao = Number(c.agenda.capacidadePadrao) || 0;
+  const modelo = (c.agenda.horarios[diaDaSemana(data)] || []).map((s) => ({
+    hora: s.hora,
+    capacidade: Number(s.capacidade) || padrao,
+    foraDaAgenda: false,
+  }));
 
   const fixos = fixosDoDia(data);
   const minha = minhaMatricula === undefined
     ? (telefone ? matriculas.porTelefone(telefone) : null)
     : minhaMatricula;
 
+  /**
+   * Horário que tem aula mas não está na configuração da agenda.
+   *
+   * Isso acontece quando a grade da matrícula usa um horário que ninguém
+   * cadastrou em Configurações, ou quando o horário foi removido de lá depois
+   * que as aulas já existiam. A aula continua acontecendo — e antes ela
+   * simplesmente não aparecia nesta tela, então o aluno via o dia sem o próprio
+   * horário e não tinha como desmarcar nem trocar. Agora ela aparece, marcada
+   * como fora da agenda: dá para largar, não dá para outra pessoa entrar.
+   *
+   * O aluno vê só as próprias; a lista do estúdio (sem telefone) vê todas.
+   */
+  const configuradas = new Set(modelo.map((s) => s.hora));
+  const foraDaAgenda = new Set();
+  for (const [hora, itens] of fixos) {
+    if (configuradas.has(hora)) continue;
+    if (telefone && !(minha && itens.some((f) => f.matriculaId === minha.id))) continue;
+    foraDaAgenda.add(hora);
+  }
+  for (const r of store.daData(data)) {
+    if (configuradas.has(r.hora)) continue;
+    if (telefone && r.telefone !== telefone) continue;
+    foraDaAgenda.add(r.hora);
+  }
+  for (const hora of foraDaAgenda) {
+    modelo.push({ hora, capacidade: padrao, foraDaAgenda: true });
+  }
+  modelo.sort((a, b) => emMinutos(a.hora) - emMinutos(b.hora));
+
   const horarios = modelo.map((slot) => {
-    const capacidade = Number(slot.capacidade) || Number(c.agenda.capacidadePadrao) || 0;
+    const capacidade = slot.capacidade;
     const naGrade = fixos.get(slot.hora) || [];
     const { reservas, ocupadas } = lotacao(data, slot.hora, naGrade);
 
@@ -179,11 +221,27 @@ function montarDia(data, telefone, minhaMatricula) {
     if (bloqueada) situacao = 'bloqueado';
     else if (meuFixo || meu) situacao = 'meu';
     else if (fechou) situacao = 'fechado';
+    // Horário fora da configuração não é oferecido para mais ninguém: quem já
+    // está nele continua, quem não está não entra.
+    else if (slot.foraDaAgenda) situacao = 'fechado';
     else if (ocupadas >= capacidade) situacao = 'lotado';
+
+    // Quando a aula é sua mas não dá para mexer nela, a tela precisa dizer por
+    // quê. Um selo mudo vira um beco sem saída: a pessoa acha que o app está
+    // quebrado quando na verdade é uma regra do estúdio.
+    let motivoTravado = null;
+    if ((meuFixo || meu) && !aTempo) {
+      const minimo = Number(c.agenda.minutosParaCancelar || 0);
+      motivoTravado = !c.agenda.permitirCancelar
+        ? 'O estúdio não abriu cancelamento e troca pelo app.'
+        : `Trocar ou desmarcar só até ${emTextoDeTempo(minimo)} antes.`;
+    }
 
     return {
       hora: slot.hora,
       capacidade,
+      foraDaAgenda: Boolean(slot.foraDaAgenda),
+      motivoTravado,
       ocupadas,
       vagas: Math.max(0, capacidade - ocupadas),
       // Abertura da conta: o aluno entende por que um horário "vazio" já tem
@@ -527,5 +585,5 @@ function listaDoDia(data) {
 module.exports = {
   hoje, montarDia, montarDias, datasAbertas, reservar, cancelar, desmarcarFixa, trocar,
   listaDoDia, minhaMatricula, semanaDaMatricula, fixosDaMatricula,
-  diaDaSemana, porExtenso, minutosAte, DIAS, NOME_DO_DIA,
+  diaDaSemana, porExtenso, minutosAte, emTextoDeTempo, DIAS, NOME_DO_DIA,
 };
