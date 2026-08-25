@@ -194,13 +194,16 @@ function ocupacaoSemanal(matriculas) {
     if (!m.ativo) continue;
     for (const s of m.grade || []) {
       const chave = `${s.dia}|${s.hora}`;
-      mapa.set(chave, (mapa.get(chave) || 0) + 1);
+      if (!mapa.has(chave)) mapa.set(chave, []);
+      // Quem está na turma, e não só quantos: o mapa de lotação abre a célula
+      // com os nomes, e refazer essa conta na tela exigiria baixar a base toda.
+      mapa.get(chave).push({ id: m.id, nome: m.nome, vinculo: m.vinculo || 'mensalista' });
     }
   }
   return [...mapa.entries()]
-    .map(([chave, total]) => {
+    .map(([chave, alunos]) => {
       const [dia, hora] = chave.split('|');
-      return { dia: Number(dia), hora, total };
+      return { dia: Number(dia), hora, total: alunos.length, alunos };
     })
     .sort((a, b) => a.hora.localeCompare(b.hora) || a.dia - b.dia);
 }
