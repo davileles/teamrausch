@@ -415,16 +415,6 @@ rotas.put('/perfil', exigirLogin, (req, res) => {
 
 /* ------------------------------ avisos ----------------------------------- */
 
-/** Minutos viram texto de gente: 90 → "1h30", 120 → "2 horas". */
-function emTextoDeTempo(min) {
-  const n = Number(min) || 0;
-  if (n < 60) return `${n} minutos`;
-  const h = Math.floor(n / 60);
-  const m = n % 60;
-  if (m) return `${h}h${String(m).padStart(2, '0')}`;
-  return h === 1 ? '1 hora' : `${h} horas`;
-}
-
 /**
  * As regras que o aluno precisa saber, escritas a partir da própria
  * configuração. Assim não existe o texto explicando uma coisa e o sistema
@@ -465,11 +455,11 @@ function regrasEmTexto(matricula) {
   else if (limite > 1) linhas.push(`Dá para ficar em até ${limite} horários no mesmo dia.`);
 
   const fecha = Number(a.minutosAntesDeFechar) || 0;
-  if (fecha > 0) linhas.push(`O horário fecha ${emTextoDeTempo(fecha)} antes de começar.`);
+  if (fecha > 0) linhas.push(`O horário fecha ${agenda.emTextoDeTempo(fecha)} antes de começar.`);
 
   if (a.permitirCancelar) {
     const canc = Number(a.minutosParaCancelar) || 0;
-    const prazo = canc > 0 ? `até ${emTextoDeTempo(canc)} antes` : 'a qualquer momento antes do horário';
+    const prazo = canc > 0 ? `até ${agenda.emTextoDeTempo(canc)} antes` : 'a qualquer momento antes do horário';
     linhas.push(matricula
       ? `Não vai poder ir? Toque em "Não vou" ${prazo} e seu lugar volta para a agenda.`
       : `Você pode cancelar ${prazo}.`);
@@ -510,6 +500,7 @@ function alertaAtivo() {
  * pessoa conferir a própria semana sem virar uma lista infinita.
  */
 function meusHorarios(telefone, hoje) {
+  const c = config.ler();
   const minha = matriculas.porTelefone(telefone);
   const lista = store.doAluno(telefone, hoje).map((a) => ({
     id: a.id, data: a.data, hora: a.hora, origem: 'reserva',
@@ -524,9 +515,28 @@ function meusHorarios(telefone, hoje) {
     }
   }
 
+  // As mesmas regras que valem na aba Agendar. Sem isto esta lista mostrava um
+  // botão de cancelar que o servidor ia recusar, e as duas telas discordavam
+  // sobre a mesma aula.
+  const minimo = Number(c.agenda.minutosParaCancelar || 0);
+  const abertas = new Set(agenda.datasAbertas());
+
   return lista
     .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora))
-    .map((a) => ({ ...a, porExtenso: agenda.porExtenso(a.data) }));
+    .map((a) => {
+      const aTempo = Boolean(c.agenda.permitirCancelar) &&
+        agenda.minutosAte(a.data, a.hora, c.estudio.fuso) >= minimo;
+      return {
+        ...a,
+        porExtenso: agenda.porExtenso(a.data),
+        podeLargar: aTempo,
+        // Trocar acontece na aba Agendar, que só enxerga os dias abertos.
+        podeTrocar: aTempo && abertas.has(a.data),
+        motivoTravado: aTempo ? null : (c.agenda.permitirCancelar
+          ? `Trocar ou desmarcar só até ${agenda.emTextoDeTempo(minimo)} antes.`
+          : 'O estúdio não abriu cancelamento e troca pelo app.'),
+      };
+    });
 }
 
 rotas.get('/agenda', exigirLogin, (req, res) => {
