@@ -39,6 +39,15 @@
     padding:0 max(18px, env(safe-area-inset-left)) calc(104px + env(safe-area-inset-bottom))
             max(18px, env(safe-area-inset-right))}
   [hidden]{display:none!important}
+  /* Abas de administração (Lista do dia, Matrículas, Configurações): os 680px
+     são para o aluno no celular. Quem administra costuma estar no computador,
+     e ali a mesma largura deixava dois terços da tela vazios. `larga` entra no
+     #tela-app ao abrir uma aba de admin e sai ao voltar para as do aluno; no
+     celular nada muda, porque a tela é mais estreita que qualquer limite. */
+  #tela-app.larga .env,#tela-app.larga .cab{max-width:1180px}
+  /* Configurações é formulário corrido: cresce, mas um campo de texto com um
+     metro de largura não ajuda ninguém. */
+  #tela-app.larga #aba-config{max-width:980px;margin:0 auto}
 
   /* Cabeçalho: logo, nome do estúdio e quem está logado */
   header{background:var(--preto);border-bottom:3px solid var(--vermelho);position:sticky;top:0;z-index:100;
@@ -315,7 +324,58 @@
   .encaixe{display:grid;grid-template-columns:minmax(0,1fr) 104px auto;gap:8px;align-items:center;
     margin-bottom:14px}
   .encaixe select,.encaixe input{background:var(--preto);min-width:0;margin:0}
-  .mat-item .rodape{margin-top:10px}
+  /* Alunos em grade: cartões lado a lado em vez de uma pilha de 120 fichas.
+     O cartão inteiro abre a ficha; a ficha aberta (edição ou aluno novo) ocupa
+     a linha toda e o resto da grade segue embaixo. */
+  .busca-novo{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin-bottom:10px}
+  .busca-novo input{margin:0}
+  .busca-novo button{white-space:nowrap}
+  .filtros-mat .chips-mat{gap:6px 20px}
+  #mat-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;
+    margin-bottom:8px;align-items:stretch}
+  #mat-lista > .ficha{margin-bottom:0;min-width:0}
+  #mat-lista > .mat-form,#mat-lista > .vazio{grid-column:1 / -1}
+  .mat-item{padding:12px 14px 11px;cursor:pointer;border-left:3px solid var(--linha-3);
+    display:flex;flex-direction:column;gap:3px;transition:border-color .15s,background .15s}
+  .mat-item:hover,.mat-item:focus-visible{border-color:var(--amarelo);outline:none}
+  .mat-item.revisar{border-left-color:var(--amarelo)}
+  .mat-item.suspenso{border-left-color:var(--vermelho)}
+  .mat-item.inativo{opacity:.55}
+  .mat-item.alvo{border-color:var(--amarelo);background:var(--amarelo-fundo)}
+  .mat-item .cabeca{margin:0;align-items:baseline;flex-wrap:nowrap}
+  .mat-item .cabeca b{font-size:15px;min-width:0;overflow-wrap:anywhere}
+  .mat-item .abrir{font:400 11px Anton,sans-serif;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--fraco-2);white-space:nowrap;flex-shrink:0}
+  .mat-item:hover .abrir,.mat-item:focus-visible .abrir{color:var(--amarelo)}
+  .mat-item .tags{font:600 10.5px 'Work Sans',sans-serif;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--amarelo)}
+  .mat-item p.ajuda{margin:0;font-size:12.5px}
+  .mat-item p.sem-tel{color:var(--amarelo-2)}
+  /* Índice A–Z: pula direto para a letra. Fica grudado abaixo do cabeçalho
+     enquanto a lista rola; no celular vira uma fita horizontal. */
+  .indice-az{position:sticky;top:var(--topo-fixo,58px);z-index:50;display:flex;flex-wrap:wrap;
+    gap:4px;padding:8px 0 10px;margin-bottom:6px;background:var(--preto)}
+  .indice-az button{background:var(--superficie);border:1px solid var(--linha-2);color:var(--apagado);
+    min-width:34px;height:34px;padding:0 9px;cursor:pointer;font:400 13px Anton,sans-serif;
+    letter-spacing:.06em;text-transform:uppercase;transition:border-color .15s,color .15s;flex:0 0 auto}
+  .indice-az button:hover{border-color:var(--amarelo);color:var(--texto)}
+  .indice-az button.topo{color:var(--fraco-2)}
+  @media (max-width:619px){
+    .indice-az{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+    .indice-az::-webkit-scrollbar{display:none}
+  }
+  /* Lista do dia, Grade do dia e Frequência: um bloco por horário/aluno, lado
+     a lado quando a tela permite. No celular continua uma coluna só. */
+  .horas-dia{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:0 24px;
+    align-items:start}
+  .hora-bloco{min-width:0}
+  #mat-grade .horarios{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;
+    align-items:start}
+  #mat-grade .horarios .ficha{margin-bottom:0;min-width:0}
+  #fq-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px;
+    align-items:start}
+  #fq-lista .freq-item{margin-bottom:0;min-width:0}
+  #fq-lista > .vazio{grid-column:1 / -1}
   .sem-tel{color:var(--amarelo-2);margin:0}
   .nome-antigo{margin:10px 0 0;padding-left:10px;border-left:3px solid var(--linha-2)}
   /* ---- acesso ao app, dentro da ficha do aluno ---- */
@@ -473,6 +533,16 @@
     .dia{grid-template-columns:1fr 1fr 1fr}
     nav button{min-width:0}
     .ficha .campos{grid-template-columns:1fr 148px 110px}
+  }
+
+  /* Computador com aba de admin aberta: a ficha do aluno ganha a quarta
+     coluna e os pares de campos das configurações viram trios. */
+  @media (min-width:900px){
+    #tela-app.larga .ficha.mat-form > .campos{grid-template-columns:minmax(0,2fr) 180px 150px 150px}
+    #tela-app.larga .ficha.mat-form .lista-slots{display:grid;
+      grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:8px}
+    #tela-app.larga .dupla{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+    #tela-app.larga #aba-dia > .campo{max-width:320px}
   }
 
   /* Celular deitado: o cabeçalho fixo come metade da tela útil. */
@@ -727,8 +797,8 @@ function limparTela(){
   subConfig = 'negocio';
   diaAberto = '';   // conta nova, agenda nova: a fita recomeça no primeiro dia
   dataDoDia = null;
-  matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
-    experimental:false, data:null, aberta:null };
+  matEstado = matEstadoInicial();
+  document.getElementById('tela-app').classList.remove('larga');
   TODAS_ABAS.forEach(a=>{ document.getElementById('aba-'+a).innerHTML = ''; });
   document.getElementById('quem-sou').textContent = '';
 }
@@ -754,6 +824,9 @@ function abrirAba(aba){
   if (aba !== 'agendar') trocando = null;
 
   abaAtiva = abaPermitida(aba) ? aba : 'agendar';
+  // Aba de admin alarga o painel (ver `.larga` no CSS); aba de aluno devolve
+  // a largura de celular.
+  document.getElementById('tela-app').classList.toggle('larga', ABAS_ADMIN.includes(abaAtiva));
   document.querySelectorAll('#abas button').forEach(x=>
     x.setAttribute('aria-selected', String(x.dataset.aba === abaAtiva)));
   TODAS_ABAS.forEach(a=>{
@@ -1218,7 +1291,8 @@ async function carregarDia(){
     alvo.innerHTML = `<h2>Lista do dia</h2>
       <div class="campo"><label for="in-dia">Data</label>
       <input id="in-dia" type="date" value="${r.data}"></div>` +
-      (r.horarios.length ? r.horarios.map(h=>`
+      (r.horarios.length ? '<div class="horas-dia">' + r.horarios.map(h=>`
+        <div class="hora-bloco">
         <h3>${h.hora} · ${h.alunos.length} de ${h.capacidade}</h3>
         ${h.alunos.length ? h.alunos.map(a=>`<div class="fila">
             <div class="quem"><b>${esc(a.nome)}</b><small>${
@@ -1228,7 +1302,8 @@ async function carregarDia(){
             }</small></div>
             ${a.id ? `<button class="leve cancelar" data-id="${a.id}">Remover</button>` : ''}
             </div>`).join('')
-          : '<div class="vazio">Ninguém neste horário.</div>'}`).join('')
+          : '<div class="vazio">Ninguém neste horário.</div>'}
+        </div>`).join('') + '</div>'
         : '<div class="vazio">Sem horários nesta data.</div>');
     document.getElementById('in-dia').addEventListener('change', e=>{ dataDoDia = e.target.value; carregarDia(); });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
@@ -1244,8 +1319,47 @@ async function carregarDia(){
 const DIAS_SEM = [[1,'Seg'],[2,'Ter'],[3,'Qua'],[4,'Qui'],[5,'Sex'],[6,'Sáb'],[0,'Dom']];
 const NOME_DIA = {0:'dom',1:'seg',2:'ter',3:'qua',4:'qui',5:'sex',6:'sáb'};
 
-let matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
-  experimental:false, acesso:'', data:null, aberta:null, freqDias:7, freqSo:'devendo' };
+function matEstadoInicial(){
+  return { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
+    experimental:false, acesso:'', data:null, aberta:null, freqDias:7, freqSo:'devendo',
+    focarFicha:false };
+}
+let matEstado = matEstadoInicial();
+
+/** Primeira letra do nome, sem acento, para o índice A–Z; o que não for letra vira '#'. */
+function inicialDe(nome){
+  const c = String(nome||'').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : '#';
+}
+
+/** Fita de letras acima da grade de alunos. Só com lista longa; senão é ruído. */
+function indiceAZ(lista){
+  if (lista.length < 12) return '';
+  const letras = [...new Set(lista.map(m=>inicialDe(m.nome)))]
+    .sort((a,b)=> a==='#' ? 1 : b==='#' ? -1 : a.localeCompare(b));
+  return `<div class="indice-az" aria-label="Ir para a letra">
+    <button type="button" class="topo" data-topo title="Voltar ao topo">Topo</button>
+    ${letras.map(l=>`<button type="button" data-letra="${l}">${l}</button>`).join('')}
+  </div>`;
+}
+
+/** Altura do cabeçalho fixo: o índice A–Z e a rolagem param logo abaixo dele. */
+function medirTopo(){
+  const h = document.querySelector('header')?.offsetHeight || 58;
+  document.documentElement.style.setProperty('--topo-fixo', h + 'px');
+  return h;
+}
+window.addEventListener('resize', medirTopo);
+
+/** Rola até o elemento, descontando cabeçalho e índice, e o destaca por um instante. */
+function rolarAte(el){
+  const desconto = medirTopo() + (document.querySelector('.indice-az')?.offsetHeight || 0) + 8;
+  const y = el.getBoundingClientRect().top + window.scrollY - desconto;
+  window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+  el.classList.add('alvo');
+  setTimeout(()=>el.classList.remove('alvo'), 1600);
+}
 
 /** Grade em uma linha: agrupa os dias que compartilham o mesmo horário. */
 function gradeEmTexto(grade){
@@ -1478,7 +1592,10 @@ async function carregarMatriculas(){
           resumo.aRevisar ? ` · <b>${resumo.aRevisar} a revisar</b>` : ''}${
           resumo.experimentais ? ` · <b>${resumo.experimentais} em experimental</b>` : ''}</p>
         <div class="filtros-mat">
-          <input id="mat-busca" value="${esc(matEstado.busca)}" placeholder="Buscar por nome">
+          <div class="busca-novo">
+            <input id="mat-busca" value="${esc(matEstado.busca)}" placeholder="Buscar por nome">
+            <button class="leve" id="mat-novo">+ Novo aluno</button>
+          </div>
           <div class="chips-mat">
             <div class="grupo-filtro"><span>Situação</span>
               ${[['ativos','Ativos'],['inativos','Inativos'],['todos','Todos']].map(([v,r])=>
@@ -1498,23 +1615,26 @@ async function carregarMatriculas(){
             </div>
           </div>
         </div>
-        <button class="leve" id="mat-novo" style="margin-bottom:12px">+ Novo aluno</button>
+        <p class="ajuda" style="margin:0 0 8px">${matriculas.length} ${matriculas.length===1?'aluno':'alunos'} nesta lista</p>
+        ${indiceAZ(matriculas)}
         <div id="mat-lista">${
           matEstado.aberta === 'novo' ? fichaMatricula({}) : ''}${
           matriculas.length ? matriculas.map(m=>
             matEstado.aberta === m.id ? fichaMatricula(m) : `
-            <div class="ficha mat-item" data-id="${esc(m.id)}">
-              <div class="cabeca"><b>${esc(m.nome)}</b>
-                <span class="tags">${m.vinculo==='wellhub'?'wellhub':'mensal'} ·
-                  ${m.diasSemana}×/sem${m.ativo?'':' · inativo'}${
-                  m.acesso && m.acesso.bloqueado?' · suspenso':''}${
-                  m.acesso && m.acesso.admin?' · admin':''}${
-                  m.experimental?' · experimental':''}${
-                  m.precisaRevisar?' · revisar':''}</span></div>
-              <p class="ajuda" style="margin:8px 0 0">${esc(gradeEmTexto(m.grade))}</p>
-              ${m.aniversarioFormatado ? `<p class="ajuda" style="margin:4px 0 0">🎂 ${esc(m.aniversarioFormatado)}</p>` : ''}
-              ${m.telefone ? '' : '<p class="ajuda sem-tel" style="margin:4px 0 0">sem telefone cadastrado</p>'}
-              <div class="rodape"><button class="leve mat-editar">Editar</button></div>
+            <div class="ficha mat-item${m.ativo?'':' inativo'}${
+                m.acesso && m.acesso.bloqueado?' suspenso':''}${m.precisaRevisar?' revisar':''}"
+              data-id="${esc(m.id)}" data-inicial="${inicialDe(m.nome)}" role="button" tabindex="0"
+              title="Abrir ficha de ${esc(m.nome)}">
+              <div class="cabeca"><b>${esc(m.nome)}</b><span class="abrir" aria-hidden="true">Editar</span></div>
+              <span class="tags">${m.vinculo==='wellhub'?'wellhub':'mensal'} ·
+                ${m.diasSemana}×/sem${m.ativo?'':' · inativo'}${
+                m.acesso && m.acesso.bloqueado?' · suspenso':''}${
+                m.acesso && m.acesso.admin?' · admin':''}${
+                m.experimental?' · experimental':''}${
+                m.precisaRevisar?' · revisar':''}</span>
+              <p class="ajuda">${esc(gradeEmTexto(m.grade))}</p>
+              ${m.aniversarioFormatado ? `<p class="ajuda">🎂 ${esc(m.aniversarioFormatado)}</p>` : ''}
+              ${m.telefone ? '' : '<p class="ajuda sem-tel">sem telefone cadastrado</p>'}
             </div>`).join('')
           : '<div class="vazio">Nenhum aluno com esses filtros.</div>'}</div>
         <div id="mat-soltos"></div>
@@ -1563,13 +1683,36 @@ async function carregarMatriculas(){
       matEstado.aberta = 'novo'; redesenhar();
     });
 
+    // O cartão inteiro abre a ficha — no toque, no clique e pelo teclado.
     alvo.querySelectorAll('.mat-item').forEach(item=>{
-      item.querySelector('.mat-editar').addEventListener('click', ()=>{
-        matEstado.aberta = item.dataset.id; redesenhar();
+      const abrir = ()=>{ matEstado.aberta = item.dataset.id; redesenhar(); };
+      item.addEventListener('click', abrir);
+      item.addEventListener('keydown', e=>{
+        if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); abrir(); }
       });
     });
 
+    const indice = alvo.querySelector('.indice-az');
+    if (indice){
+      medirTopo();
+      indice.addEventListener('click', e=>{
+        const b = e.target.closest('button'); if (!b) return;
+        if (b.dataset.topo !== undefined){ window.scrollTo({ top:0, behavior:'smooth' }); return; }
+        const cartao = alvo.querySelector(`.mat-item[data-inicial="${b.dataset.letra}"]`);
+        if (cartao) rolarAte(cartao);
+      });
+    }
+
     alvo.querySelectorAll('.mat-form').forEach(f=> ligarFicha(f, f.dataset.id || null));
+
+    // Ficha aberta a partir de outra subaba (Lotação, Frequência, acessos
+    // soltos): a pessoa estava em outro lugar da página, então a ficha precisa
+    // vir até ela. O redesenho devolve a rolagem antiga num frame; esperamos
+    // ele passar antes de rolar para a ficha.
+    if (matEstado.focarFicha){
+      matEstado.focarFicha = false;
+      setTimeout(()=>{ const f = alvo.querySelector('.mat-form'); if (f) rolarAte(f); }, 80);
+    }
 
     if (matEstado.sub === 'alunos' && resumo.acessosSoltos) await carregarAcessosSoltos();
     if (matEstado.sub === 'grade') await carregarGradeDoDia();
@@ -1617,7 +1760,7 @@ async function carregarAcessosSoltos(){
           const m = await api('/matriculas/acessos/'+tel+'/matricular',
             {method:'POST', body: JSON.stringify({})});
           avisar('Matrícula criada. Defina os horários na ficha.','ok');
-          matEstado.aberta = m.id; redesenhar();
+          matEstado.aberta = m.id; matEstado.focarFicha = true; redesenhar();
         }catch(e){ avisar(e.message,'erro'); }
       });
       el.querySelector('.so-alternar').addEventListener('click', async ()=>{
@@ -1916,6 +2059,7 @@ async function carregarFrequencia(){
       if (abrir) abrir.addEventListener('click', ()=>{
         matEstado.sub = 'alunos'; matEstado.aberta = el.dataset.id;
         matEstado.situacao = 'ativos'; matEstado.vinculo = '';
+        matEstado.focarFicha = true;
         redesenhar();
       });
     });
@@ -2004,6 +2148,7 @@ async function carregarLotacao(){
           matEstado.sub = 'alunos';
           matEstado.aberta = b.closest('.nome-linha').dataset.mat;
           matEstado.situacao = 'ativos'; matEstado.vinculo = '';
+          matEstado.focarFicha = true;
           redesenhar();
         });
       });
@@ -2038,7 +2183,7 @@ async function carregarGradeDoDia(){
         <input type="time" step="3600" id="mat-encaixe-hora">
         <button class="leve" id="mat-encaixe-ok">Encaixar</button>
       </div>
-      ${dia.horarios.length ? dia.horarios.map(h=>`
+      ${dia.horarios.length ? '<div class="horarios">' + dia.horarios.map(h=>`
         <div class="ficha">
           <div class="cabeca"><b>${h.hora}</b><span class="tags">${h.total} ${h.total===1?'aluno':'alunos'}</span></div>
           <div class="lista-nomes">${h.alunos.map(a=>`
@@ -2047,7 +2192,7 @@ async function carregarGradeDoDia(){
               <span>${esc(a.nome)}${a.origem==='extra'?' <i class="marca-extra">extra</i>':''}</span>
               <button class="leve n-desmarcar">${a.origem==='extra'?'Remover':'Desmarcar'}</button>
             </div>`).join('')}</div>
-        </div>`).join('')
+        </div>`).join('') + '</div>'
       : '<div class="vazio">Nenhuma aula neste dia.</div>'}`;
 
     alvo.querySelector('.barra-dia').addEventListener('click', e=>{
