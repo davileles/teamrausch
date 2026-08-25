@@ -40,6 +40,7 @@ const fs = require('fs');
 const path = require('path');
 const portal = require('./wellhub-portal');
 const config = require('./config');
+const checkins = require('./checkins-store');
 
 const ATIVO = String(process.env.POLLER_PORTAL_ATIVO || 'false') === 'true';
 const MINUTOS = Number(process.env.POLLER_PORTAL_MINUTOS || 15);
@@ -283,6 +284,29 @@ function linhaDoAluno(c) {
 }
 
 /**
+ * Lê a lista de validados do portal e grava no histórico.
+ *
+ * Roda em TODO ciclo, não só quando o modo automático confirmou algo: no modo
+ * aviso quem confirma é você, pelo site, e o nosso lado nunca ficaria sabendo.
+ * A lista de validados é a única fonte que enxerga os dois caminhos.
+ *
+ * Devolve os validados normalizados para a conferência pós-confirmação
+ * aproveitar a mesma chamada, em vez de bater no portal duas vezes.
+ */
+async function coletarValidados(rel) {
+  try {
+    const validados = await portal.listarValidados();
+    rel.validados = validados.length;
+    rel.registrados = checkins.registrarLote(validados, 'portal');
+    return validados;
+  } catch (e) {
+    log('listarValidados falhou:', e.message);
+    rel.erro = (rel.erro ? rel.erro + ' | ' : '') + 'listarValidados: ' + e.message;
+    return null;
+  }
+}
+
+/**
  * Roda um ciclo completo e devolve o relatório do que aconteceu.
  * @param {object} opcoes
  *   origem   'ciclo' | 'manual'
@@ -300,6 +324,8 @@ async function rodarUmaVez(opcoes = {}) {
     falhas: [],
     conferidosNoPortal: [],
     naoConferidos: [],
+    validados: 0,
+    registrados: null,
     erro: null,
   };
   estado.ultimoCiclo = rel;
@@ -335,12 +361,17 @@ async function rodarUmaVez(opcoes = {}) {
     criadoEm: c.criadoEm, expiraEm: c.expiraEm, primeiraVez: c.primeiraVez,
   }));
 
-  if (!pendentes.length) { log('fila vazia.'); return rel; }
+  if (!pendentes.length) {
+    log('fila vazia.');
+    await coletarValidados(rel);   // ninguém na fila não quer dizer que ninguém treinou
+    return rel;
+  }
   log(`fila com ${pendentes.length} pendente(s).`);
 
   const nomes = pendentes.map(rotulo).join(', ');
 
   if (!estado.autoConfirmar) {
+    await coletarValidados(rel);   // pega o que você já confirmou na mão
     if (querAvisar) {
       await avisar(
         `🟡 Wellhub: ${pendentes.length} check-in(s) para confirmar`,
@@ -375,17 +406,16 @@ async function rodarUmaVez(opcoes = {}) {
 
   // Conferência de fechamento: o portal precisa mostrar o check-in como validado.
   // Sem isso, "confirmei" é só o que o nosso lado achou que aconteceu.
+  // A mesma leitura alimenta o histórico — uma chamada, dois usos.
+  const validados = await coletarValidados(rel);
+
   if (rel.confirmados.length) {
-    try {
-      const validados = await portal.listarValidados();
+    if (validados) {
       const idsValidados = new Set(validados.map((v) => String(v.gympassId)));
       for (const c of rel.confirmados) {
         if (idsValidados.has(String(c.gympassId))) rel.conferidosNoPortal.push(c);
         else rel.naoConferidos.push(c);
       }
-    } catch (e) {
-      log('conferência pós-confirmação falhou:', e.message);
-      rel.erro = 'conferencia: ' + e.message;
     }
 
     if (querAvisar) {
@@ -455,4 +485,7 @@ async function testarAviso() {
 module.exports = {
   iniciar, rodarUmaVez, testarAviso, situacao, definirAuto,
   motivoDeRede, canalWhatsApp,
+  // Reaproveitados pelo aviso de frequência: os destinatários e os canais já
+  // estão configurados aqui, não faz sentido ter uma segunda cópia disso.
+  avisar, enviarEmail, enviarWhatsApp, emailsDestino, telefonesDestino,
 };
