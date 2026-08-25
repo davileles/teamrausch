@@ -373,6 +373,58 @@ function desvincular(id) {
 }
 
 /**
+ * Varre o histórico e aplica em cada ficha o nome que o Wellhub usa hoje.
+ *
+ * A adoção de nome passou a valer no momento do vínculo, então quem já estava
+ * vinculado antes só seria renomeado no próximo treino — a base levaria semanas
+ * para ficar uniforme, e quem parou de treinar nunca chegaria lá. Esta varredura
+ * resolve todos de uma vez.
+ *
+ * USA O CHECK-IN MAIS RECENTE DE CADA ALUNO
+ *   Aplicar em ordem cronológica faria o nome mais antigo do portal vencer o
+ *   mais novo: cada chamada reescreve `nomeWellhub`, e a seguinte veria um nome
+ *   diferente do gravado e trocaria de novo. Uma passada por matrícula, com o
+ *   registro mais recente, é o que produz o nome atual.
+ *
+ * Correção sua feita na tela continua de pé quando o portal não mudou o nome —
+ * quem decide isso é `renomearDoWellhub`, não esta função.
+ */
+function aplicarNomesDoPortal() {
+  const maisRecente = new Map();
+  for (const c of dados.checkins) {
+    if (!c.matriculaId || !c.nome) continue;
+    const atual = maisRecente.get(c.matriculaId);
+    if (!atual || c.data > atual.data) maisRecente.set(c.matriculaId, c);
+  }
+
+  const trocas = [];
+  const recusados = [];
+  for (const [matriculaId, c] of maisRecente) {
+    const r = matriculas.renomearDoWellhub(matriculaId, c.nome);
+    if (r.mudou) trocas.push({ matriculaId, de: r.de, para: r.para });
+    else if (r.ok === false) recusados.push({ matriculaId, nome: c.nome, motivo: r.motivo });
+  }
+
+  // O nome guardado no histórico acompanha, senão a tela de check-ins mostraria
+  // o nome velho ao lado do novo.
+  let atualizados = 0;
+  for (const c of dados.checkins) {
+    if (!c.matriculaId) continue;
+    const m = matriculas.porId(c.matriculaId);
+    if (m && c.nomeMatricula !== m.nome) { c.nomeMatricula = m.nome; atualizados += 1; }
+  }
+
+  if (trocas.length || atualizados) {
+    gravar();
+    log(`varredura: ${trocas.length} ficha(s) renomeada(s), `
+      + `${atualizados} registro(s) do histórico atualizado(s).`);
+  }
+  for (const r of recusados) log(`varredura: ${r.nome} não aplicado — ${r.motivo}`);
+
+  return { avaliados: maisRecente.size, trocas, recusados, atualizados };
+}
+
+/**
  * Passa de novo pelos órfãos. Use depois de cadastrar alunos novos ou de
  * corrigir nomes: nada precisa ser reimportado do portal.
  */
@@ -453,11 +505,20 @@ function limparAntigos(dias = RETENCAO_DIAS) {
 }
 
 carregar();
-semear();
+// Depois da semeadura, porque num volume vazio o histórico chega do backup e a
+// varredura precisa dele em mãos. Num volume já povoado o `semear` sai na hora
+// e o `then` roda em seguida do mesmo jeito.
+semear().then(() => {
+  try {
+    if (dados.checkins.length) aplicarNomesDoPortal();
+  } catch (e) {
+    console.error('[checkins] varredura de nomes falhou:', e.message);
+  }
+});
 setInterval(() => limparAntigos(), 24 * 3600000).unref();
 
 module.exports = {
   registrar, registrarLote, vincular, desvincular, revincularOrfaos,
-  listar, datasDaMatricula, mapaPorMatricula, ultimoDaMatricula,
+  listar, datasDaMatricula, mapaPorMatricula, ultimoDaMatricula, aplicarNomesDoPortal,
   resumo, normalizarNome, dataLocal, hojeLocal, backup,
 };
