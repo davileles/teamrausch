@@ -5,6 +5,8 @@ const path = require('path');
 const store = require('./store');
 const wellhub = require('./wellhub');
 const pollerPortal = require('./poller-portal');
+const checkinsStore = require('./checkins-store');
+const alertasFrequencia = require('./alertas-frequencia');
 const { lerCheckin } = require('./payload-map');
 
 const app = express();
@@ -82,6 +84,24 @@ async function validar(checkin, origem) {
   }
 
   store.marcar(checkin.id, r.ok ? 'validado' : 'recusado', { origem, motivo: r.motivo });
+
+  // O histórico de frequência não pode depender só do poller do portal: quando
+  // a API oficial estiver liberada, o check-in chega por aqui e precisa contar
+  // do mesmo jeito. `checkins-store` deduplica por aluno e dia, então os dois
+  // caminhos podem registrar o mesmo treino sem duplicar.
+  if (r.ok) {
+    try {
+      checkinsStore.registrar({
+        gympassId: checkin.gympassId,
+        nome: [checkin.nome, checkin.sobrenome].filter(Boolean).join(' ') || null,
+        produto: checkin.produto || null,
+        criadoEm: checkin.criadoEm || new Date().toISOString(),
+      }, origem === 'catraca' ? 'catraca' : 'webhook');
+    } catch (e) {
+      log('[validar] não consegui gravar no histórico:', e.message);
+    }
+  }
+
   log('[validar]', checkin.gympassId, r.ok ? 'LIBERADO' : `NEGADO (${r.motivo})`, `via ${origem}`);
   return { ok: r.ok, motivo: r.motivo, simulado: r.simulado };
 }
@@ -285,6 +305,50 @@ app.all('/wellhub/whatsapp/sondar', async (req, res) => {
   }
 });
 
+/* ---------------------------------------------------------------------------
+   Frequência — panorama e aviso, abríveis do celular com ?token=PANEL_TOKEN
+--------------------------------------------------------------------------- */
+
+/** Quem está devendo treino na janela. ?dias=7 &todos=1 mostra a base inteira. */
+app.all('/wellhub/frequencia', (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  try {
+    const painel = alertasFrequencia.montarPainel({
+      dias: Number(req.query.dias) || undefined,
+      vinculo: req.query.vinculo === 'todos' ? null : undefined,
+    });
+    const so = String(req.query.so || 'devendo');
+    res.json({
+      ok: true,
+      janela: painel.janela,
+      resumo: painel.resumo,
+      checkins: checkinsStore.resumo(),
+      alunos: so === 'todos' ? painel.alunos : painel.alunos.filter(
+        (a) => a.situacao === 'atrasado' || a.situacao === 'critico'),
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
+/** Dispara o aviso de frequência agora. ?enviar=1 manda; sem isso, só mostra. */
+app.all('/wellhub/frequencia/aviso', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  try {
+    const r = await alertasFrequencia.rodar({
+      avisar: String(req.query.enviar || '') === '1',
+      mesmoSemDevedores: true,
+    });
+    res.json({ ok: true, ...r });
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
 app.get('/saude', (_req, res) => {
   res.json({
     ok: true,
@@ -320,4 +384,5 @@ app.use((erro, _req, res, _next) => {
 app.listen(PORTA, () => {
   log(`Serviço no ar na porta ${PORTA}${wellhub.SIMULAR ? ' — MODO SIMULAÇÃO' : ''}`);
   pollerPortal.iniciar(); // poller do portal Wellhub (só roda se POLLER_PORTAL_ATIVO=true)
+  alertasFrequencia.iniciar(); // aviso diário de quem está devendo treino
 });
