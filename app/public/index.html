@@ -135,6 +135,11 @@
   .marcas i{width:10px;height:10px;border:1px solid var(--linha-2);background:transparent}
   .marcas i.ocupada{background:var(--texto);border-color:var(--texto)}
   .slot .conta{font:500 12px 'Work Sans',sans-serif;color:var(--apagado)}
+  .slot .conta.travado{margin-top:8px;text-align:center;line-height:1.45}
+  /* Horário que existe fora da configuração da agenda: é seu, mas ninguém
+     mais entra nele. */
+  .slot .fora-agenda{font:500 11px 'Work Sans',sans-serif;color:var(--fraco-2);
+    margin-top:4px;text-transform:uppercase;letter-spacing:.06em}
   .slot .leve,.slot .selo{margin-top:12px;width:100%;text-align:center}
   /* Dois botões no mesmo slot: "Não vou" e "Trocar" dividem a linha. */
   .slot .acoes-slot{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px}
@@ -688,6 +693,7 @@ function abrirAba(aba){
   // A troca é um estado da tela de agendar; sair dela desiste da troca em vez
   // de deixar a pessoa voltar depois sem lembrar do que estava no meio.
   if (aba !== 'agendar') trocando = null;
+
   abaAtiva = abaPermitida(aba) ? aba : 'agendar';
   document.querySelectorAll('#abas button').forEach(x=>
     x.setAttribute('aria-selected', String(x.dataset.aba === abaAtiva)));
@@ -761,7 +767,10 @@ function acoesDoMeuSlot(data, h){
     ? `<button class="leve troca-iniciar" data-data="${data}" data-hora="${h.hora}">Trocar</button>`
     : '';
   if (largar && trocar) return `<div class="acoes-slot">${largar}${trocar}</div>`;
-  return largar || trocar || `<span class="selo meu">${SELO.meu}</span>`;
+  if (largar || trocar) return largar || trocar;
+  // Sem ação possível, o selo explica a regra em vez de virar um beco sem saída.
+  return `<span class="selo meu">${SELO.meu}</span>` +
+    (h.motivoTravado ? `<div class="conta travado">${esc(h.motivoTravado)}</div>` : '');
 }
 
 /* ------------------------- guia e alerta -------------------------------- */
@@ -892,6 +901,7 @@ async function carregarAgenda(){
             <div class="hora">${h.hora}</div>
             <div class="vagas">${marcas(h.ocupadas,h.capacidade)}
               <div class="conta">${h.vagas>0?`${h.vagas} de ${h.capacidade} livres`:`${h.capacidade} lugares ocupados`}</div>
+              ${h.foraDaAgenda?'<div class="fora-agenda">fora da agenda</div>':''}
             </div>${direita}</div>`;
         }).join('')}</div>`;
     }).join('');
@@ -948,13 +958,17 @@ document.body.addEventListener('click', async e=>{
   const par = e.target.closest('button.troca-para');
   const sai = e.target.closest('button.troca-cancelar');
 
-  if (ini){
+  const daqui = e.target.closest('button.troca-daqui');
+  if (ini || daqui){
     // Nada é gravado aqui: a troca só existe no servidor quando o destino for
     // escolhido. Até lá a aula original continua valendo.
-    trocando = { data: ini.dataset.data, hora: ini.dataset.hora,
-                 porExtenso: ini.closest('.dia')?.querySelector('.titulo span')?.textContent || '' };
-    diaAberto = ini.dataset.data;
-    redesenhar();
+    const b = ini || daqui;
+    trocando = { data: b.dataset.data, hora: b.dataset.hora,
+                 porExtenso: b.dataset.extenso ||
+                   b.closest('.dia')?.querySelector('.titulo span')?.textContent || '' };
+    diaAberto = b.dataset.data;
+    // Vindo de "Meus horários", a escolha do destino acontece na aba Agendar.
+    if (daqui) await abrirAba('agendar'); else redesenhar();
     return;
   }
   if (sai){ trocando = null; redesenhar(); return; }
@@ -1011,12 +1025,21 @@ async function carregarMeus(){
     // e o botão muda junto: reserva cancela por id, aula fixa desmarca por dia.
     const rotulo = {fixo:'aula da sua matrícula', extra:'aula extra', reserva:'reservado'};
     alvo.innerHTML = '<h2>Meus horários</h2>' + (r.meus.length
-      ? r.meus.map(a=>`<div class="fila"><div class="quem"><b>${a.hora} · ${a.porExtenso}</b>
-          <small>${rotulo[a.origem]||'reservado'}</small></div>
-          ${a.id
-            ? `<button class="leve cancelar" data-id="${a.id}">Cancelar</button>`
-            : `<button class="leve desmarcar" data-data="${a.data}" data-hora="${a.hora}">Não vou</button>`}
-          </div>`).join('')
+      ? r.meus.map(a=>{
+          const largar = !a.podeLargar ? ''
+            : a.id
+              ? `<button class="leve cancelar" data-id="${a.id}">Não vou</button>`
+              : `<button class="leve desmarcar" data-data="${a.data}" data-hora="${a.hora}">Não vou</button>`;
+          // Trocar mora na aba Agendar, que é onde estão os horários de destino.
+          const trocar = a.podeTrocar
+            ? `<button class="leve troca-daqui" data-data="${a.data}" data-hora="${a.hora}"
+                 data-extenso="${esc(a.porExtenso)}">Trocar</button>`
+            : '';
+          return `<div class="fila"><div class="quem"><b>${a.hora} · ${a.porExtenso}</b>
+            <small>${rotulo[a.origem]||'reservado'}${
+              a.motivoTravado ? ` · ${esc(a.motivoTravado)}` : ''}</small></div>
+            ${largar}${trocar}</div>`;
+        }).join('')
       : '<div class="vazio">Você não tem horários reservados.</div>');
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
