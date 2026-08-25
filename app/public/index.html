@@ -45,9 +45,6 @@
      #tela-app ao abrir uma aba de admin e sai ao voltar para as do aluno; no
      celular nada muda, porque a tela é mais estreita que qualquer limite. */
   #tela-app.larga .env,#tela-app.larga .cab{max-width:1180px}
-  /* Configurações é formulário corrido: cresce, mas um campo de texto com um
-     metro de largura não ajuda ninguém. */
-  #tela-app.larga #aba-config{max-width:980px;margin:0 auto}
 
   /* Cabeçalho: logo, nome do estúdio e quem está logado */
   header{background:var(--preto);border-bottom:3px solid var(--vermelho);position:sticky;top:0;z-index:100;
@@ -301,7 +298,14 @@
     text-transform:uppercase;color:var(--fraco);transition:color .15s,border-color .15s}
   .subabas button:hover[aria-selected=false]{color:var(--texto)}
   .subabas button[aria-selected=true]{color:var(--texto);border-bottom-color:var(--amarelo)}
-  .painel-config h3:first-of-type{margin-top:6px}
+  /* Cada painel de configuração é dividido em duas colunas (.col-a e .col-b).
+     No celular elas empilham na ordem de sempre; na tela larga ficam lado a
+     lado e o formulário, que era um corredor de 2.000px, cabe numa tela. */
+  .painel-config .col-a > h3:first-of-type{margin-top:6px}
+  .painel-config .colunas > div{min-width:0}
+  /* Salvar sempre à mão: gruda logo acima das abas enquanto o formulário rola. */
+  #btn-salvar{position:sticky;bottom:calc(62px + env(safe-area-inset-bottom));z-index:40;
+    box-shadow:0 -12px 28px rgba(8,9,11,.85)}
 
   .nota{background:var(--fundo-2);border:1px solid var(--linha);border-left:4px solid var(--amarelo);
     padding:12px 15px;font:400 13px/1.55 'Work Sans',sans-serif;color:var(--apagado);margin-bottom:16px}
@@ -376,6 +380,9 @@
     align-items:start}
   #fq-lista .freq-item{margin-bottom:0;min-width:0}
   #fq-lista > .vazio{grid-column:1 / -1}
+  #mat-soltos .soltos,#fq-orfaos{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
+    gap:8px;align-items:start}
+  #mat-soltos .soltos .solto,#fq-orfaos .orfao{margin-bottom:0;min-width:0}
   .sem-tel{color:var(--amarelo-2);margin:0}
   .nome-antigo{margin:10px 0 0;padding-left:10px;border-left:3px solid var(--linha-2)}
   /* ---- acesso ao app, dentro da ficha do aluno ---- */
@@ -543,6 +550,22 @@
       grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:8px}
     #tela-app.larga .dupla{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
     #tela-app.larga #aba-dia > .campo{max-width:320px}
+    /* Configurações em duas colunas */
+    #tela-app.larga .painel-config .colunas{display:grid;grid-template-columns:1fr 1fr;
+      gap:0 36px;align-items:start}
+    #tela-app.larga .painel-config .col-b > h3:first-of-type{margin-top:6px}
+    #tela-app.larga .linha-c{grid-template-columns:96px 72px minmax(0,1fr) auto}
+    #tela-app.larga .linha-c .c-titulo,#tela-app.larga .linha-c button{grid-column:auto}
+    /* Lotação: a lista de quem está na turma abre ao lado da tabela, não embaixo */
+    #tela-app.larga .lot-wrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;
+      grid-template-areas:"tabela detalhe" "legenda detalhe";gap:12px 24px;align-items:start}
+    #tela-app.larga .lot-wrap .lot-tabela{grid-area:tabela;margin-top:0}
+    #tela-app.larga .lot-wrap .lot-detalhe{grid-area:detalhe;margin-top:0;position:sticky;
+      top:calc(var(--topo-fixo,58px) + 12px)}
+    #tela-app.larga .lot-wrap .lot-legenda{grid-area:legenda;margin-top:0}
+    /* Grade do dia: barra de data e encaixe não precisam da tela inteira */
+    #tela-app.larga .barra-dia{max-width:520px}
+    #tela-app.larga .encaixe{max-width:640px}
   }
 
   /* Celular deitado: o cabeçalho fixo come metade da tela útil. */
@@ -1352,6 +1375,17 @@ function medirTopo(){
 }
 window.addEventListener('resize', medirTopo);
 
+/**
+ * Abre a ficha de um aluno vindo de outra subaba (Lotação, Frequência, acessos
+ * soltos). Limpa os filtros da lista antes: uma busca antiga esconderia
+ * justamente quem se quer ver, e a ficha não apareceria em lugar nenhum.
+ */
+function abrirFichaDe(id){
+  Object.assign(matEstado, { sub:'alunos', aberta:id, busca:'', situacao:'ativos', vinculo:'',
+    acesso:'', revisar:false, experimental:false, focarFicha:true });
+  return redesenhar();
+}
+
 /** Rola até o elemento, descontando cabeçalho e índice, e o destaca por um instante. */
 function rolarAte(el){
   const desconto = medirTopo() + (document.querySelector('.indice-az')?.offsetHeight || 0) + 8;
@@ -1593,7 +1627,8 @@ async function carregarMatriculas(){
           resumo.experimentais ? ` · <b>${resumo.experimentais} em experimental</b>` : ''}</p>
         <div class="filtros-mat">
           <div class="busca-novo">
-            <input id="mat-busca" value="${esc(matEstado.busca)}" placeholder="Buscar por nome">
+            <input id="mat-busca" value="${esc(matEstado.busca)}" placeholder="Buscar por nome ou telefone"
+              title="Enter abre a ficha quando sobra um aluno só">
             <button class="leve" id="mat-novo">+ Novo aluno</button>
           </div>
           <div class="chips-mat">
@@ -1669,6 +1704,19 @@ async function carregarMatriculas(){
       }, 320);
     });
 
+    // Enter aplica a busca na hora e, se sobrar um aluno só, já abre a ficha —
+    // o caminho mais curto de "digitei o nome" até "estou editando".
+    busca.addEventListener('keydown', async e=>{
+      if (e.key !== 'Enter') return;
+      e.preventDefault(); clearTimeout(timer);
+      matEstado.busca = busca.value.trim(); matEstado.aberta = null;
+      await redesenhar();
+      const cartoes = document.querySelectorAll('#mat-lista .mat-item');
+      if (cartoes.length === 1){ matEstado.aberta = cartoes[0].dataset.id; redesenhar(); return; }
+      const novo = document.getElementById('mat-busca');
+      if (novo){ novo.focus(); novo.setSelectionRange(novo.value.length, novo.value.length); }
+    });
+
     alvo.querySelector('.chips-mat').addEventListener('click', e=>{
       const b = e.target.closest('.chip'); if (!b) return;
       if (b.dataset.sit) matEstado.situacao = b.dataset.sit;
@@ -1740,7 +1788,7 @@ async function carregarAcessosSoltos(){
       text-transform:uppercase;color:var(--amarelo);margin:24px 0 8px">
       ${acessos.length} acesso(s) sem matrícula</h3>
       <p class="ajuda">Entraram no app mas não estão na base do estúdio.</p>
-      ${acessos.map(a=>`<div class="solto${a.bloqueado?' suspenso':''}" data-tel="${esc(a.telefone)}">
+      <div class="soltos">${acessos.map(a=>`<div class="solto${a.bloqueado?' suspenso':''}" data-tel="${esc(a.telefone)}">
         <b>${esc(a.nome || 'Sem nome')}</b>
         <p class="ajuda" style="margin:4px 0 0">${esc(a.telefoneFormatado)}${
           a.bloqueado ? ' · suspenso' : ''}${a.admin ? ' · administrador' : ''}${
@@ -1751,7 +1799,7 @@ async function carregarAcessosSoltos(){
             ${a.bloqueado?'Reativar':'Suspender'}</button>
           <button class="leve so-remover">Remover</button>
         </div>
-      </div>`).join('')}`;
+      </div>`).join('')}</div>`;
 
     alvo.querySelectorAll('.solto').forEach(el=>{
       const tel = el.dataset.tel;
@@ -1760,7 +1808,7 @@ async function carregarAcessosSoltos(){
           const m = await api('/matriculas/acessos/'+tel+'/matricular',
             {method:'POST', body: JSON.stringify({})});
           avisar('Matrícula criada. Defina os horários na ficha.','ok');
-          matEstado.aberta = m.id; matEstado.focarFicha = true; redesenhar();
+          abrirFichaDe(m.id);
         }catch(e){ avisar(e.message,'erro'); }
       });
       el.querySelector('.so-alternar').addEventListener('click', async ()=>{
@@ -2056,12 +2104,7 @@ async function carregarFrequencia(){
       });
 
       const abrir = el.querySelector('.fq-abrir');
-      if (abrir) abrir.addEventListener('click', ()=>{
-        matEstado.sub = 'alunos'; matEstado.aberta = el.dataset.id;
-        matEstado.situacao = 'ativos'; matEstado.vinculo = '';
-        matEstado.focarFicha = true;
-        redesenhar();
-      });
+      if (abrir) abrir.addEventListener('click', ()=> abrirFichaDe(el.dataset.id));
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
@@ -2094,6 +2137,7 @@ async function carregarLotacao(){
               r.foraDaAgenda===1?'existe':'existem'} na aba Agendar</b> — os alunos têm aula,
              mas ninguém consegue reservar ali.`
           : 'Todos os horários da grade existem na aba Agendar.'}</p>
+      <div class="lot-wrap">
       <table class="lot-tabela">
         <thead><tr><th class="h"></th>${dias.map(d=>`<th>${NOME_DIA[d]}</th>`).join('')}</tr></thead>
         <tbody>${horas.map(h=>`<tr>
@@ -2113,6 +2157,7 @@ async function carregarLotacao(){
         <span>toque numa célula para ver quem está na turma</span>
         <span><i class="fora">amarelo</i> — horário não existe na aba Agendar</span>
         <span><i class="cheio">vermelho</i> — mais alunos fixos do que a capacidade</span>
+      </div>
       </div>`;
 
     // A célula abre a lista com os nomes daquela turma. Os alunos já vêm no
@@ -2144,13 +2189,7 @@ async function carregarLotacao(){
           </div>`).join('')}</div>` : ''}`;
 
       detalhe.querySelectorAll('.lot-ficha').forEach(b=>{
-        b.addEventListener('click', ()=>{
-          matEstado.sub = 'alunos';
-          matEstado.aberta = b.closest('.nome-linha').dataset.mat;
-          matEstado.situacao = 'ativos'; matEstado.vinculo = '';
-          matEstado.focarFicha = true;
-          redesenhar();
-        });
+        b.addEventListener('click', ()=> abrirFichaDe(b.closest('.nome-linha').dataset.mat));
       });
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
@@ -2485,6 +2524,7 @@ async function carregarConfig(){
 
       <!-- ================= NEGÓCIO ================= -->
       <div class="painel-config" data-painel="negocio">
+      <div class="colunas"><div class="col-a">
 
       <h3>Estúdio</h3>
       <div class="campo"><label for="c-nome">Nome</label><input id="c-nome" value="${esc(c.estudio.nome)}"></div>
@@ -2527,6 +2567,8 @@ async function carregarConfig(){
       <div class="campo"><label for="c-bloq">Datas fechadas</label>
         <input id="c-bloq" value="${(c.agenda.datasBloqueadas||[]).join(', ')}" placeholder="2026-12-25, 2027-01-01">
         <p class="ajuda">Separe por vírgula, no formato AAAA-MM-DD.</p></div>
+
+      </div><div class="col-b">
 
       <h3>Horários da semana</h3>
       <p class="ajuda">Use o gerador para criar a grade de uma vez. Depois abra o dia e ajuste:
@@ -2610,6 +2652,7 @@ async function carregarConfig(){
         <p class="ajuda">Com DDD. O aviso sai pelo mesmo número do estúdio que envia os
           códigos de acesso.</p></div>
 
+      </div></div><!-- fim colunas -->
       </div><!-- fim negócio -->
 
       <!-- ================= TÉCNICA ================= -->
@@ -2617,6 +2660,7 @@ async function carregarConfig(){
 
       <div class="nota">Estas opções mexem em como o sistema funciona por dentro.
         No dia a dia do estúdio você não precisa tocar em nada aqui.</div>
+      <div class="colunas"><div class="col-a">
 
       <h3>Servidor</h3>
       <div class="campo"><label for="c-fuso">Fuso horário</label><input id="c-fuso" value="${esc(c.estudio.fuso)}">
@@ -2672,6 +2716,8 @@ async function carregarConfig(){
           <option value="0"${!c.acesso.cadastroAberto?' selected':''}>Só telefones já cadastrados</option>
         </select></div>
 
+      </div><div class="col-b">
+
       <h3>Envio do código</h3>
       <p class="ajuda">Um POST em JSON. Serve para o seu servidor de WhatsApp e para provedores de SMS.</p>
       <div class="campo"><label for="c-url">Endereço</label>
@@ -2692,6 +2738,7 @@ async function carregarConfig(){
       <h3>Backup da ficha dos alunos</h3>
       <div id="c-backup" class="nota">Consultando…</div>
 
+      </div></div><!-- fim colunas -->
       </div><!-- fim técnica -->
 
       <button class="acao" id="btn-salvar" style="margin-top:22px">Salvar configurações</button>`;
