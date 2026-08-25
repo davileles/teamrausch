@@ -277,6 +277,10 @@
   .ficha .cabeca .tags{font:600 11px 'Work Sans',sans-serif;letter-spacing:.1em;
     text-transform:uppercase;color:var(--amarelo)}
   .ficha .campos{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
+  /* Caixinha com rótulo ao lado — usada na marca de aula experimental. */
+  .marcar{display:flex;align-items:center;gap:9px;margin-top:12px;cursor:pointer;
+    font:500 13px 'Work Sans',sans-serif;color:var(--apagado);text-transform:none;letter-spacing:0}
+  .marcar input{width:auto;min-height:auto;margin:0}
   .ficha .rodape{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
   .ficha .rodape button{flex:1}
   .ficha.mudou{border-color:var(--amarelo)}
@@ -723,7 +727,8 @@ function limparTela(){
   subConfig = 'negocio';
   diaAberto = '';   // conta nova, agenda nova: a fita recomeça no primeiro dia
   dataDoDia = null;
-  matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false, data:null, aberta:null };
+  matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
+    experimental:false, data:null, aberta:null };
   TODAS_ABAS.forEach(a=>{ document.getElementById('aba-'+a).innerHTML = ''; });
   document.getElementById('quem-sou').textContent = '';
 }
@@ -1240,7 +1245,7 @@ const DIAS_SEM = [[1,'Seg'],[2,'Ter'],[3,'Qua'],[4,'Qui'],[5,'Sex'],[6,'Sáb'],[
 const NOME_DIA = {0:'dom',1:'seg',2:'ter',3:'qua',4:'qui',5:'sex',6:'sáb'};
 
 let matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
-  acesso:'', data:null, aberta:null, freqDias:7, freqSo:'devendo' };
+  experimental:false, acesso:'', data:null, aberta:null, freqDias:7, freqSo:'devendo' };
 
 /** Grade em uma linha: agrupa os dias que compartilham o mesmo horário. */
 function gradeEmTexto(grade){
@@ -1281,6 +1286,8 @@ function fichaMatricula(m){
         <option value="wellhub"${mens?'':' selected'}>Wellhub</option>
       </select>
     </div>
+    <label class="marcar"><input type="checkbox" class="mf-exp" ${m.experimental?'checked':''}>
+      Aula experimental — ainda sem horário fixo combinado</label>
     ${m.nomeOriginal ? `<p class="ajuda nome-antigo">Renomeado pelo Wellhub · na planilha era
       <b>${esc(m.nomeOriginal)}</b></p>` : ''}
     <!-- O número do Wellhub é o que faz o check-in do portal cair nesta ficha.
@@ -1356,6 +1363,7 @@ function lerFicha(el){
     aniversario: el.querySelector('.mf-nasc').value,
     gympassId: el.querySelector('.mf-wellhub').value,
     vinculo: el.querySelector('.mf-vinculo').value,
+    experimental: el.querySelector('.mf-exp').checked,
     observacao: el.querySelector('.mf-obs').value,
     grade,
     revisado: true,
@@ -1449,6 +1457,7 @@ async function carregarMatriculas(){
   if (matEstado.busca) q.set('busca', matEstado.busca);
   if (matEstado.vinculo) q.set('vinculo', matEstado.vinculo);
   if (matEstado.revisar) q.set('revisar','1');
+  if (matEstado.experimental) q.set('experimental','1');
   if (matEstado.acesso) q.set('acesso', matEstado.acesso);
 
   try{
@@ -1466,7 +1475,8 @@ async function carregarMatriculas(){
           ${resumo.wellhub} Wellhub · ${resumo.semTelefone} sem telefone ·
           ${resumo.comAcesso} com acesso ao app${
           resumo.suspensos ? ` · <b>${resumo.suspensos} suspenso(s)</b>` : ''}${
-          resumo.aRevisar ? ` · <b>${resumo.aRevisar} a revisar</b>` : ''}</p>
+          resumo.aRevisar ? ` · <b>${resumo.aRevisar} a revisar</b>` : ''}${
+          resumo.experimentais ? ` · <b>${resumo.experimentais} em experimental</b>` : ''}</p>
         <div class="filtros-mat">
           <input id="mat-busca" value="${esc(matEstado.busca)}" placeholder="Buscar por nome">
           <div class="chips-mat">
@@ -1483,6 +1493,7 @@ async function carregarMatriculas(){
                 `<button class="chip${matEstado.acesso===v?' sel':''}" data-ac="${v}">${r}</button>`).join('')}
             </div>
             <div class="grupo-filtro"><span></span>
+              <button class="chip${matEstado.experimental?' sel':''}" data-exp="1">Experimentais</button>
               <button class="chip${matEstado.revisar?' sel':''}" data-rev="1">A revisar</button>
             </div>
           </div>
@@ -1498,6 +1509,7 @@ async function carregarMatriculas(){
                   ${m.diasSemana}×/sem${m.ativo?'':' · inativo'}${
                   m.acesso && m.acesso.bloqueado?' · suspenso':''}${
                   m.acesso && m.acesso.admin?' · admin':''}${
+                  m.experimental?' · experimental':''}${
                   m.precisaRevisar?' · revisar':''}</span></div>
               <p class="ajuda" style="margin:8px 0 0">${esc(gradeEmTexto(m.grade))}</p>
               ${m.aniversarioFormatado ? `<p class="ajuda" style="margin:4px 0 0">🎂 ${esc(m.aniversarioFormatado)}</p>` : ''}
@@ -1542,6 +1554,7 @@ async function carregarMatriculas(){
       if (b.dataset.sit) matEstado.situacao = b.dataset.sit;
       else if (b.dataset.vin !== undefined) matEstado.vinculo = b.dataset.vin;
       else if (b.dataset.ac !== undefined) matEstado.acesso = b.dataset.ac;
+      else if (b.dataset.exp) matEstado.experimental = !matEstado.experimental;
       else if (b.dataset.rev) matEstado.revisar = !matEstado.revisar;
       matEstado.aberta = null; redesenhar();
     });
@@ -1639,6 +1652,7 @@ const SITUACAO = {
   'em-dia':   { rotulo:'em dia',    marca:'🟢' },
   'sem-aula': { rotulo:'sem aula prevista', marca:'·' },
   'sem-grade':{ rotulo:'sem horário fixo',  marca:'·' },
+  experimental:{ rotulo:'aula experimental', marca:'✳︎' },
 };
 
 function dataCurta(iso){
@@ -1666,12 +1680,17 @@ function itemFrequencia(a){
   if (!a.gympassId) detalhes.push('sem Wellhub ID vinculado');
 
   const devendo = a.situacao === 'critico' || a.situacao === 'atrasado';
+  // A caixinha fica em todo aluno, não só no experimental: é por ela que se
+  // marca quem chegou hoje e, principalmente, que se desmarca quem já fechou
+  // horário — sem precisar abrir a ficha.
   return `<div class="freq-item ${esc(a.situacao)}" data-id="${esc(a.matriculaId)}">
     <div class="cabeca">
       <b>${esc(a.nome)}</b>
       <span class="freq-conta">${a.realizado}/${a.esperado}</span>
     </div>
     <p class="ajuda">${s.marca} ${s.rotulo} · ${detalhes.map(esc).join(' · ')}</p>
+    <label class="marcar"><input type="checkbox" class="fq-exp" ${a.experimental?'checked':''}>
+      Em aula experimental</label>
     ${devendo ? `<div class="rodape">
       ${a.telefone
         ? '<button class="leve fq-cobrar">Cobrar no WhatsApp</button>'
@@ -1701,6 +1720,8 @@ function itemOrfao(c, alunos){
       <input class="orf-nome" value="${esc(c.nome || '')}" placeholder="Nome do aluno novo">
       <button class="leve orf-criar">Criar cadastro</button>
     </div>
+    <label class="marcar"><input type="checkbox" class="orf-exp" checked>
+      Entra em aula experimental</label>
     <p class="ajuda" style="margin:6px 0 0">Ninguém na lista? O cadastro novo entra como Wellhub,
       já com este ID gravado. A grade de horários se define depois, na ficha do aluno.</p>
   </div>`;
@@ -1717,7 +1738,9 @@ async function carregarFrequencia(){
     ]);
 
     const devendo = f.alunos.filter(a=>a.situacao==='critico'||a.situacao==='atrasado');
-    const mostrar = matEstado.freqSo === 'devendo' ? devendo : f.alunos;
+    const mostrar = matEstado.freqSo === 'devendo' ? devendo
+      : matEstado.freqSo === 'experimentais' ? f.alunos.filter(a=>a.experimental)
+      : f.alunos;
     const j = f.janela;
 
     // A janela pode voltar menor do que a pedida: ela para no dia 1º, porque o
@@ -1739,6 +1762,7 @@ async function carregarFrequencia(){
         ${cartaoFreq(f.resumo.atrasados, 'atrasados', 'atrasado')}
         ${cartaoFreq(f.resumo.emDia, 'em dia', 'em-dia')}
         ${cartaoFreq(f.checkins.ultimos7, 'check-ins 7d')}
+        ${f.resumo.experimentais ? cartaoFreq(f.resumo.experimentais, 'experimentais') : ''}
       </div>
 
       <div class="freq-acoes">
@@ -1753,7 +1777,7 @@ async function carregarFrequencia(){
             data-dias="${d}">${d} dias</button>`).join('')}
         </div>
         <div class="grupo-filtro"><span>Mostrar</span>
-          ${[['devendo','Só devendo'],['todos','Todos']].map(([v,r])=>
+          ${[['devendo','Só devendo'],['experimentais','Experimentais'],['todos','Todos']].map(([v,r])=>
             `<button class="chip${matEstado.freqSo===v?' sel':''}" data-so="${v}">${r}</button>`).join('')}
         </div>
       </div>
@@ -1768,10 +1792,14 @@ async function carregarFrequencia(){
       : ''}
 
       <h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
-        margin:0 0 10px">${matEstado.freqSo==='devendo' ? 'Precisam repor' : 'Todos os alunos Wellhub'}</h3>
+        margin:0 0 10px">${matEstado.freqSo==='devendo' ? 'Precisam repor'
+        : matEstado.freqSo==='experimentais' ? 'Em aula experimental'
+        : 'Todos os alunos Wellhub'}</h3>
       <div id="fq-lista">${mostrar.length
         ? mostrar.map(itemFrequencia).join('')
-        : '<div class="vazio">Ninguém devendo treino nesta janela.</div>'}</div>`;
+        : `<div class="vazio">${matEstado.freqSo==='experimentais'
+            ? 'Ninguém marcado como experimental.'
+            : 'Ninguém devendo treino nesta janela.'}</div>`}</div>`;
 
     alvo.querySelector('.chips-mat').addEventListener('click', e=>{
       const b = e.target.closest('.chip'); if (!b) return;
@@ -1840,8 +1868,9 @@ async function carregarFrequencia(){
         if (!nome) return avisar('Informe o nome do aluno novo.','erro');
         criar.disabled = true; criar.textContent = 'Criando…';
         try{
+          const experimental = el.querySelector('.orf-exp').checked;
           const r = await api('/matriculas/checkins/'+el.dataset.id+'/criar-aluno',
-            {method:'POST', body: JSON.stringify({nome})});
+            {method:'POST', body: JSON.stringify({nome, experimental})});
           const extra = r.arrastados ? ` (+${r.arrastados} do mesmo ID)` : '';
           avisar(`Ficha de "${r.nome}" criada e check-in vinculado${extra}. `
             + 'Defina a grade na aba Alunos.', 'ok');
@@ -1868,6 +1897,21 @@ async function carregarFrequencia(){
           cobrar.disabled = false; cobrar.textContent = 'Cobrar no WhatsApp';
         }
       });
+      const exp = el.querySelector('.fq-exp');
+      exp.addEventListener('change', async ()=>{
+        exp.disabled = true;
+        try{
+          await api('/matriculas/'+el.dataset.id,
+            {method:'PUT', body: JSON.stringify({experimental: exp.checked})});
+          avisar(exp.checked ? 'Marcado como experimental.'
+            : 'Experimental desmarcado — agora conta como aluno normal.', 'ok');
+          await carregarFrequencia();
+        }catch(err){
+          avisar(err.message,'erro');
+          exp.checked = !exp.checked; exp.disabled = false;
+        }
+      });
+
       const abrir = el.querySelector('.fq-abrir');
       if (abrir) abrir.addEventListener('click', ()=>{
         matEstado.sub = 'alunos'; matEstado.aberta = el.dataset.id;
