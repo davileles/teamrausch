@@ -26,6 +26,19 @@
  *
  * CHECK-IN VALE UM POR DIA
  *   `checkins-store` já deduplica por dia; aqui só contamos as datas distintas.
+ *
+ * A JANELA NUNCA ATRAVESSA A VIRADA DE MÊS
+ *   O pacote do aluno se renova no dia 1º: o que ele deixou de fazer em agosto
+ *   fechou em agosto e não é cobrado de novo em setembro. Uma janela móvel de
+ *   sete dias corridos, olhada no dia 3, enxergaria 28/08 a 03/09 e traria
+ *   faltas de um ciclo já encerrado para dentro do novo — o aluno começaria o
+ *   mês devendo. Por isso a janela é truncada no primeiro dia do mês: no dia 3
+ *   ela vale três dias, no dia 8 já vale os sete inteiros.
+ *
+ *   O efeito colateral é conhecido e desejado: no começo do mês quase ninguém
+ *   aparece como atrasado, porque quase não houve mês ainda. Para não perder o
+ *   mês de vista, cada aluno também traz o acumulado desde o dia 1º (`mes`),
+ *   que é o número que conta no fechamento.
  */
 
 const grade = require('./grade');
@@ -45,6 +58,11 @@ function agoraEmMinutos() {
     timeZone: FUSO, hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date()).split(':');
   return Number(h) * 60 + Number(m);
+}
+
+/** Primeiro dia do mês da data — o piso de qualquer janela. */
+function inicioDoMes(data) {
+  return String(data).slice(0, 8) + '01';
 }
 
 function emMinutos(hora) {
@@ -100,7 +118,13 @@ function aulasPrevistas(matricula, excecoes, { de, ate }) {
 function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
   const dias = Number(opcoes.dias) > 0 ? Number(opcoes.dias) : 7;
   const ate = opcoes.ate || hojeLocal();
-  const de = grade.somarDias(ate, -(dias - 1));
+  const primeiroDoMes = inicioDoMes(ate);
+
+  // O piso é o dia 1º. Pedir 7 dias no dia 3 devolve uma janela de 3 dias, não
+  // uma que invade o mês anterior.
+  const corrido = grade.somarDias(ate, -(dias - 1));
+  const de = corrido < primeiroDoMes ? primeiroDoMes : corrido;
+  const diasNaJanela = diferencaEmDias(de, ate) + 1;
 
   const previstas = aulasPrevistas(matricula, excecoes, { de, ate });
   // Um dia com dois check-ins não vira dois créditos: a grade também conta
@@ -110,6 +134,14 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
   const esperado = previstas.length;
   const realizado = feitas.length;
   const saldo = realizado - esperado;
+
+  // Acumulado do ciclo inteiro. Quando a janela já cobre o mês todo (começo de
+  // mês), é o mesmo número — e não custa recalcular.
+  const previstasMes = de === primeiroDoMes
+    ? previstas
+    : aulasPrevistas(matricula, excecoes, { de: primeiroDoMes, ate });
+  const feitasMes = [...new Set(
+    datasFeitas.filter((d) => d >= primeiroDoMes && d <= ate))].sort();
 
   const todas = [...new Set(datasFeitas)].sort();
   const ultimo = todas.length ? todas[todas.length - 1] : null;
@@ -121,7 +153,21 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
     telefone: matricula.telefone || null,
     vinculo: matricula.vinculo || null,
     gympassId: matricula.gympassId || null,
-    janela: { de, ate, dias },
+    janela: {
+      de, ate,
+      dias: diasNaJanela,
+      diasPedidos: dias,
+      // A tela usa isto para explicar por que a janela está curta em vez de
+      // deixar o número menor parecer bug.
+      truncadaNoMes: diasNaJanela < dias,
+    },
+    mes: {
+      de: primeiroDoMes,
+      ate,
+      esperado: previstasMes.length,
+      realizado: feitasMes.length,
+      saldo: feitasMes.length - previstasMes.length,
+    },
     porSemana: grade.diasPorSemana(matricula),
     semGrade: !(matricula.grade || []).length,
     esperado,
@@ -174,8 +220,20 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
     a.nome.localeCompare(b.nome, 'pt-BR'));
 
   const conta = (s) => lista.filter((x) => x.situacao === s).length;
+  // Sem nenhum aluno avaliado ainda assim precisamos devolver a janela real,
+  // senão a tela mostraria "últimos 7 dias" num dia 2 do mês.
+  const ateRef = opcoes.ate || hojeLocal();
+  const pedidos = Number(opcoes.dias) > 0 ? Number(opcoes.dias) : 7;
+  const corridoRef = grade.somarDias(ateRef, -(pedidos - 1));
+  const deRef = corridoRef < inicioDoMes(ateRef) ? inicioDoMes(ateRef) : corridoRef;
+
   return {
-    janela: lista.length ? lista[0].janela : { dias: opcoes.dias || 7 },
+    janela: lista.length ? lista[0].janela : {
+      de: deRef, ate: ateRef,
+      dias: diferencaEmDias(deRef, ateRef) + 1,
+      diasPedidos: pedidos,
+      truncadaNoMes: deRef > corridoRef,
+    },
     resumo: {
       avaliados: lista.length,
       emDia: conta('em-dia'),
@@ -196,5 +254,5 @@ function devedores(painelPronto) {
 
 module.exports = {
   avaliar, painel, devedores, aulasPrevistas,
-  hojeLocal, agoraEmMinutos, TOLERANCIA_MIN,
+  hojeLocal, agoraEmMinutos, inicioDoMes, TOLERANCIA_MIN,
 };
