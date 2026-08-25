@@ -136,6 +136,17 @@
   .marcas i.ocupada{background:var(--texto);border-color:var(--texto)}
   .slot .conta{font:500 12px 'Work Sans',sans-serif;color:var(--apagado)}
   .slot .leve,.slot .selo{margin-top:12px;width:100%;text-align:center}
+  /* Dois botões no mesmo slot: "Não vou" e "Trocar" dividem a linha. */
+  .slot .acoes-slot{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px}
+  .slot .acoes-slot .leve{margin-top:0;padding:11px 6px;font-size:11px}
+  /* Modo troca: a agenda inteira vira uma escolha de destino. */
+  .faixa-troca{background:var(--amarelo-fundo);border:1px solid #5A5230;
+    border-left:4px solid var(--amarelo);padding:13px 16px;margin:18px 0}
+  .faixa-troca b{display:block;font:400 15px Anton,sans-serif;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--amarelo);margin-bottom:4px}
+  .faixa-troca span{display:block;font:500 13px/1.5 'Work Sans',sans-serif;color:var(--amarelo-2)}
+  .faixa-troca button{margin-top:10px}
+  .slot.destino{border-color:var(--amarelo)}
   /* O seu horário é o único em amarelo */
   .slot.meu{border-color:var(--amarelo);background:var(--amarelo-fundo)}
   .slot.meu .hora{color:var(--amarelo)}
@@ -674,6 +685,9 @@ function abaPermitida(aba){
  * sessão anterior e o conteúdo novo era desenhado numa seção escondida.
  */
 function abrirAba(aba){
+  // A troca é um estado da tela de agendar; sair dela desiste da troca em vez
+  // de deixar a pessoa voltar depois sem lembrar do que estava no meio.
+  if (aba !== 'agendar') trocando = null;
   abaAtiva = abaPermitida(aba) ? aba : 'agendar';
   document.querySelectorAll('#abas button').forEach(x=>
     x.setAttribute('aria-selected', String(x.dataset.aba === abaAtiva)));
@@ -730,6 +744,25 @@ function marcas(ocupadas, capacidade){
 }
 
 const SELO = {meu:'Seu horário', lotado:'Lotado', fechado:'Fechado', bloqueado:'Fechado'};
+
+/**
+ * O que dá para fazer com a aula que já é sua. Largar e trocar são coisas
+ * diferentes: quem não vai poder ir naquele dia desmarca; quem vai treinar em
+ * outro horário troca, e a troca vai num pedido só para não correr o risco de
+ * ficar sem os dois.
+ */
+function acoesDoMeuSlot(data, h){
+  const largar = h.podeCancelar
+    ? `<button class="leve cancelar" data-id="${h.meuAgendamentoId}">Não vou</button>`
+    : h.podeDesmarcar
+      ? `<button class="leve desmarcar" data-data="${data}" data-hora="${h.hora}">Não vou</button>`
+      : '';
+  const trocar = h.podeTrocar
+    ? `<button class="leve troca-iniciar" data-data="${data}" data-hora="${h.hora}">Trocar</button>`
+    : '';
+  if (largar && trocar) return `<div class="acoes-slot">${largar}${trocar}</div>`;
+  return largar || trocar || `<span class="selo meu">${SELO.meu}</span>`;
+}
 
 /* ------------------------- guia e alerta -------------------------------- */
 // Lembrar o que a pessoa já viu é conveniência, não dado importante: se o
@@ -790,6 +823,10 @@ function mostrarAlerta(alerta){
 // a pessoa continua no dia em que estava, e não no primeiro da lista.
 let diaAberto = '';
 
+// Troca em andamento: { data, hora } da aula que a pessoa está largando.
+// Enquanto estiver preenchido, a agenda inteira vira uma escolha de destino.
+let trocando = null;
+
 async function carregarAgenda(){
   const alvo = document.getElementById('aba-agendar');
   try{
@@ -834,16 +871,24 @@ async function carregarAgenda(){
       return `<div class="dia" data-d="${d.data}"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>${
         d.horarios.map(h=>{
           const livre = h.situacao === 'aberto';
-          // Aula da matrícula não tem agendamento para cancelar: desmarcar
-          // manda data e hora, e o servidor grava a exceção do dia.
-          const direita = livre
-            ? `<button class="leve reservar" data-data="${d.data}" data-hora="${h.hora}">Reservar</button>`
-            : h.situacao === 'meu' && h.podeCancelar
-              ? `<button class="leve cancelar" data-id="${h.meuAgendamentoId}">Cancelar</button>`
-              : h.situacao === 'meu' && h.podeDesmarcar
-                ? `<button class="leve desmarcar" data-data="${d.data}" data-hora="${h.hora}">Não vou</button>`
-                : `<span class="selo ${h.situacao==='meu'?'meu':h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`;
-          return `<div class="slot ${h.situacao==='meu'?'meu':''} ${livre||h.situacao==='meu'?'':'indisponivel'}">
+          const ehOrigem = trocando && trocando.data === d.data && trocando.hora === h.hora;
+
+          // Em modo troca a agenda tem uma pergunta só: para onde? Todo horário
+          // livre vira destino, e a aula que está saindo oferece desistir.
+          const direita = trocando
+            ? (ehOrigem
+                ? `<button class="leve troca-cancelar">Desistir</button>`
+                : livre
+                  ? `<button class="leve troca-para" data-data="${d.data}" data-hora="${h.hora}">Trocar para cá</button>`
+                  : `<span class="selo ${h.situacao==='meu'?'meu':h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`)
+            // Aula da matrícula não tem agendamento para cancelar: desmarcar
+            // manda data e hora, e o servidor grava a exceção do dia.
+            : livre
+              ? `<button class="leve reservar" data-data="${d.data}" data-hora="${h.hora}">Reservar</button>`
+              : h.situacao === 'meu'
+                ? acoesDoMeuSlot(d.data, h)
+                : `<span class="selo ${h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`;
+          return `<div class="slot ${h.situacao==='meu'?'meu':''} ${trocando&&livre&&!ehOrigem?'destino':''} ${livre||h.situacao==='meu'?'':'indisponivel'}">
             <div class="hora">${h.hora}</div>
             <div class="vagas">${marcas(h.ocupadas,h.capacidade)}
               <div class="conta">${h.vagas>0?`${h.vagas} de ${h.capacidade} livres`:`${h.capacidade} lugares ocupados`}</div>
@@ -854,7 +899,17 @@ async function carregarAgenda(){
       ? `<div class="dias-fita" id="fita">${r.dias.map((d,k)=>
           `<button class="pilula${k?'':' sel'}" data-d="${d.data}"><small>${esc(d.rotulo)}</small><b>${String(d.data||'').slice(8,10)}</b></button>`).join('')}</div>`
       : '';
-    alvo.innerHTML = fita + recado + faixa + guia + dias;
+    // Em modo troca a faixa da matrícula e o guia saem da frente: a tela toda
+    // está a serviço de uma escolha só.
+    const faixaTroca = trocando
+      ? `<div class="faixa-troca">
+           <b>Trocando de horário</b>
+           <span>Saindo de ${esc(trocando.porExtenso || trocando.data)} às ${esc(trocando.hora)}.
+             Escolha o novo horário — sua aula atual só sai quando o novo for confirmado.</span>
+           <button class="leve troca-cancelar">Desistir da troca</button>
+         </div>`
+      : '';
+    alvo.innerHTML = fita + recado + (trocando ? faixaTroca : faixa + guia) + dias;
 
     // Um dia por vez: a fita troca o dia sem rolar a página.
     const mostrarDia = (data)=>{
@@ -889,6 +944,35 @@ document.body.addEventListener('click', async e=>{
   const res = e.target.closest('button.reservar');
   const can = e.target.closest('button.cancelar');
   const des = e.target.closest('button.desmarcar');
+  const ini = e.target.closest('button.troca-iniciar');
+  const par = e.target.closest('button.troca-para');
+  const sai = e.target.closest('button.troca-cancelar');
+
+  if (ini){
+    // Nada é gravado aqui: a troca só existe no servidor quando o destino for
+    // escolhido. Até lá a aula original continua valendo.
+    trocando = { data: ini.dataset.data, hora: ini.dataset.hora,
+                 porExtenso: ini.closest('.dia')?.querySelector('.titulo span')?.textContent || '' };
+    diaAberto = ini.dataset.data;
+    redesenhar();
+    return;
+  }
+  if (sai){ trocando = null; redesenhar(); return; }
+  if (par){
+    par.disabled = true; par.textContent = '…';
+    const de = trocando;
+    try{
+      await api('/agenda/trocar', {method:'POST', body:JSON.stringify({
+        de: { data: de.data, hora: de.hora },
+        para: { data: par.dataset.data, hora: par.dataset.hora },
+      })});
+      trocando = null;
+      diaAberto = par.dataset.hora ? par.dataset.data : diaAberto;
+      avisar(`Horário trocado para ${par.dataset.hora}.`, 'ok');
+    }catch(err){ avisar(err.message, 'erro'); }
+    redesenhar();
+    return;
+  }
   if (des){
     if (!confirm('Avisar que você não vem nesta aula?')) return;
     des.disabled = true;
