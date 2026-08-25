@@ -349,7 +349,8 @@
     border-left:3px solid var(--amarelo);padding:12px;margin-bottom:8px}
   .orfao .linha{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;
     align-items:center;margin-top:8px}
-  .orfao select{min-width:0}
+  .orfao select,.orfao input{min-width:0}
+  .orfao .separa{border-top:1px solid var(--linha);margin-top:10px;padding-top:2px}
   .freq-acoes{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
   .freq-acoes button{flex:1;min-width:130px}
   .alerta-rev{border-left:3px solid var(--amarelo);padding-left:10px;margin:12px 0 0}
@@ -1688,6 +1689,12 @@ function itemOrfao(c, alunos){
       </select>
       <button class="leve orf-ok">Vincular</button>
     </div>
+    <div class="linha separa">
+      <input class="orf-nome" value="${esc(c.nome || '')}" placeholder="Nome do aluno novo">
+      <button class="leve orf-criar">Criar cadastro</button>
+    </div>
+    <p class="ajuda" style="margin:6px 0 0">Ninguém na lista? O cadastro novo entra como Wellhub,
+      já com este ID gravado. A grade de horários se define depois, na ficha do aluno.</p>
   </div>`;
 }
 
@@ -1817,6 +1824,24 @@ async function carregarFrequencia(){
             : `Check-in vinculado${extra}.`, 'ok');
           await carregarFrequencia();
         }catch(err){ avisar(err.message,'erro'); }
+      });
+
+      const criar = el.querySelector('.orf-criar');
+      criar.addEventListener('click', async ()=>{
+        const nome = el.querySelector('.orf-nome').value.trim();
+        if (!nome) return avisar('Informe o nome do aluno novo.','erro');
+        criar.disabled = true; criar.textContent = 'Criando…';
+        try{
+          const r = await api('/matriculas/checkins/'+el.dataset.id+'/criar-aluno',
+            {method:'POST', body: JSON.stringify({nome})});
+          const extra = r.arrastados ? ` (+${r.arrastados} do mesmo ID)` : '';
+          avisar(`Ficha de "${r.nome}" criada e check-in vinculado${extra}. `
+            + 'Defina a grade na aba Alunos.', 'ok');
+          await carregarFrequencia();
+        }catch(err){
+          avisar(err.message,'erro');
+          criar.disabled = false; criar.textContent = 'Criar cadastro';
+        }
       });
     });
 
