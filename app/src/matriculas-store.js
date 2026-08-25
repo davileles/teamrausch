@@ -340,6 +340,10 @@ function criar(campos = {}) {
     gympassId: String(campos.gympassId || '').trim() || null,
     aniversario: null,   // preenchido logo abaixo, com validação
     ativo: campos.ativo === undefined ? true : Boolean(campos.ativo),
+    // Aula experimental: a pessoa já treina e já tem ficha, mas o horário fixo
+    // ainda não foi combinado. Sem esta marca ela ficaria indistinguível de um
+    // aluno de verdade que alguém esqueceu de montar a grade.
+    experimental: Boolean(campos.experimental),
     vinculo,
     grade: g.grade,
     vigenteDe: String(campos.vigenteDe || hojeISO()),
@@ -436,6 +440,7 @@ function atualizar(id, campos = {}) {
     if (!r.ok) return r;
   }
   if (campos.ativo !== undefined) m.ativo = Boolean(campos.ativo);
+  if (campos.experimental !== undefined) m.experimental = Boolean(campos.experimental);
   if (campos.observacao !== undefined) {
     m.observacao = String(campos.observacao || '').trim() || null;
   }
@@ -686,6 +691,7 @@ function resumo() {
     wellhub: ativas.filter((m) => m.vinculo === 'wellhub').length,
     mensalistas: ativas.filter((m) => m.vinculo === 'mensalista').length,
     semTelefone: ativas.filter((m) => !m.telefone).length,
+    experimentais: ativas.filter((m) => m.experimental).length,
     // Wellhub sem id é aluno cujo check-in ainda não tem onde cair.
     semWellhubId: ativas.filter((m) => m.vinculo === 'wellhub' && !m.gympassId).length,
     semAniversario: ativas.filter((m) => !m.aniversario).length,
