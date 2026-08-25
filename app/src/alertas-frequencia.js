@@ -65,7 +65,10 @@ function gravarEstado() {
 function montarPainel(opcoes = {}) {
   const dias = Number(opcoes.dias) > 0 ? Number(opcoes.dias) : JANELA_DIAS;
   const ate = opcoes.ate || frequencia.hojeLocal();
-  const de = grade.somarDias(ate, -(dias - 1));
+  // Sempre do dia 1º: a janela pode ser curta, mas o acumulado do mês precisa
+  // das exceções do mês inteiro, ou uma aula cancelada no dia 2 continuaria
+  // sendo cobrada no dia 20.
+  const de = frequencia.inicioDoMes(ate);
 
   return frequencia.painel(
     matriculas.listar(),
@@ -83,8 +86,11 @@ function linha(a) {
   const desde = a.ultimoCheckin
     ? `último em ${a.ultimoCheckin.split('-').reverse().slice(0, 2).join('/')}`
     : 'nenhum check-in registrado';
+  // O número do mês é o que vale no fechamento; o da janela é o que dá tempo
+  // de corrigir. Os dois na mesma linha evitam cobrar quem já repôs.
+  const mes = a.mes ? ` · mês ${a.mes.realizado}/${a.mes.esperado}` : '';
   return `${marca} ${a.nome} — ${a.realizado}/${a.esperado} `
-    + `(falta${falta === 1 ? '' : 'm'} ${falta}) · ${desde}`;
+    + `(falta${falta === 1 ? '' : 'm'} ${falta})${mes} · ${desde}`;
 }
 
 function montarTexto(painel) {
@@ -92,16 +98,23 @@ function montarTexto(painel) {
   const { de, ate, dias } = painel.janela;
   const periodo = `${de.split('-').reverse().join('/')} a ${ate.split('-').reverse().join('/')}`;
 
+  const nota = painel.janela.truncadaNoMes
+    ? `Janela contada a partir do dia 1º (${dias} ${dias === 1 ? 'dia' : 'dias'} de mês até agora) — `
+      + 'o ciclo anterior já fechou e não entra na conta.'
+    : null;
+
   if (!devedores.length) {
     return {
       assunto: '✅ Frequência em dia',
       texto: `Todos os ${painel.resumo.avaliados} alunos Wellhub estão em dia com a `
-        + `frequência combinada nos últimos ${dias} dias (${periodo}).`,
+        + `frequência combinada no período de ${periodo}.`
+        + (nota ? `\n\n${nota}` : ''),
     };
   }
 
   const corpo = [];
-  corpo.push(`Frequência dos últimos ${dias} dias (${periodo}):`);
+  corpo.push(`Frequência de ${periodo}:`);
+  if (nota) corpo.push(nota);
   corpo.push('');
   corpo.push(devedores.map(linha).join('\n'));
   corpo.push('');
@@ -151,10 +164,15 @@ async function rodar(opcoes = {}) {
 
 /* ------------------------------ cobrança --------------------------------- */
 
+/**
+ * Marcadores: {{nome}}, {{realizado}}/{{esperado}} e {{dias}} são da janela;
+ * {{mesRealizado}}/{{mesEsperado}} são do mês corrente. O texto padrão fala do
+ * mês porque é o ciclo que o aluno reconhece — o pacote dele renova no dia 1º.
+ */
 const MODELO_COBRANCA = process.env.FREQ_TEXTO_COBRANCA
-  || 'Oi, {{nome}}! Aqui é do TeamRausch. Pelos nossos registros você fez '
-   + '{{realizado}} de {{esperado}} treinos combinados nos últimos {{dias}} dias. '
-   + 'Consegue repor essa semana? Se precisar remarcar horário, é só falar com a gente.';
+  || 'Oi, {{nome}}! Aqui é do TeamRausch. Neste mês você fez {{mesRealizado}} '
+   + 'de {{mesEsperado}} treinos combinados. Consegue repor essa semana? '
+   + 'Se precisar remarcar horário, é só falar com a gente.';
 
 /** Cobra um aluno específico, com o texto padrão ou um escrito na hora. */
 async function cobrar(matriculaId, textoLivre) {
@@ -164,7 +182,7 @@ async function cobrar(matriculaId, textoLivre) {
 
   const dias = JANELA_DIAS;
   const ate = frequencia.hojeLocal();
-  const de = grade.somarDias(ate, -(dias - 1));
+  const de = frequencia.inicioDoMes(ate);
   const situacao = frequencia.avaliar(
     m, checkins.datasDaMatricula(m.id), matriculas.excecoes({ de, ate, matriculaId: m.id }),
     { dias, ate });
@@ -173,7 +191,9 @@ async function cobrar(matriculaId, textoLivre) {
     .replace(/\{\{nome\}\}/g, String(m.nome).split(' ')[0])
     .replace(/\{\{realizado\}\}/g, situacao.realizado)
     .replace(/\{\{esperado\}\}/g, situacao.esperado)
-    .replace(/\{\{dias\}\}/g, dias);
+    .replace(/\{\{dias\}\}/g, situacao.janela.dias)
+    .replace(/\{\{mesRealizado\}\}/g, situacao.mes.realizado)
+    .replace(/\{\{mesEsperado\}\}/g, situacao.mes.esperado);
 
   const r = await enviarTexto(m.telefone, texto);
   if (!r.ok) return { ok: false, motivo: r.motivo, texto };
