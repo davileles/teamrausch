@@ -92,6 +92,7 @@ function agendaDoDia(matriculas, data, excecoes = []) {
         hora: slot.hora,
         matriculaId: m.id,
         nome: m.nome,
+        telefone: m.telefone || null,
         vinculo: m.vinculo || null,
         origem: 'fixo',
       });
@@ -106,6 +107,7 @@ function agendaDoDia(matriculas, data, excecoes = []) {
       hora: e.hora,
       matriculaId: m.id,
       nome: m.nome,
+      telefone: m.telefone || null,
       vinculo: m.vinculo || null,
       origem: 'extra',
       excecaoId: e.id || null,
@@ -162,6 +164,26 @@ function diasPorSemana(matricula) {
   return new Set((matricula.grade || []).map((s) => s.dia)).size;
 }
 
+/**
+ * Horário padrão do aluno em texto: '18:00 · seg, qua, sex'.
+ * Agrupa por hora porque a grande maioria treina sempre no mesmo horário —
+ * repetir a hora em cada dia só faria a linha crescer sem dizer mais nada.
+ */
+const ABREV_DIA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+function gradeEmTexto(matricula) {
+  const porHora = new Map();
+  for (const s of matricula.grade || []) {
+    if (!porHora.has(s.hora)) porHora.set(s.hora, []);
+    porHora.get(s.hora).push(s.dia);
+  }
+  return [...porHora.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([hora, dias]) =>
+      `${hora} · ${dias.sort((x, y) => x - y).map((d) => ABREV_DIA[d]).join(', ')}`)
+    .join('  |  ');
+}
+
 /** Ocupação de cada slot da semana — alimenta o mapa de lotação. */
 function ocupacaoSemanal(matriculas) {
   const mapa = new Map();
@@ -183,5 +205,5 @@ function ocupacaoSemanal(matriculas) {
 module.exports = {
   diaDaSemana, somarDias, gradeVigente,
   agendaDoDia, agendaPorHorario, proximasDaMatricula,
-  diasPorSemana, ocupacaoSemanal,
+  diasPorSemana, gradeEmTexto, ocupacaoSemanal,
 };
