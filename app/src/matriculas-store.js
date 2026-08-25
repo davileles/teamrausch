@@ -205,6 +205,39 @@ function porTelefone(telefone) {
   return dados.matriculas.find((m) => m.ativo && mesmoTelefone(m.telefone, t)) || null;
 }
 
+/**
+ * Ponte com o Wellhub. O portal identifica o aluno pelo `gympass_id`; guardar
+ * esse número na matrícula é o que permite creditar um check-in na ficha certa
+ * sem depender de o nome estar escrito igual nos dois lugares.
+ */
+function porGympassId(gympassId) {
+  const alvo = String(gympassId || '').trim();
+  if (!alvo) return null;
+  return dados.matriculas.find((m) => String(m.gympassId || '') === alvo) || null;
+}
+
+/**
+ * Grava o id do Wellhub. Recusa em silêncio quando o número já é de outro
+ * aluno: dois alunos com o mesmo id fariam os check-ins de um cair na ficha do
+ * outro, e o erro só apareceria semanas depois, como falta.
+ */
+function definirGympassId(id, gympassId) {
+  const m = porId(id);
+  if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+  const alvo = String(gympassId || '').trim() || null;
+
+  if (alvo) {
+    const dono = porGympassId(alvo);
+    if (dono && dono.id !== id) {
+      return { ok: false, motivo: `Este Wellhub ID já é de ${dono.nome}.` };
+    }
+  }
+  m.gympassId = alvo;
+  m.atualizadoEm = new Date().toISOString();
+  gravar();
+  return { ok: true, matricula: m };
+}
+
 function comMesmoNome(nome, exceto) {
   const alvo = String(nome).trim().toLocaleLowerCase('pt-BR');
   return dados.matriculas.find((m) =>
@@ -226,6 +259,7 @@ function criar(campos = {}) {
     id: novoId(),
     nome,
     telefone: String(campos.telefone || '').trim() || null,
+    gympassId: String(campos.gympassId || '').trim() || null,
     ativo: campos.ativo === undefined ? true : Boolean(campos.ativo),
     vinculo,
     grade: g.grade,
@@ -290,6 +324,10 @@ function atualizar(id, campos = {}) {
 
   if (campos.telefone !== undefined) {
     m.telefone = String(campos.telefone || '').trim() || null;
+  }
+  if (campos.gympassId !== undefined) {
+    const r = definirGympassId(id, campos.gympassId);
+    if (!r.ok) return r;
   }
   if (campos.ativo !== undefined) m.ativo = Boolean(campos.ativo);
   if (campos.observacao !== undefined) {
@@ -504,6 +542,7 @@ function importar(lista, { substituir = false } = {}) {
       id: bruta.id || novoId(),
       nome,
       telefone: String(bruta.telefone || '').trim() || null,
+      gympassId: String(bruta.gympassId || '').trim() || null,
       ativo: bruta.ativo === undefined ? true : Boolean(bruta.ativo),
       vinculo,
       grade: g.grade,
@@ -540,6 +579,8 @@ function resumo() {
     wellhub: ativas.filter((m) => m.vinculo === 'wellhub').length,
     mensalistas: ativas.filter((m) => m.vinculo === 'mensalista').length,
     semTelefone: ativas.filter((m) => !m.telefone).length,
+    // Wellhub sem id é aluno cujo check-in ainda não tem onde cair.
+    semWellhubId: ativas.filter((m) => m.vinculo === 'wellhub' && !m.gympassId).length,
     aRevisar: dados.matriculas.filter((m) => (m.revisar || []).length).length,
     excecoes: dados.excecoes.length,
   };
@@ -551,7 +592,8 @@ semear();
 setInterval(() => limparAntigas(), 24 * 3600000).unref();
 
 module.exports = {
-  listar, porId, porTelefone, criar, atualizar, inativar, remover,
+  listar, porId, porTelefone, porGympassId, definirGympassId,
+  criar, atualizar, inativar, remover,
   excecoes, registrarExcecao, apagarExcecao,
   importar, resumo, backup, normalizarHorarios, horaCheia,
   VINCULOS, CICLOS,
