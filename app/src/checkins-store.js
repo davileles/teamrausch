@@ -320,6 +320,11 @@ function registrarLote(lista, origem = 'portal') {
   return { novos, repetidos, semVinculo, registros };
 }
 
+/** Um check-in pelo id — a tela precisa dele para abrir a ficha do dono. */
+function porId(id) {
+  return dados.checkins.find((c) => c.id === id) || null;
+}
+
 /** Vínculo manual, feito na tela quando o nome não casou sozinho. */
 function vincular(id, matriculaId) {
   const c = dados.checkins.find((x) => x.id === id);
@@ -518,7 +523,7 @@ semear().then(() => {
 setInterval(() => limparAntigos(), 24 * 3600000).unref();
 
 module.exports = {
-  registrar, registrarLote, vincular, desvincular, revincularOrfaos,
+  registrar, registrarLote, porId, vincular, desvincular, revincularOrfaos,
   listar, datasDaMatricula, mapaPorMatricula, ultimoDaMatricula, aplicarNomesDoPortal,
   resumo, normalizarNome, dataLocal, hojeLocal, backup,
 };
