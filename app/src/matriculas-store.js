@@ -22,6 +22,7 @@ const path = require('path');
 const crypto = require('crypto');
 const backupGithub = require('./backup-github');
 const grade = require('./grade');
+const aniversario = require('./aniversario');
 
 const DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ARQUIVO = path.join(DIR, 'matriculas.json');
@@ -337,6 +338,7 @@ function criar(campos = {}) {
     nome,
     telefone: String(campos.telefone || '').trim() || null,
     gympassId: String(campos.gympassId || '').trim() || null,
+    aniversario: null,   // preenchido logo abaixo, com validação
     ativo: campos.ativo === undefined ? true : Boolean(campos.ativo),
     vinculo,
     grade: g.grade,
@@ -347,6 +349,11 @@ function criar(campos = {}) {
     atualizadoEm: new Date().toISOString(),
   };
 
+  if (campos.aniversario !== undefined) {
+    const r = aplicarAniversario(registro, campos.aniversario);
+    if (!r.ok) return r;
+  }
+
   if (vinculo === 'mensalista') {
     const r = aplicarCobranca(registro, campos);
     if (!r.ok) return r;
@@ -355,6 +362,21 @@ function criar(campos = {}) {
   dados.matriculas.push(registro);
   gravar();
   return { ok: true, matricula: registro };
+}
+
+/**
+ * Dia e mês de nascimento. Campo em branco apaga a data — é assim que se
+ * corrige um valor errado sem precisar de um botão só para isso.
+ */
+function aplicarAniversario(registro, bruto) {
+  const texto = String(bruto ?? '').trim();
+  if (!texto) { registro.aniversario = null; return { ok: true }; }
+  const limpo = aniversario.normalizar(texto);
+  if (!limpo) {
+    return { ok: false, motivo: 'Nascimento inválido. Use dia e mês, como 07/03.' };
+  }
+  registro.aniversario = limpo;
+  return { ok: true };
 }
 
 /** Ciclo e dia de vencimento existem só para mensalista. */
@@ -407,6 +429,10 @@ function atualizar(id, campos = {}) {
   }
   if (campos.gympassId !== undefined) {
     const r = definirGympassId(id, campos.gympassId);
+    if (!r.ok) return r;
+  }
+  if (campos.aniversario !== undefined) {
+    const r = aplicarAniversario(m, campos.aniversario);
     if (!r.ok) return r;
   }
   if (campos.ativo !== undefined) m.ativo = Boolean(campos.ativo);
@@ -623,6 +649,7 @@ function importar(lista, { substituir = false } = {}) {
       nome,
       telefone: String(bruta.telefone || '').trim() || null,
       gympassId: String(bruta.gympassId || '').trim() || null,
+      aniversario: aniversario.normalizar(bruta.aniversario),
       ativo: bruta.ativo === undefined ? true : Boolean(bruta.ativo),
       vinculo,
       grade: g.grade,
@@ -661,6 +688,7 @@ function resumo() {
     semTelefone: ativas.filter((m) => !m.telefone).length,
     // Wellhub sem id é aluno cujo check-in ainda não tem onde cair.
     semWellhubId: ativas.filter((m) => m.vinculo === 'wellhub' && !m.gympassId).length,
+    semAniversario: ativas.filter((m) => !m.aniversario).length,
     aRevisar: dados.matriculas.filter((m) => (m.revisar || []).length).length,
     excecoes: dados.excecoes.length,
   };
