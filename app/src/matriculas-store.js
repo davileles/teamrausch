@@ -27,11 +27,16 @@ const aniversario = require('./aniversario');
 const DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ARQUIVO = path.join(DIR, 'matriculas.json');
 const CAMINHO_BACKUP = process.env.GITHUB_PATH_MATRICULAS || 'teamrausch/matriculas.json';
+// Lista `id → telefone` mantida no repo privado. O app só LÊ este arquivo:
+// serve para carregar telefones em lote (veio da aba Contatos da planilha) sem
+// digitar um por um na ficha e sem expor os números no repositório público.
+const CAMINHO_TELEFONES = process.env.GITHUB_PATH_TELEFONES || 'teamrausch/telefones.json';
 
 const VINCULOS = ['wellhub', 'mensalista'];
 const CICLOS = ['mensal', 'trimestral', 'semestral', 'anual'];
 
 const backup = backupGithub.criar(CAMINHO_BACKUP, 'Matrículas do estúdio');
+const fonteTelefones = backupGithub.criar(CAMINHO_TELEFONES, 'Telefones (leitura)');
 
 let dados = { matriculas: [], excecoes: [] };
 let pendente = null;
@@ -110,6 +115,42 @@ async function semear() {
   } finally {
     semeando = false;
   }
+}
+
+/**
+ * Preenche telefones a partir de `teamrausch/telefones.json` no repo privado
+ * (`{ telefones: [{ id, telefone }] }`). Só toca em matrícula SEM telefone:
+ * o que já foi preenchido na ficha nunca é sobrescrito, então rodar de novo é
+ * seguro. Roda no boot, depois da semeadura, e sob demanda pelo endpoint
+ * `/matriculas/telefones/aplicar` (PANEL_TOKEN).
+ *
+ * Por que não editar o backup direto: o volume manda, e o backup só semeia a
+ * base vazia — telefone colocado lá à mão nunca chegaria ao app, e o próximo
+ * backup ainda o apagaria.
+ */
+async function complementarTelefones() {
+  if (!fonteTelefones.ligado) {
+    return { ok: false, motivo: 'Defina GITHUB_TOKEN e GITHUB_REPO para ler o arquivo de telefones.' };
+  }
+  const remoto = await fonteTelefones.baixar();
+  const lista = remoto && Array.isArray(remoto.telefones) ? remoto.telefones : [];
+  const resultado = { ok: true, noArquivo: lista.length, aplicados: 0, jaTinham: 0, naoEncontrados: [] };
+  const agora = new Date().toISOString();
+
+  for (const item of lista) {
+    const m = porId(String(item && item.id || ''));
+    if (!m) { resultado.naoEncontrados.push(item && item.id); continue; }
+    const telefone = String(item.telefone || '').trim();
+    if (!telefone) continue;
+    if (m.telefone) { resultado.jaTinham += 1; continue; }
+    m.telefone = telefone;
+    m.atualizadoEm = agora;
+    resultado.aplicados += 1;
+  }
+
+  if (resultado.aplicados) gravar();
+  console.log('[matriculas] telefones:', JSON.stringify(resultado));
+  return resultado;
 }
 
 /* ------------------------------ validação -------------------------------- */
@@ -702,13 +743,15 @@ function resumo() {
 
 carregar();
 normalizarHorarios();
-semear();
+semear()
+  .then(() => complementarTelefones())
+  .catch((erro) => console.error('[matriculas] falha ao complementar telefones:', erro.message));
 setInterval(() => limparAntigas(), 24 * 3600000).unref();
 
 module.exports = {
   listar, porId, porTelefone, porGympassId, definirGympassId, renomearDoWellhub, arrumarCaixa,
   criar, atualizar, inativar, remover,
   excecoes, registrarExcecao, apagarExcecao,
-  importar, resumo, backup, normalizarHorarios, horaCheia,
+  importar, resumo, backup, normalizarHorarios, horaCheia, complementarTelefones,
   VINCULOS, CICLOS,
 };

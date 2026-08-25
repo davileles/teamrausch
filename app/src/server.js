@@ -6,6 +6,7 @@ const store = require('./store');
 const wellhub = require('./wellhub');
 const pollerPortal = require('./poller-portal');
 const checkinsStore = require('./checkins-store');
+const matriculas = require('./matriculas-store');
 const alertasFrequencia = require('./alertas-frequencia');
 const { lerCheckin } = require('./payload-map');
 
@@ -214,6 +215,21 @@ app.get('/wellhub/teste-aviso', async (req, res) => {
   try {
     const r = await pollerPortal.testarAviso();
     res.json(r);
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
+/* Reaplica os telefones de `teamrausch/telefones.json` (repo privado) nas
+   matrículas que ainda estão sem telefone. Nunca sobrescreve o que já foi
+   preenchido na ficha. Roda sozinho no boot; isto é para rodar de novo depois
+   de atualizar o arquivo, sem esperar deploy. Protegido por PANEL_TOKEN. */
+app.get('/matriculas/telefones/aplicar', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  try {
+    res.json(await matriculas.complementarTelefones());
   } catch (e) {
     res.status(500).json({ ok: false, erro: e.message });
   }
