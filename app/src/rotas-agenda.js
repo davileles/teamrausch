@@ -563,6 +563,17 @@ rotas.post('/agenda/cancelar', exigirLogin, (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * Trocar de horário. Vai num pedido só, não em cancelar + reservar: se o
+ * destino não der, a aula original continua de pé.
+ */
+rotas.post('/agenda/trocar', exigirLogin, (req, res) => {
+  const { de, para } = req.body || {};
+  const r = agenda.trocar(req.aluno, de, para);
+  if (!r.ok) return res.status(409).json({ erro: r.motivo });
+  res.json({ ok: true });
+});
+
 /* --------------------------- administração ------------------------------- */
 
 rotas.get('/admin/dia', exigirLogin, exigirAdmin, (req, res) => {
