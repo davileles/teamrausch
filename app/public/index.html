@@ -305,6 +305,36 @@
   .encaixe select,.encaixe input{background:var(--preto);min-width:0;margin:0}
   .mat-item .rodape{margin-top:10px}
   .sem-tel{color:var(--amarelo-2);margin:0}
+  /* ---- frequência: combinado x realizado ---- */
+  .freq-item{background:var(--superficie);border:1px solid var(--linha-2);
+    border-left:4px solid var(--linha-2);padding:14px 16px;margin-bottom:8px}
+  .freq-item.critico{border-left-color:var(--vermelho)}
+  .freq-item.atrasado{border-left-color:var(--amarelo)}
+  .freq-item.em-dia{border-left-color:var(--liberado)}
+  .freq-item .cabeca{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .freq-item .cabeca b{font:400 15px Anton,sans-serif;letter-spacing:.05em;text-transform:uppercase}
+  .freq-conta{font:400 15px Anton,sans-serif;letter-spacing:.06em;white-space:nowrap}
+  .freq-item.critico .freq-conta{color:var(--vermelho)}
+  .freq-item.atrasado .freq-conta{color:var(--amarelo)}
+  .freq-item.em-dia .freq-conta{color:var(--liberado)}
+  .freq-item p.ajuda{margin:5px 0 0}
+  .freq-item .rodape{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .freq-cartoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));
+    gap:8px;margin:12px 0 16px}
+  .freq-cartao{background:var(--fundo-2);border:1px solid var(--linha);padding:10px;text-align:center}
+  .freq-cartao b{display:block;font:400 22px Anton,sans-serif;letter-spacing:.04em}
+  .freq-cartao span{font:600 10px 'Work Sans',sans-serif;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--fraco)}
+  .freq-cartao.critico b{color:var(--vermelho)}
+  .freq-cartao.atrasado b{color:var(--amarelo)}
+  .freq-cartao.em-dia b{color:var(--liberado)}
+  .orfao{background:var(--fundo-2);border:1px solid var(--linha);
+    border-left:3px solid var(--amarelo);padding:12px;margin-bottom:8px}
+  .orfao .linha{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;
+    align-items:center;margin-top:8px}
+  .orfao select{min-width:0}
+  .freq-acoes{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .freq-acoes button{flex:1;min-width:130px}
   .alerta-rev{border-left:3px solid var(--amarelo);padding-left:10px;margin:12px 0 0}
   .barra-dia{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;margin-bottom:12px}
   .barra-dia input{background:var(--preto);margin:0}
@@ -1267,7 +1297,8 @@ async function carregarAlunos(){
 const DIAS_SEM = [[1,'Seg'],[2,'Ter'],[3,'Qua'],[4,'Qui'],[5,'Sex'],[6,'Sáb'],[0,'Dom']];
 const NOME_DIA = {0:'dom',1:'seg',2:'ter',3:'qua',4:'qui',5:'sex',6:'sáb'};
 
-let matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false, data:null, aberta:null };
+let matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
+  data:null, aberta:null, freqDias:7, freqSo:'devendo' };
 
 /** Grade em uma linha: agrupa os dias que compartilham o mesmo horário. */
 function gradeEmTexto(grade){
@@ -1303,6 +1334,13 @@ function fichaMatricula(m){
         <option value="wellhub"${mens?'':' selected'}>Wellhub</option>
       </select>
     </div>
+    <!-- O número do Wellhub é o que faz o check-in do portal cair nesta ficha.
+         Fica em branco até o primeiro check-in casar pelo nome; a partir daí o
+         sistema preenche sozinho e o vínculo passa a ser exato. -->
+    <div class="campos mf-bloco-wellhub" ${mens?'hidden':''}>
+      <input class="mf-wellhub" inputmode="numeric" value="${esc(m.gympassId||'')}"
+        placeholder="Wellhub ID (preenchido no 1º check-in)">
+    </div>
     <div class="campos mf-cobranca" ${mens?'':'hidden'}>
       <select class="mf-ciclo">${['mensal','trimestral','semestral','anual'].map(x=>
         `<option value="${x}"${(m.ciclo||'mensal')===x?' selected':''}>${x[0].toUpperCase()+x.slice(1)}</option>`).join('')}</select>
@@ -1333,6 +1371,7 @@ function lerFicha(el){
   const corpo = {
     nome: el.querySelector('.mf-nome').value,
     telefone: el.querySelector('.mf-tel').value,
+    gympassId: el.querySelector('.mf-wellhub').value,
     vinculo: el.querySelector('.mf-vinculo').value,
     observacao: el.querySelector('.mf-obs').value,
     grade,
@@ -1354,6 +1393,7 @@ function ligarFicha(el, id){
   });
   el.querySelector('.mf-vinculo').addEventListener('change', e=>{
     el.querySelector('.mf-cobranca').hidden = e.target.value !== 'mensalista';
+    el.querySelector('.mf-bloco-wellhub').hidden = e.target.value === 'mensalista';
   });
   el.querySelector('.mf-cancelar').addEventListener('click', ()=>{
     matEstado.aberta = null; redesenhar();
@@ -1397,6 +1437,7 @@ async function carregarMatriculas(){
         <button data-sub="alunos" aria-selected="${matEstado.sub==='alunos'}">Alunos</button>
         <button data-sub="grade" aria-selected="${matEstado.sub==='grade'}">Grade do dia</button>
         <button data-sub="lotacao" aria-selected="${matEstado.sub==='lotacao'}">Lotação da semana</button>
+        <button data-sub="freq" aria-selected="${matEstado.sub==='freq'}">Frequência</button>
       </div>
       <div data-painel="alunos" ${matEstado.sub==='alunos'?'':'hidden'}>
         <p class="ajuda">${resumo.ativas} ativos · ${resumo.mensalistas} mensalistas ·
@@ -1438,6 +1479,9 @@ async function carregarMatriculas(){
       </div>
       <div data-painel="lotacao" ${matEstado.sub==='lotacao'?'':'hidden'}>
         <div id="mat-lotacao"><div class="vazio">Carregando…</div></div>
+      </div>
+      <div data-painel="freq" ${matEstado.sub==='freq'?'':'hidden'}>
+        <div id="mat-freq"><div class="vazio">Carregando…</div></div>
       </div>`;
 
     alvo.querySelector('#sub-mat').addEventListener('click', e=>{
@@ -1482,6 +1526,211 @@ async function carregarMatriculas(){
 
     if (matEstado.sub === 'grade') await carregarGradeDoDia();
     if (matEstado.sub === 'lotacao') await carregarLotacao();
+    if (matEstado.sub === 'freq') await carregarFrequencia();
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* ------------------------------ frequência ------------------------------- *
+ * O combinado contra o que aconteceu. Só aparece aluno Wellhub: mensalista não
+ * faz check-in no portal, então o realizado dele seria sempre zero e a lista de
+ * devedores viraria a base inteira.
+ * ------------------------------------------------------------------------- */
+
+const SITUACAO = {
+  'critico':  { rotulo:'crítico',   marca:'🔴' },
+  'atrasado': { rotulo:'atrasado',  marca:'🟡' },
+  'em-dia':   { rotulo:'em dia',    marca:'🟢' },
+  'sem-aula': { rotulo:'sem aula prevista', marca:'·' },
+  'sem-grade':{ rotulo:'sem horário fixo',  marca:'·' },
+};
+
+function dataCurta(iso){
+  if (!iso) return null;
+  const [a,m,d] = iso.split('-');
+  return `${d}/${m}`;
+}
+
+function cartaoFreq(valor, rotulo, classe){
+  return `<div class="freq-cartao ${classe||''}"><b>${valor}</b><span>${rotulo}</span></div>`;
+}
+
+function itemFrequencia(a){
+  const s = SITUACAO[a.situacao] || { rotulo:a.situacao, marca:'·' };
+  const detalhes = [];
+  if (a.ultimoCheckin){
+    detalhes.push(`último em ${dataCurta(a.ultimoCheckin)}` +
+      (a.diasSemTreinar === 0 ? ' (hoje)' :
+       a.diasSemTreinar === 1 ? ' (ontem)' : ` (há ${a.diasSemTreinar} dias)`));
+  } else {
+    detalhes.push('nenhum check-in registrado');
+  }
+  detalhes.push(`${a.porSemana}×/sem combinado`);
+  if (!a.gympassId) detalhes.push('sem Wellhub ID vinculado');
+
+  const devendo = a.situacao === 'critico' || a.situacao === 'atrasado';
+  return `<div class="freq-item ${esc(a.situacao)}" data-id="${esc(a.matriculaId)}">
+    <div class="cabeca">
+      <b>${esc(a.nome)}</b>
+      <span class="freq-conta">${a.realizado}/${a.esperado}</span>
+    </div>
+    <p class="ajuda">${s.marca} ${s.rotulo} · ${detalhes.map(esc).join(' · ')}</p>
+    ${devendo ? `<div class="rodape">
+      ${a.telefone
+        ? '<button class="leve fq-cobrar">Cobrar no WhatsApp</button>'
+        : '<button class="leve" disabled>Sem telefone cadastrado</button>'}
+      <button class="leve fq-abrir">Abrir ficha</button>
+    </div>` : ''}
+  </div>`;
+}
+
+/**
+ * Check-in que não casou com nenhum aluno. Enquanto ficar aqui ele não conta
+ * para ninguém — daí aparecer antes da lista, e não escondido no rodapé.
+ */
+function itemOrfao(c, alunos){
+  return `<div class="orfao" data-id="${esc(c.id)}">
+    <b>${esc(c.nome || 'Sem nome no portal')}</b>
+    <p class="ajuda" style="margin:4px 0 0">${dataCurta(c.data)} às ${esc(c.hora||'--:--')}
+      · Wellhub ID ${esc(c.gympassId || '—')}${c.produto ? ' · '+esc(c.produto) : ''}</p>
+    <div class="linha">
+      <select class="orf-quem">
+        <option value="">Vincular a…</option>
+        ${alunos.map(m=>`<option value="${esc(m.id)}">${esc(m.nome)}</option>`).join('')}
+      </select>
+      <button class="leve orf-ok">Vincular</button>
+    </div>
+  </div>`;
+}
+
+async function carregarFrequencia(){
+  const alvo = document.getElementById('mat-freq');
+  if (!alvo) return;
+  try{
+    const [f, orfaos, base] = await Promise.all([
+      api('/matriculas/frequencia?dias='+matEstado.freqDias),
+      api('/matriculas/checkins?semVinculo=1&limite=40'),
+      api('/matriculas?situacao=ativos'),
+    ]);
+
+    const devendo = f.alunos.filter(a=>a.situacao==='critico'||a.situacao==='atrasado');
+    const mostrar = matEstado.freqSo === 'devendo' ? devendo : f.alunos;
+    const j = f.janela;
+
+    alvo.innerHTML = `
+      <p class="ajuda">Últimos ${j.dias} dias (${dataCurta(j.de)} a ${dataCurta(j.ate)}).
+        O esperado sai da grade de cada aluno, já descontadas as aulas desmarcadas —
+        a aula de hoje só entra na conta depois que o horário passa.</p>
+
+      <div class="freq-cartoes">
+        ${cartaoFreq(f.resumo.criticos, 'críticos', 'critico')}
+        ${cartaoFreq(f.resumo.atrasados, 'atrasados', 'atrasado')}
+        ${cartaoFreq(f.resumo.emDia, 'em dia', 'em-dia')}
+        ${cartaoFreq(f.checkins.ultimos7, 'check-ins 7d')}
+      </div>
+
+      <div class="freq-acoes">
+        <button class="leve" id="fq-sincronizar">Buscar check-ins agora</button>
+        <button class="leve" id="fq-aviso">Ver aviso do dia</button>
+      </div>
+
+      <div class="chips-mat" style="margin-bottom:14px">
+        <div class="grupo-filtro"><span>Janela</span>
+          ${[7,14,30].map(d=>`<button class="chip${matEstado.freqDias===d?' sel':''}"
+            data-dias="${d}">${d} dias</button>`).join('')}
+        </div>
+        <div class="grupo-filtro"><span>Mostrar</span>
+          ${[['devendo','Só devendo'],['todos','Todos']].map(([v,r])=>
+            `<button class="chip${matEstado.freqSo===v?' sel':''}" data-so="${v}">${r}</button>`).join('')}
+        </div>
+      </div>
+
+      ${orfaos.checkins.length ? `<h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;
+        text-transform:uppercase;color:var(--amarelo);margin:0 0 8px">
+        ${orfaos.checkins.length} check-in(s) sem aluno</h3>
+        <p class="ajuda">Enquanto não forem vinculados, estes treinos não contam para ninguém.
+          Vincular também grava o Wellhub ID na ficha, então acontece uma vez só.</p>
+        <div id="fq-orfaos">${orfaos.checkins.map(c=>itemOrfao(c, base.matriculas)).join('')}</div>
+        <button class="leve" id="fq-revincular" style="margin:0 0 20px">Tentar vincular sozinho</button>`
+      : ''}
+
+      <h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
+        margin:0 0 10px">${matEstado.freqSo==='devendo' ? 'Precisam repor' : 'Todos os alunos Wellhub'}</h3>
+      <div id="fq-lista">${mostrar.length
+        ? mostrar.map(itemFrequencia).join('')
+        : '<div class="vazio">Ninguém devendo treino nesta janela.</div>'}</div>`;
+
+    alvo.querySelector('.chips-mat').addEventListener('click', e=>{
+      const b = e.target.closest('.chip'); if (!b) return;
+      if (b.dataset.dias) matEstado.freqDias = Number(b.dataset.dias);
+      else if (b.dataset.so) matEstado.freqSo = b.dataset.so;
+      carregarFrequencia();
+    });
+
+    alvo.querySelector('#fq-sincronizar').addEventListener('click', async e=>{
+      const b = e.target; b.disabled = true; b.textContent = 'Buscando…';
+      try{
+        const r = await api('/matriculas/checkins/sincronizar', {method:'POST'});
+        avisar(r.erro ? r.erro
+          : `${r.registrados?.novos || 0} check-in(s) novo(s) de ${r.validados || 0} validado(s).`,
+          r.erro ? 'erro' : 'ok');
+        await carregarFrequencia();
+      }catch(err){ avisar(err.message,'erro'); b.disabled = false; b.textContent = 'Buscar check-ins agora'; }
+    });
+
+    alvo.querySelector('#fq-aviso').addEventListener('click', async ()=>{
+      try{
+        const r = await api('/matriculas/frequencia/aviso', {method:'POST', body:'{}'});
+        alert(r.texto);
+      }catch(err){ avisar(err.message,'erro'); }
+    });
+
+    const revincular = alvo.querySelector('#fq-revincular');
+    if (revincular) revincular.addEventListener('click', async ()=>{
+      try{
+        const r = await api('/matriculas/checkins/revincular', {method:'POST'});
+        avisar(r.ligados ? `${r.ligados} vinculado(s). ${r.restantes} ainda sem aluno.`
+          : 'Nenhum casou automaticamente — vincule na mão.', r.ligados ? 'ok' : '');
+        await carregarFrequencia();
+      }catch(err){ avisar(err.message,'erro'); }
+    });
+
+    alvo.querySelectorAll('.orfao').forEach(el=>{
+      el.querySelector('.orf-ok').addEventListener('click', async ()=>{
+        const quem = el.querySelector('.orf-quem').value;
+        if (!quem) return avisar('Escolha o aluno.','erro');
+        try{
+          const r = await api('/matriculas/checkins/'+el.dataset.id+'/vincular',
+            {method:'POST', body: JSON.stringify({matriculaId: quem})});
+          avisar(r.arrastados
+            ? `Vinculado — e mais ${r.arrastados} check-in(s) do mesmo ID junto.`
+            : 'Check-in vinculado.', 'ok');
+          await carregarFrequencia();
+        }catch(err){ avisar(err.message,'erro'); }
+      });
+    });
+
+    alvo.querySelectorAll('.freq-item').forEach(el=>{
+      const cobrar = el.querySelector('.fq-cobrar');
+      if (cobrar) cobrar.addEventListener('click', async ()=>{
+        if (!confirm('Enviar a mensagem de cobrança no WhatsApp deste aluno?')) return;
+        cobrar.disabled = true; cobrar.textContent = 'Enviando…';
+        try{
+          await api('/matriculas/frequencia/cobrar',
+            {method:'POST', body: JSON.stringify({matriculaId: el.dataset.id})});
+          avisar('Mensagem enviada.','ok');
+          cobrar.textContent = 'Cobrado ✓';
+        }catch(err){
+          avisar(err.message,'erro');
+          cobrar.disabled = false; cobrar.textContent = 'Cobrar no WhatsApp';
+        }
+      });
+      const abrir = el.querySelector('.fq-abrir');
+      if (abrir) abrir.addEventListener('click', ()=>{
+        matEstado.sub = 'alunos'; matEstado.aberta = el.dataset.id;
+        matEstado.situacao = 'ativos'; matEstado.vinculo = '';
+        redesenhar();
+      });
+    });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
