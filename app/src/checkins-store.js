@@ -213,7 +213,6 @@ function vincularAutomatico(reg) {
     return false;
   }
   reg.matriculaId = achado.matricula.id;
-  reg.nomeMatricula = achado.matricula.nome;
   reg.vinculadoPor = achado.via;
 
   // Casou pelo nome: grava o id do Wellhub na matrícula para que a próxima vez
@@ -222,7 +221,30 @@ function vincularAutomatico(reg) {
     matriculas.definirGympassId(achado.matricula.id, reg.gympassId);
     log(`${achado.matricula.nome}: Wellhub ID ${reg.gympassId} vinculado pelo nome.`);
   }
+
+  adotarNome(achado.matricula.id, reg.nome);
+  // Lido depois de adotarNome, senão o histórico guardaria o nome antigo.
+  reg.nomeMatricula = (matriculas.porId(achado.matricula.id) || achado.matricula).nome;
   return true;
+}
+
+/**
+ * Passa o nome do portal para a ficha do aluno.
+ *
+ * A base veio de planilha, com apelidos e abreviações; o Wellhub tem o nome do
+ * cadastro, que é o que aparece na fila de validação. Manter os dois iguais é o
+ * que permite conferir a tela do portal contra a nossa sem tradução mental.
+ *
+ * `matriculas.renomearDoWellhub` aplica cada nome do portal uma única vez, então
+ * chamar isto em todo check-in não desfaz correção feita por você na tela.
+ */
+function adotarNome(matriculaId, nomeDoPortal) {
+  if (!nomeDoPortal) return;
+  const r = matriculas.renomearDoWellhub(matriculaId, nomeDoPortal);
+  if (r.mudou) log(`renomeado pelo Wellhub: "${r.de}" → "${r.para}".`);
+  // Colisão de nome é matrícula duplicada, e some do log num dia movimentado se
+  // não for dita alto: o vínculo continua valendo, só o nome não trocou.
+  else if (r.ok === false) log(`nome do portal não aplicado — ${r.motivo}`);
 }
 
 /* ------------------------------- registro -------------------------------- */
@@ -306,7 +328,6 @@ function vincular(id, matriculaId) {
   if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
 
   c.matriculaId = m.id;
-  c.nomeMatricula = m.nome;
   c.vinculadoPor = 'manual';
 
   // Vincular na mão vale para o futuro também: sem gravar o id na matrícula,
@@ -315,20 +336,29 @@ function vincular(id, matriculaId) {
     matriculas.definirGympassId(m.id, c.gympassId);
   }
 
+  // Vincular na mão é justamente o caso em que os nomes não batiam. Adotar o do
+  // portal aqui é o que faz o próximo check-in casar sozinho.
+  // `m` é a referência viva do store: renomear altera `m.nome` no lugar, então
+  // o nome anterior é copiado antes da chamada.
+  const nomeAntes = m.nome;
+  adotarNome(m.id, c.nome);
+  const nomeAtual = m.nome;
+  c.nomeMatricula = nomeAtual;
+
   // Os outros check-ins órfãos do mesmo id passam a apontar para a matrícula.
   let arrastados = 0;
   for (const outro of dados.checkins) {
     if (outro.id === c.id || outro.matriculaId) continue;
     if (c.gympassId && String(outro.gympassId) === String(c.gympassId)) {
       outro.matriculaId = m.id;
-      outro.nomeMatricula = m.nome;
+      outro.nomeMatricula = nomeAtual;
       outro.vinculadoPor = 'manual';
       arrastados += 1;
     }
   }
 
   gravar();
-  return { ok: true, checkin: c, arrastados };
+  return { ok: true, checkin: c, arrastados, nome: nomeAtual, renomeado: nomeAtual !== nomeAntes };
 }
 
 /** Desfaz o vínculo (id do Wellhub trocado de dono, erro de digitação). */
