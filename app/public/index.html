@@ -134,6 +134,9 @@
   .marcas{display:flex;gap:3px;margin-bottom:7px;flex-wrap:wrap}
   .marcas i{width:10px;height:10px;border:1px solid var(--linha-2);background:transparent}
   .marcas i.ocupada{background:var(--texto);border-color:var(--texto)}
+  /* Aula da matrícula: o lugar tem dono mesmo sem ninguém ter reservado. */
+  .marcas i.fixa{background:var(--fraco);border-color:var(--fraco)}
+  .slot.meu .marcas i.fixa{background:var(--amarelo);border-color:var(--amarelo)}
   .slot .conta{font:500 12px 'Work Sans',sans-serif;color:var(--apagado)}
   .slot .leve,.slot .selo{margin-top:12px;width:100%;text-align:center}
   /* O seu horário é o único em amarelo */
@@ -149,6 +152,13 @@
     color:var(--fraco-2);border:1px solid var(--linha);padding:11px;min-height:44px}
   .slot .selo.meu{color:var(--amarelo);border-color:#5A5230}
   .slot .selo.cheio{color:var(--vermelho);border-color:#4A2124}
+
+  /* Faixa da matrícula: frequência contratada e horário padrão, no topo. */
+  .minha-matricula{background:var(--superficie);border:1px solid var(--linha-2);
+    border-left:4px solid var(--amarelo);padding:13px 16px;margin:18px 0}
+  .minha-matricula b{font:400 16px Anton,sans-serif;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--amarelo);display:block;margin-bottom:4px}
+  .minha-matricula span{font:500 13px/1.5 'Work Sans',sans-serif;color:var(--fraco);display:block}
 
   .recado{background:var(--superficie);border:1px solid var(--linha-2);color:var(--texto);padding:14px 16px;
     font:500 14px/1.55 'Work Sans',sans-serif;margin:20px 0;border-left:4px solid var(--amarelo)}
@@ -669,9 +679,22 @@ async function redesenhar(){
 }
 
 /* ---------------------------- agendar ---------------------------------- */
-function marcas(ocupadas, capacidade){
+/**
+ * Uma marca por lugar. As primeiras são as aulas da matrícula (lugar com dono
+ * antes de qualquer reserva), depois vêm as reservas do app e por fim os
+ * lugares livres.
+ */
+function marcas(ocupadas, capacidade, naGrade=0){
   return '<div class="marcas">'+Array.from({length:capacidade},(_,i)=>
-    `<i class="${i<ocupadas?'ocupada':''}"></i>`).join('')+'</div>';
+    `<i class="${i<naGrade?'ocupada fixa':i<ocupadas?'ocupada':''}"></i>`).join('')+'</div>';
+}
+
+/** Como o slot se explica: "5 da grade · 1 reservado". */
+function contaDoSlot(h){
+  const partes = [];
+  if (h.naGrade > 0) partes.push(`${h.naGrade} da grade`);
+  if (h.avulsas > 0) partes.push(`${h.avulsas} reservado${h.avulsas===1?'':'s'}`);
+  return partes.join(' · ');
 }
 
 const SELO = {meu:'Seu horário', lotado:'Lotado', fechado:'Fechado', bloqueado:'Fechado'};
@@ -752,6 +775,25 @@ async function carregarAgenda(){
 
     // O alerta também fica na página, para quem fechou o popup e quer reler.
     const recado = r.alerta ? `<div class="recado">${esc(r.alerta.texto)}</div>` : '';
+
+    // Faixa da matrícula: quantas vezes por semana e qual o horário padrão.
+    // Só aparece para quem tem telefone ligado a uma matrícula.
+    const m = r.matricula;
+    const faixa = m ? (()=>{ 
+      const freq = m.frequencia
+        ? `${m.frequencia}x por semana`
+        : 'sem frequência definida';
+      const restam = m.respeitarFrequencia && m.diasRestantesNaSemana !== null
+        ? (m.diasRestantesNaSemana > 0
+            ? ` · ainda dá para marcar ${m.diasRestantesNaSemana} ${m.diasRestantesNaSemana===1?'dia':'dias'} nesta semana`
+            : ' · sua semana já está completa')
+        : '';
+      return `<div class="minha-matricula">
+        <b>Sua matrícula · ${esc(freq)}</b>
+        <span>${esc(m.gradeEmTexto || 'sem horário fixo')}</span>
+        <span>${m.diasNaSemana} ${m.diasNaSemana===1?'dia':'dias'} nesta semana${esc(restam)}</span>
+      </div>`; })()
+      : '';
     const dias = r.dias.map(d=>{
       if (d.bloqueada || !d.horarios.length){
         return `<div class="dia" data-d="${d.data}"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>
@@ -760,15 +802,21 @@ async function carregarAgenda(){
       return `<div class="dia" data-d="${d.data}"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>${
         d.horarios.map(h=>{
           const livre = h.situacao === 'aberto';
+          // Aula da matrícula não tem agendamento para cancelar: desmarcar
+          // manda data e hora, e o servidor grava a exceção do dia.
           const direita = livre
             ? `<button class="leve reservar" data-data="${d.data}" data-hora="${h.hora}">Reservar</button>`
             : h.situacao === 'meu' && h.podeCancelar
               ? `<button class="leve cancelar" data-id="${h.meuAgendamentoId}">Cancelar</button>`
-              : `<span class="selo ${h.situacao==='meu'?'meu':h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`;
+              : h.situacao === 'meu' && h.podeDesmarcar
+                ? `<button class="leve desmarcar" data-data="${d.data}" data-hora="${h.hora}">Não vou</button>`
+                : `<span class="selo ${h.situacao==='meu'?'meu':h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`;
+          const conta = contaDoSlot(h);
           return `<div class="slot ${h.situacao==='meu'?'meu':''} ${livre||h.situacao==='meu'?'':'indisponivel'}">
             <div class="hora">${h.hora}</div>
-            <div class="vagas">${marcas(h.ocupadas,h.capacidade)}
+            <div class="vagas">${marcas(h.ocupadas,h.capacidade,h.naGrade)}
               <div class="conta">${h.vagas>0?`${h.vagas} de ${h.capacidade} livres`:`${h.capacidade} lugares ocupados`}</div>
+              ${conta ? `<div class="conta">${conta}</div>` : ''}
             </div>${direita}</div>`;
         }).join('')}</div>`;
     }).join('');
@@ -776,7 +824,7 @@ async function carregarAgenda(){
       ? `<div class="dias-fita" id="fita">${r.dias.map((d,k)=>
           `<button class="pilula${k?'':' sel'}" data-d="${d.data}"><small>${esc(d.rotulo)}</small><b>${String(d.data||'').slice(8,10)}</b></button>`).join('')}</div>`
       : '';
-    alvo.innerHTML = fita + recado + guia + dias;
+    alvo.innerHTML = fita + recado + faixa + guia + dias;
 
     // Um dia por vez: a fita troca o dia sem rolar a página.
     const mostrarDia = (data)=>{
@@ -810,6 +858,17 @@ async function carregarAgenda(){
 document.body.addEventListener('click', async e=>{
   const res = e.target.closest('button.reservar');
   const can = e.target.closest('button.cancelar');
+  const des = e.target.closest('button.desmarcar');
+  if (des){
+    if (!confirm('Avisar que você não vem nesta aula?')) return;
+    des.disabled = true;
+    try{
+      await api('/agenda/cancelar', {method:'POST',
+        body:JSON.stringify({data:des.dataset.data, hora:des.dataset.hora})});
+      avisar('Aula desmarcada. Seu lugar voltou para a agenda.', 'ok');
+    }catch(err){ avisar(err.message, 'erro'); }
+    redesenhar();
+  }
   if (res){
     res.disabled = true; res.textContent = '…';
     try{
@@ -834,10 +893,16 @@ async function carregarMeus(){
   const alvo = document.getElementById('aba-meus');
   try{
     const r = await api('/agenda');
+    // Aula fixa e reserva convivem na mesma lista. O rótulo diz de onde veio,
+    // e o botão muda junto: reserva cancela por id, aula fixa desmarca por dia.
+    const rotulo = {fixo:'aula da sua matrícula', extra:'aula extra', reserva:'reservado'};
     alvo.innerHTML = '<h2>Meus horários</h2>' + (r.meus.length
       ? r.meus.map(a=>`<div class="fila"><div class="quem"><b>${a.hora} · ${a.porExtenso}</b>
-          <small>reservado</small></div>
-          <button class="leve cancelar" data-id="${a.id}">Cancelar</button></div>`).join('')
+          <small>${rotulo[a.origem]||'reservado'}</small></div>
+          ${a.id
+            ? `<button class="leve cancelar" data-id="${a.id}">Cancelar</button>`
+            : `<button class="leve desmarcar" data-data="${a.data}" data-hora="${a.hora}">Não vou</button>`}
+          </div>`).join('')
       : '<div class="vazio">Você não tem horários reservados.</div>');
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
@@ -961,9 +1026,14 @@ async function carregarDia(){
       (r.horarios.length ? r.horarios.map(h=>`
         <h3>${h.hora} · ${h.alunos.length} de ${h.capacidade}</h3>
         ${h.alunos.length ? h.alunos.map(a=>`<div class="fila">
-            <div class="quem"><b>${esc(a.nome)}</b><small>${esc(a.telefone.replace(/^55/,''))}</small></div>
-            <button class="leve cancelar" data-id="${a.id}">Remover</button></div>`).join('')
-          : '<div class="vazio">Ninguém reservou.</div>'}`).join('')
+            <div class="quem"><b>${esc(a.nome)}</b><small>${
+              a.origem === 'reserva'
+                ? esc(String(a.telefone||'').replace(/^55/,''))
+                : a.origem === 'extra' ? 'aula extra' : 'grade fixa'
+            }</small></div>
+            ${a.id ? `<button class="leve cancelar" data-id="${a.id}">Remover</button>` : ''}
+            </div>`).join('')
+          : '<div class="vazio">Ninguém neste horário.</div>'}`).join('')
         : '<div class="vazio">Sem horários nesta data.</div>');
     document.getElementById('in-dia').addEventListener('change', e=>{ dataDoDia = e.target.value; carregarDia(); });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
