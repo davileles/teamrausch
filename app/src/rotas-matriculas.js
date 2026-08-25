@@ -160,6 +160,7 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     else if (situacao === 'inativos') lista = lista.filter((m) => !m.ativo);
     if (vinculo) lista = lista.filter((m) => m.vinculo === vinculo);
     if (req.query.revisar === '1') lista = lista.filter((m) => (m.revisar || []).length);
+    if (req.query.experimental === '1') lista = lista.filter((m) => m.experimental);
     if (req.query.semTelefone === '1') lista = lista.filter((m) => !m.telefone);
     if (req.query.acesso === 'suspensos') {
       lista = lista.filter((m) => (acesso(m) || {}).bloqueado);
@@ -308,6 +309,10 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       nome,
       vinculo: req.body.vinculo || 'wellhub',
       gympassId: c.gympassId || undefined,
+      // Quem aparece aqui quase sempre é aula experimental: treinou, ainda não
+      // combinou horário. A tela manda o valor da caixinha; sem ela, entra
+      // marcado, que é o caso comum.
+      experimental: req.body.experimental === undefined ? true : Boolean(req.body.experimental),
       grade: [],
     });
     if (!r.ok) return res.status(400).json({ erro: r.motivo });
