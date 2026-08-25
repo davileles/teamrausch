@@ -306,6 +306,21 @@
   .mat-item .rodape{margin-top:10px}
   .sem-tel{color:var(--amarelo-2);margin:0}
   .nome-antigo{margin:10px 0 0;padding-left:10px;border-left:3px solid var(--linha-2)}
+  /* ---- acesso ao app, dentro da ficha do aluno ---- */
+  .acesso{margin-top:14px;padding:12px;background:var(--fundo-2);border:1px solid var(--linha)}
+  .acesso h4{font:400 12px Anton,sans-serif;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--fraco);margin:0 0 6px}
+  .acesso .estado{font:500 13px/1.5 'Work Sans',sans-serif;color:var(--texto)}
+  .acesso .estado b{font-weight:700}
+  .acesso .estado .suspenso{color:var(--amarelo-2)}
+  .acesso .estado .admin{color:var(--amarelo)}
+  .acesso .rodape{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .acesso .rodape button{flex:1;min-width:120px}
+  .solto{background:var(--superficie);border:1px solid var(--linha-2);
+    border-left:3px solid var(--fraco-2);padding:12px;margin-bottom:8px}
+  .solto.suspenso{border-left-color:var(--amarelo)}
+  .solto .rodape{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .solto .rodape button{flex:1;min-width:110px}
   .nome-antigo b{color:var(--texto);font-weight:600}
   /* ---- frequência: combinado x realizado ---- */
   .freq-item{background:var(--superficie);border:1px solid var(--linha-2);
@@ -514,7 +529,6 @@
       <button data-aba="meus" aria-selected="false">Meus horários</button>
       <button data-aba="perfil" aria-selected="false">Meus dados</button>
       <button data-aba="dia" aria-selected="false" class="so-admin" hidden>Lista do dia</button>
-      <button data-aba="alunos" aria-selected="false" class="so-admin" hidden>Alunos</button>
       <button data-aba="matriculas" aria-selected="false" class="so-admin" hidden>Matrículas</button>
       <button data-aba="config" aria-selected="false" class="so-admin" hidden>Configurações</button>
     </nav>
@@ -525,7 +539,6 @@
     <section id="aba-meus" hidden></section>
     <section id="aba-perfil" hidden></section>
     <section id="aba-dia" hidden></section>
-    <section id="aba-alunos" hidden></section>
     <section id="aba-matriculas" hidden></section>
     <section id="aba-config" hidden></section>
   </div>
@@ -707,8 +720,8 @@ function limparTela(){
 }
 
 /* ------------------------------ abas ----------------------------------- */
-const TODAS_ABAS  = ['agendar','meus','perfil','dia','alunos','matriculas','config'];
-const ABAS_ADMIN  = ['dia','alunos','matriculas','config'];
+const TODAS_ABAS  = ['agendar','meus','perfil','dia','matriculas','config'];
+const ABAS_ADMIN  = ['dia','matriculas','config'];
 
 /** Uma aba só vale se existir e, sendo de admin, se a pessoa for admin. */
 function abaPermitida(aba){
@@ -752,7 +765,6 @@ function desenharAba(){
   if (abaAtiva === 'meus') return carregarMeus();
   if (abaAtiva === 'perfil') return carregarPerfil();
   if (abaAtiva === 'dia') return carregarDia();
-  if (abaAtiva === 'alunos') return carregarAlunos();
   if (abaAtiva === 'matriculas') return carregarMatriculas();
   if (abaAtiva === 'config') return carregarConfig();
 }
@@ -1209,91 +1221,17 @@ async function carregarDia(){
 }
 
 /* ------------------------------ alunos ---------------------------------- */
-async function carregarAlunos(){
-  const alvo = document.getElementById('aba-alunos');
-  try{
-    const lista = await api('/admin/alunos');
-    alvo.innerHTML = '<h2>Alunos</h2><p class="ajuda">Quem já entrou pelo menos uma vez — esta aba cuida ' +
-      'do acesso ao app. Nome, nascimento e horários ficam na aba Matrículas. ' +
-      'Trocar o telefone desconecta o aluno, que entra de novo com o número novo.</p>' +
-      (lista.length ? lista.map(a=>`
-        <div class="ficha" data-tel="${a.telefone}">
-          <div class="cabeca">
-            <b>${esc(a.nome||'Sem nome')}</b>
-            <span class="tags">${a.admin?'admin · ':''}${a.bloqueado?'suspenso':'ativo'}</span>
-          </div>
-          <div class="campos">
-            <input class="f-nome" value="${esc(a.nome||'')}" maxlength="60" placeholder="Nome">
-            <input class="f-tel" type="tel" inputmode="numeric" value="${esc(a.telefoneFormatado||'')}" placeholder="(31) 98888-7777"
-              ${a.admin?'disabled title="Ajuste a lista de administradores antes de trocar."':''}>
-          </div>
-          <div class="rodape">
-            <button class="leve f-salvar">Salvar</button>
-            <button class="leve alternar" data-bloq="${a.bloqueado?1:0}">
-              ${a.bloqueado?'Reativar':'Suspender'}</button>
-          </div>
-        </div>`).join('')
-        : '<div class="vazio">Ninguém entrou ainda.</div>');
-
-    alvo.querySelectorAll('.ficha').forEach(ficha=>{
-      const tel   = ficha.dataset.tel;
-      const nome  = ficha.querySelector('.f-nome');
-      const fone  = ficha.querySelector('.f-tel');
-      const salvar= ficha.querySelector('.f-salvar');
-      const inicial = { nome: nome.value, fone: fone.value };
-
-      const marcar = ()=> ficha.classList.toggle('mudou',
-        nome.value !== inicial.nome || fone.value !== inicial.fone);
-
-      fone.addEventListener('input', ()=>{
-        const n = fone.value.replace(/\D/g,'').slice(0,11);
-        fone.value = n.length > 7 ? `(${n.slice(0,2)}) ${n.slice(2,7)}-${n.slice(7)}`
-          : n.length > 2 ? `(${n.slice(0,2)}) ${n.slice(2)}` : n;
-        marcar();
-      });
-      nome.addEventListener('input', marcar);
-
-      salvar.addEventListener('click', async ()=>{
-        const trocouFone = fone.value !== inicial.fone;
-        if (trocouFone && !confirm(
-          `Trocar o telefone de ${inicial.fone} para ${fone.value}?\n\n` +
-          'Os agendamentos vão junto, mas o aluno é desconectado e passa a entrar com o número novo.')) return;
-
-        salvar.disabled = true; salvar.textContent = 'Salvando…';
-        try{
-          await api('/admin/alunos/'+tel, {method:'PUT', body: JSON.stringify({
-            nome: nome.value,
-            ...(trocouFone ? { novoTelefone: fone.value } : {}),
-          })});
-          avisar('Aluno atualizado.', 'ok');
-          redesenhar();
-        }catch(e){
-          avisar(e.message, 'erro');
-          salvar.disabled = false; salvar.textContent = 'Salvar';
-        }
-      });
-
-      ficha.querySelector('button.alternar').addEventListener('click', async ()=>{
-        try{
-          await api('/admin/alunos/'+tel, {method:'PUT',
-            body: JSON.stringify({bloqueado: ficha.querySelector('button.alternar').dataset.bloq !== '1'})});
-          redesenhar();
-        }catch(e){ avisar(e.message,'erro'); }
-      });
-    });
-  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
-}
-
 /* ---------------------------- matrículas -------------------------------- */
-/* Cadastro interno do estúdio: a base que veio da planilha, com a grade fixa
-   de cada aluno. É separada da aba "Alunos" de propósito — lá ficam os
-   telefones que fazem login; aqui fica quem treina, tenha número ou não. */
+/* A única tela de aluno do painel. Guarda quem treina (com ou sem telefone), a
+   grade fixa, a frequência e — desde que a aba "Alunos" foi desfeita — também o
+   acesso ao app: telefone, suspensão e remoção do cadastro de login. Eram duas
+   telas para a mesma pessoa, e o telefone editado numa não chegava à outra. */
 
 const DIAS_SEM = [[1,'Seg'],[2,'Ter'],[3,'Qua'],[4,'Qui'],[5,'Sex'],[6,'Sáb'],[0,'Dom']];
 const NOME_DIA = {0:'dom',1:'seg',2:'ter',3:'qua',4:'qui',5:'sex',6:'sáb'};
 
 let matEstado = { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
-  data:null, aberta:null, freqDias:7, freqSo:'devendo' };
+  acesso:'', data:null, aberta:null, freqDias:7, freqSo:'devendo' };
 
 /** Grade em uma linha: agrupa os dias que compartilham o mesmo horário. */
 function gradeEmTexto(grade){
@@ -1317,7 +1255,8 @@ function linhaSlot(dia=1, hora=''){
 function fichaMatricula(m){
   const novo = !m.id;
   const mens = (m.vinculo || 'mensalista') === 'mensalista';
-  return `<div class="ficha mat-form" data-id="${esc(m.id||'')}">
+  return `<div class="ficha mat-form" data-id="${esc(m.id||'')}"
+    data-telefone="${esc(m.telefone||'')}">
     <div class="cabeca"><b>${novo ? 'Novo aluno' : esc(m.nome)}</b>
       <span class="tags">${novo ? '' : (m.ativo ? 'ativo' : 'inativo')}</span></div>
     <div class="campos">
@@ -1356,10 +1295,43 @@ function fichaMatricula(m){
     </div>
     ${(m.revisar||[]).length ? `<p class="ajuda alerta-rev">⚠︎ ${m.revisar.map(esc).join(' · ')}<br>
       <span style="opacity:.75">Da planilha: ${esc(m.freqOriginal||'—')}</span></p>` : ''}
+    ${novo ? '' : blocoAcesso(m)}
     <div class="rodape">
       <button class="leve mf-salvar">${novo ? 'Cadastrar' : 'Salvar'}</button>
       <button class="leve mf-cancelar">Cancelar</button>
       ${novo ? '' : `<button class="leve mf-inativar">${m.ativo?'Inativar':'Reativar'}</button>`}
+    </div>
+  </div>`;
+}
+
+/**
+ * Acesso ao app — o que era a aba Alunos.
+ *
+ * Só aparece quando o aluno tem telefone: o cadastro de login é chaveado pelo
+ * número, e sem ele não há o que suspender. Trocar o telefone acontece no campo
+ * de cima, ao salvar a ficha; aqui ficam as ações que não são edição de dado.
+ */
+function blocoAcesso(m){
+  if (!m.telefone){
+    return `<div class="acesso"><h4>Acesso ao app</h4>
+      <p class="ajuda" style="margin:0">Cadastre um telefone para o aluno poder entrar
+        no app e reservar horário.</p></div>`;
+  }
+  const a = m.acesso;
+  if (!a){
+    return `<div class="acesso"><h4>Acesso ao app</h4>
+      <p class="ajuda" style="margin:0">Ainda não entrou. O cadastro de acesso nasce
+        sozinho no primeiro login com este número.</p></div>`;
+  }
+  return `<div class="acesso">
+    <h4>Acesso ao app</h4>
+    <p class="estado">${esc(a.telefoneFormatado)} ·
+      ${a.bloqueado ? '<b class="suspenso">suspenso</b>' : '<b>ativo</b>'}
+      ${a.admin ? ' · <b class="admin">administrador</b>' : ''}</p>
+    <div class="rodape">
+      <button class="leve ac-alternar" data-bloq="${a.bloqueado?1:0}">
+        ${a.bloqueado ? 'Reativar acesso' : 'Suspender acesso'}</button>
+      <button class="leve ac-remover">Remover acesso</button>
     </div>
   </div>`;
 }
@@ -1407,6 +1379,15 @@ function ligarFicha(el, id){
   });
   el.querySelector('.mf-salvar').addEventListener('click', async ()=>{
     const b = el.querySelector('.mf-salvar');
+    // Trocar o telefone move a ficha de login inteira e derruba a sessão aberta:
+    // é a única edição desta tela que o aluno sente do outro lado.
+    const telAntes = b.closest('.mat-form').dataset.telefone || '';
+    const telAgora = el.querySelector('.mf-tel').value.trim();
+    if (telAntes && telAgora !== telAntes && !confirm(
+      `Trocar o telefone de ${telAntes} para ${telAgora}?\n\n`
+      + 'Os agendamentos vão junto, mas o aluno é desconectado e passa a entrar '
+      + 'com o número novo.')) return;
+
     b.disabled = true; b.textContent = 'Salvando…';
     try{
       await api('/matriculas' + (id ? '/'+id : ''), {
@@ -1417,6 +1398,30 @@ function ligarFicha(el, id){
       avisar(e.message,'erro'); b.disabled = false; b.textContent = id ? 'Salvar' : 'Cadastrar';
     }
   });
+  const alternar = el.querySelector('.ac-alternar');
+  if (alternar) alternar.addEventListener('click', async ()=>{
+    const bloquear = alternar.dataset.bloq !== '1';
+    if (bloquear && !confirm('Suspender o acesso? O aluno não consegue mais entrar no app,\n'
+      + 'mas continua na grade e no histórico.')) return;
+    try{
+      await api('/matriculas/'+id+'/acesso', {method:'POST',
+        body: JSON.stringify({bloqueado: bloquear})});
+      avisar(bloquear ? 'Acesso suspenso.' : 'Acesso reativado.', 'ok');
+      redesenhar();
+    }catch(e){ avisar(e.message,'erro'); }
+  });
+
+  const remover = el.querySelector('.ac-remover');
+  if (remover) remover.addEventListener('click', async ()=>{
+    if (!confirm('Apagar o cadastro de acesso deste aluno?\n\n'
+      + 'A matrícula fica: ele continua na grade, só perde o login no app.')) return;
+    try{
+      await api('/matriculas/'+id+'/acesso', {method:'DELETE'});
+      avisar('Acesso removido.', 'ok');
+      redesenhar();
+    }catch(e){ avisar(e.message,'erro'); }
+  });
+
   const inat = el.querySelector('.mf-inativar');
   if (inat) inat.addEventListener('click', async ()=>{
     const ativo = inat.textContent.trim() === 'Inativar';
@@ -1435,6 +1440,7 @@ async function carregarMatriculas(){
   if (matEstado.busca) q.set('busca', matEstado.busca);
   if (matEstado.vinculo) q.set('vinculo', matEstado.vinculo);
   if (matEstado.revisar) q.set('revisar','1');
+  if (matEstado.acesso) q.set('acesso', matEstado.acesso);
 
   try{
     const { resumo, matriculas } = await api('/matriculas?'+q);
@@ -1448,7 +1454,9 @@ async function carregarMatriculas(){
       </div>
       <div data-painel="alunos" ${matEstado.sub==='alunos'?'':'hidden'}>
         <p class="ajuda">${resumo.ativas} ativos · ${resumo.mensalistas} mensalistas ·
-          ${resumo.wellhub} Wellhub · ${resumo.semTelefone} sem telefone${
+          ${resumo.wellhub} Wellhub · ${resumo.semTelefone} sem telefone ·
+          ${resumo.comAcesso} com acesso ao app${
+          resumo.suspensos ? ` · <b>${resumo.suspensos} suspenso(s)</b>` : ''}${
           resumo.aRevisar ? ` · <b>${resumo.aRevisar} a revisar</b>` : ''}</p>
         <div class="filtros-mat">
           <input id="mat-busca" value="${esc(matEstado.busca)}" placeholder="Buscar por nome">
@@ -1460,6 +1468,10 @@ async function carregarMatriculas(){
             <div class="grupo-filtro"><span>Vínculo</span>
               ${[['','Ambos'],['mensalista','Mensalista'],['wellhub','Wellhub']].map(([v,r])=>
                 `<button class="chip${matEstado.vinculo===v?' sel':''}" data-vin="${v}">${r}</button>`).join('')}
+            </div>
+            <div class="grupo-filtro"><span>Acesso ao app</span>
+              ${[['','Todos'],['com','Tem'],['sem','Não tem'],['suspensos','Suspensos']].map(([v,r])=>
+                `<button class="chip${matEstado.acesso===v?' sel':''}" data-ac="${v}">${r}</button>`).join('')}
             </div>
             <div class="grupo-filtro"><span></span>
               <button class="chip${matEstado.revisar?' sel':''}" data-rev="1">A revisar</button>
@@ -1474,13 +1486,17 @@ async function carregarMatriculas(){
             <div class="ficha mat-item" data-id="${esc(m.id)}">
               <div class="cabeca"><b>${esc(m.nome)}</b>
                 <span class="tags">${m.vinculo==='wellhub'?'wellhub':'mensal'} ·
-                  ${m.diasSemana}×/sem${m.ativo?'':' · inativo'}${m.precisaRevisar?' · revisar':''}</span></div>
+                  ${m.diasSemana}×/sem${m.ativo?'':' · inativo'}${
+                  m.acesso && m.acesso.bloqueado?' · suspenso':''}${
+                  m.acesso && m.acesso.admin?' · admin':''}${
+                  m.precisaRevisar?' · revisar':''}</span></div>
               <p class="ajuda" style="margin:8px 0 0">${esc(gradeEmTexto(m.grade))}</p>
               ${m.aniversarioFormatado ? `<p class="ajuda" style="margin:4px 0 0">🎂 ${esc(m.aniversarioFormatado)}</p>` : ''}
               ${m.telefone ? '' : '<p class="ajuda sem-tel" style="margin:4px 0 0">sem telefone cadastrado</p>'}
               <div class="rodape"><button class="leve mat-editar">Editar</button></div>
             </div>`).join('')
           : '<div class="vazio">Nenhum aluno com esses filtros.</div>'}</div>
+        <div id="mat-soltos"></div>
       </div>
       <div data-painel="grade" ${matEstado.sub==='grade'?'':'hidden'}>
         <div id="mat-grade"><div class="vazio">Carregando…</div></div>
@@ -1516,6 +1532,7 @@ async function carregarMatriculas(){
       const b = e.target.closest('.chip'); if (!b) return;
       if (b.dataset.sit) matEstado.situacao = b.dataset.sit;
       else if (b.dataset.vin !== undefined) matEstado.vinculo = b.dataset.vin;
+      else if (b.dataset.ac !== undefined) matEstado.acesso = b.dataset.ac;
       else if (b.dataset.rev) matEstado.revisar = !matEstado.revisar;
       matEstado.aberta = null; redesenhar();
     });
@@ -1532,9 +1549,72 @@ async function carregarMatriculas(){
 
     alvo.querySelectorAll('.mat-form').forEach(f=> ligarFicha(f, f.dataset.id || null));
 
+    if (matEstado.sub === 'alunos' && resumo.acessosSoltos) await carregarAcessosSoltos();
     if (matEstado.sub === 'grade') await carregarGradeDoDia();
     if (matEstado.sub === 'lotacao') await carregarLotacao();
     if (matEstado.sub === 'freq') await carregarFrequencia();
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/**
+ * Quem entrou no app e não está na base do estúdio.
+ *
+ * Antes eram só mais uma linha na aba Alunos. Sem esta seção eles ficariam
+ * invisíveis: ninguém conseguiria suspender ou apagar um cadastro de acesso de
+ * alguém que nunca foi matriculado — um número errado que pediu código, por
+ * exemplo, ou quem saiu do estúdio e teve a matrícula removida.
+ */
+async function carregarAcessosSoltos(){
+  const alvo = document.getElementById('mat-soltos');
+  if (!alvo) return;
+  try{
+    const { acessos } = await api('/matriculas/acessos/soltos');
+    if (!acessos.length){ alvo.innerHTML = ''; return; }
+
+    alvo.innerHTML = `<h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;
+      text-transform:uppercase;color:var(--amarelo);margin:24px 0 8px">
+      ${acessos.length} acesso(s) sem matrícula</h3>
+      <p class="ajuda">Entraram no app mas não estão na base do estúdio.</p>
+      ${acessos.map(a=>`<div class="solto${a.bloqueado?' suspenso':''}" data-tel="${esc(a.telefone)}">
+        <b>${esc(a.nome || 'Sem nome')}</b>
+        <p class="ajuda" style="margin:4px 0 0">${esc(a.telefoneFormatado)}${
+          a.bloqueado ? ' · suspenso' : ''}${a.admin ? ' · administrador' : ''}${
+          a.aniversarioFormatado ? ' · 🎂 '+esc(a.aniversarioFormatado) : ''}</p>
+        <div class="rodape">
+          <button class="leve so-matricular">Criar matrícula</button>
+          <button class="leve so-alternar" data-bloq="${a.bloqueado?1:0}">
+            ${a.bloqueado?'Reativar':'Suspender'}</button>
+          <button class="leve so-remover">Remover</button>
+        </div>
+      </div>`).join('')}`;
+
+    alvo.querySelectorAll('.solto').forEach(el=>{
+      const tel = el.dataset.tel;
+      el.querySelector('.so-matricular').addEventListener('click', async ()=>{
+        try{
+          const m = await api('/matriculas/acessos/'+tel+'/matricular',
+            {method:'POST', body: JSON.stringify({})});
+          avisar('Matrícula criada. Defina os horários na ficha.','ok');
+          matEstado.aberta = m.id; redesenhar();
+        }catch(e){ avisar(e.message,'erro'); }
+      });
+      el.querySelector('.so-alternar').addEventListener('click', async ()=>{
+        const bloquear = el.querySelector('.so-alternar').dataset.bloq !== '1';
+        try{
+          await api('/matriculas/acessos/'+tel+'/suspender',
+            {method:'POST', body: JSON.stringify({bloqueado: bloquear})});
+          await carregarAcessosSoltos();
+        }catch(e){ avisar(e.message,'erro'); }
+      });
+      el.querySelector('.so-remover').addEventListener('click', async ()=>{
+        if (!confirm('Apagar este cadastro de acesso? Os agendamentos dele vão junto.')) return;
+        try{
+          await api('/matriculas/acessos/'+tel, {method:'DELETE'});
+          avisar('Acesso removido.','ok');
+          await carregarAcessosSoltos();
+        }catch(e){ avisar(e.message,'erro'); }
+      });
+    });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
