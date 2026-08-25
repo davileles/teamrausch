@@ -19,6 +19,7 @@ const agenda = require('./agenda');
 const checkins = require('./checkins-store');
 const alunosLogin = require('./agenda-store');
 const aniversario = require('./aniversario');
+const telefone = require('./telefone');
 const frequencia = require('./frequencia');
 const alertas = require('./alertas-frequencia');
 const poller = require('./poller-portal');
@@ -62,14 +63,89 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     }
   }
 
+  /** Alunos com acesso ao app e nenhuma matrícula — ver detalhe em /acessos. */
+  function acessosSoltos() {
+    const matriculados = new Set(store.listar()
+      .map((m) => telefone.normalizar(m.telefone))
+      .filter(Boolean));
+    return alunosLogin.listarAlunos()
+      .filter((a) => !matriculados.has(a.telefone))
+      .map((a) => ({
+        telefone: a.telefone,
+        telefoneFormatado: telefone.mostrar(a.telefone),
+        nome: a.nome || null,
+        bloqueado: Boolean(a.bloqueado),
+        admin: config.ehAdmin(a.telefone),
+        aniversarioFormatado: aniversario.mostrar(a.aniversario),
+        criadoEm: a.criadoEm || null,
+      }))
+      .sort((x, y) => String(x.nome || '~').localeCompare(String(y.nome || '~'), 'pt-BR'));
+  }
+
+  /**
+   * Estado do acesso ao app, que antes vivia na aba Alunos. Vem junto da ficha
+   * porque é sempre a mesma pessoa: separar as duas telas obrigava a procurar o
+   * aluno duas vezes, e o telefone editado num lado não chegava ao outro.
+   */
+  function acesso(m) {
+    const login = fichaDeLogin(m);
+    if (!login) return null;
+    return {
+      telefone: login.telefone,
+      telefoneFormatado: telefone.mostrar(login.telefone),
+      nome: login.nome || null,
+      bloqueado: Boolean(login.bloqueado),
+      admin: config.ehAdmin(login.telefone),
+      criadoEm: login.criadoEm || null,
+    };
+  }
+
   function ficha(m) {
+    const a = acesso(m);
     return {
       ...m,
       diasSemana: grade.diasPorSemana(m),
       precisaRevisar: Boolean((m.revisar || []).length),
       aniversarioFormatado: aniversario.mostrar(m.aniversario),
-      temLogin: Boolean(fichaDeLogin(m)),
+      temLogin: Boolean(a),
+      acesso: a,
     };
+  }
+
+  /**
+   * Espelha na ficha de login o que mudou na matrícula.
+   *
+   * Trocar o telefone é o caso delicado: ele é a CHAVE do cadastro de login, e
+   * gravar o número novo sem mover a ficha criaria um segundo cadastro, deixando
+   * os agendamentos e o histórico presos ao antigo. `trocarTelefone` move tudo
+   * junto e derruba a sessão aberta — o aluno entra de novo com o número novo.
+   *
+   * @param anterior  a matrícula como estava ANTES do PUT
+   */
+  function espelharNoLogin(m, anterior) {
+    const antes = telefone.normalizar(anterior && anterior.telefone);
+    const agora = telefone.normalizar(m.telefone);
+
+    if (antes && agora && antes !== agora && alunosLogin.aluno(antes)) {
+      if (config.ehAdmin(antes)) {
+        return { ok: false, motivo: 'Este número é de administrador. '
+          + 'Ajuste a lista em Configurações antes de trocar.' };
+      }
+      const r = alunosLogin.trocarTelefone(antes, agora);
+      if (!r.ok) return { ok: false, motivo: r.motivo };
+    }
+
+    const login = fichaDeLogin(m);
+    if (!login) return { ok: true };
+
+    // O nome que o aluno vê no app é o da ficha de login. Deixá-lo para trás
+    // faria a tela dele mostrar o apelido da planilha depois do Wellhub já ter
+    // corrigido o nome aqui.
+    const campos = {};
+    if (m.nome && login.nome !== m.nome) campos.nome = m.nome;
+    if (m.aniversario && login.aniversario !== m.aniversario) campos.aniversario = m.aniversario;
+    if (Object.keys(campos).length) alunosLogin.salvarAluno(login.telefone, campos);
+    return { ok: true };
   }
 
   /* ------------------------------ cadastro ------------------------------- */
@@ -85,6 +161,13 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     if (vinculo) lista = lista.filter((m) => m.vinculo === vinculo);
     if (req.query.revisar === '1') lista = lista.filter((m) => (m.revisar || []).length);
     if (req.query.semTelefone === '1') lista = lista.filter((m) => !m.telefone);
+    if (req.query.acesso === 'suspensos') {
+      lista = lista.filter((m) => (acesso(m) || {}).bloqueado);
+    } else if (req.query.acesso === 'sem') {
+      lista = lista.filter((m) => !acesso(m));
+    } else if (req.query.acesso === 'com') {
+      lista = lista.filter((m) => acesso(m));
+    }
     if (busca) {
       lista = lista.filter((m) =>
         String(m.nome).toLocaleLowerCase('pt-BR').includes(busca) ||
@@ -96,7 +179,17 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     // aqui já com ela, sem passo de importação.
     lista.forEach(sincronizarNascimento);
 
-    res.json({ resumo: store.resumo(), matriculas: lista.map(ficha) });
+    const todas = store.listar().filter((m) => m.ativo);
+    const acessos = todas.map(acesso);
+    res.json({
+      resumo: {
+        ...store.resumo(),
+        comAcesso: acessos.filter(Boolean).length,
+        suspensos: acessos.filter((a) => a && a.bloqueado).length,
+        acessosSoltos: acessosSoltos().length,
+      },
+      matriculas: lista.map(ficha),
+    });
   });
 
   /* ----------------------------- frequência ------------------------------ *
@@ -226,10 +319,116 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   });
 
   rotas.put('/:id', (req, res) => {
+    // Cópia do estado anterior: depois do `atualizar` o objeto já é o novo, e o
+    // telefone antigo — a chave da ficha de login — teria se perdido.
+    const antes = { ...(store.porId(req.params.id) || {}) };
+
     const r = store.atualizar(req.params.id, req.body || {});
     if (!r.ok) return res.status(400).json({ erro: r.motivo });
+
+    const espelho = espelharNoLogin(r.matricula, antes);
+    if (!espelho.ok) {
+      // Desfaz o telefone na matrícula: deixá-lo mudado aqui e parado lá é o
+      // pior dos mundos — as duas fichas apontariam para números diferentes.
+      store.atualizar(req.params.id, { telefone: antes.telefone || '' });
+      return res.status(409).json({ erro: espelho.motivo });
+    }
+
     sincronizarNascimento(r.matricula);
     res.json(ficha(r.matricula));
+  });
+
+  /* ------------------------- acesso ao app ------------------------------- */
+  /* Era a aba Alunos. Vive na matrícula porque é a mesma pessoa: o cadastro de
+     login guarda telefone, suspensão e sessão; a matrícula guarda quem treina.
+     Um aluno sem telefone simplesmente não tem este bloco. */
+
+  /** Suspende ou reativa o acesso ao app. */
+  rotas.post('/:id/acesso', (req, res) => {
+    const m = store.porId(req.params.id);
+    if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+    const login = fichaDeLogin(m);
+    if (!login) return res.status(400).json({ erro: 'Este aluno não tem acesso ao app.' });
+
+    if (req.body.bloqueado === undefined) {
+      return res.status(400).json({ erro: 'Informe bloqueado=true ou false.' });
+    }
+    const bloqueado = Boolean(req.body.bloqueado);
+    if (bloqueado && config.ehAdmin(login.telefone)) {
+      return res.status(400).json({
+        erro: 'Este número é de administrador. Remova da lista em Configurações antes de suspender.',
+      });
+    }
+    alunosLogin.salvarAluno(login.telefone, { bloqueado });
+    res.json(ficha(store.porId(m.id)));
+  });
+
+  /**
+   * Apaga o cadastro de login. A matrícula continua: o aluno segue na grade,
+   * só perde o acesso ao app — que é diferente de sair do estúdio.
+   */
+  rotas.delete('/:id/acesso', (req, res) => {
+    const m = store.porId(req.params.id);
+    if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+    const login = fichaDeLogin(m);
+    if (!login) return res.status(400).json({ erro: 'Este aluno não tem acesso ao app.' });
+    if (config.ehAdmin(login.telefone)) {
+      return res.status(400).json({ erro: 'Remova da lista de administradores primeiro.' });
+    }
+    alunosLogin.removerAluno(login.telefone);
+    res.json(ficha(store.porId(m.id)));
+  });
+
+  /* --------------------- acessos sem matrícula --------------------------- */
+  /* Quem entrou no app e não está na base do estúdio. Antes eram só mais uma
+     linha na aba Alunos; sem uma tela para eles, ninguém mais conseguiria
+     suspender ou apagar esses cadastros. */
+
+  rotas.get('/acessos/soltos', (_req, res) => {
+    res.json({ acessos: acessosSoltos() });
+  });
+
+  /** Cria a matrícula a partir de um cadastro de login já existente. */
+  rotas.post('/acessos/:telefone/matricular', (req, res) => {
+    const tel = telefone.normalizar(req.params.telefone);
+    if (!tel) return res.status(400).json({ erro: 'Telefone inválido.' });
+    const login = alunosLogin.aluno(tel);
+    if (!login) return res.status(404).json({ erro: 'Cadastro de acesso não encontrado.' });
+
+    const r = store.criar({
+      nome: String(req.body.nome || login.nome || '').trim(),
+      telefone: tel,
+      aniversario: login.aniversario || undefined,
+      vinculo: req.body.vinculo || 'mensalista',
+      grade: [],
+    });
+    if (!r.ok) return res.status(400).json({ erro: r.motivo });
+    res.status(201).json(ficha(r.matricula));
+  });
+
+  rotas.post('/acessos/:telefone/suspender', (req, res) => {
+    const tel = telefone.normalizar(req.params.telefone);
+    if (!tel || !alunosLogin.aluno(tel)) {
+      return res.status(404).json({ erro: 'Cadastro de acesso não encontrado.' });
+    }
+    const bloqueado = req.body.bloqueado === undefined ? true : Boolean(req.body.bloqueado);
+    if (bloqueado && config.ehAdmin(tel)) {
+      return res.status(400).json({ erro: 'Este número é de administrador.' });
+    }
+    alunosLogin.salvarAluno(tel, { bloqueado });
+    res.json({ ok: true, acessos: acessosSoltos() });
+  });
+
+  rotas.delete('/acessos/:telefone', (req, res) => {
+    const tel = telefone.normalizar(req.params.telefone);
+    if (!tel || !alunosLogin.aluno(tel)) {
+      return res.status(404).json({ erro: 'Cadastro de acesso não encontrado.' });
+    }
+    if (config.ehAdmin(tel)) {
+      return res.status(400).json({ erro: 'Remova da lista de administradores primeiro.' });
+    }
+    alunosLogin.removerAluno(tel);
+    res.json({ ok: true, acessos: acessosSoltos() });
   });
 
   /** Padrão é inativar (preserva histórico). ?remover=1 apaga de vez. */
