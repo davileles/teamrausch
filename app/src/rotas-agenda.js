@@ -429,40 +429,56 @@ function emTextoDeTempo(min) {
  * As regras que o aluno precisa saber, escritas a partir da própria
  * configuração. Assim não existe o texto explicando uma coisa e o sistema
  * fazendo outra — mudou a regra em Negócio, o texto muda junto.
+ *
+ * O texto muda também conforme quem lê. Para quem tem matrícula, a agenda não
+ * é um lugar onde se escolhe horário do zero: os dias dele já vêm marcados, e
+ * o que ele precisa saber é como desmarcar e quando dá para encaixar outro.
+ * Explicar reserva para quem nunca vai reservar só atrapalha.
  */
-function regrasEmTexto() {
+function regrasEmTexto(matricula) {
   const c = config.ler();
   const a = c.agenda;
   const linhas = [];
+  const frequencia = matricula ? grade.diasPorSemana(matricula) : 0;
+
+  if (matricula) {
+    linhas.push('Os horários da sua matrícula já vêm marcados — não precisa reservar nada.');
+  }
 
   const dias = Number(a.diasAntecedencia) || 0;
-  linhas.push(dias === 0
-    ? 'A agenda abre só para hoje.'
-    : dias === 1
-      ? 'Dá para reservar para hoje e amanhã.'
-      : `A agenda abre para hoje e os próximos ${dias} dias.`);
+  const janela = dias === 0
+    ? 'só para hoje'
+    : dias === 1 ? 'para hoje e amanhã' : `para hoje e os próximos ${dias} dias`;
+
+  if (matricula) {
+    linhas.push(`Quer treinar num horário diferente do seu? Reserve, se houver vaga — a agenda abre ${janela}.`);
+  } else {
+    linhas.push(`A agenda abre ${janela}.`);
+  }
+
+  if (frequencia > 0 && a.respeitarFrequencia !== false) {
+    linhas.push(`Sua matrícula é de ${frequencia}x por semana: esse é o total de dias que dá para marcar.`);
+  }
 
   const limite = Number(a.limitePorDia) || 0;
-  if (limite === 1) linhas.push('Cada pessoa reserva um horário por dia.');
-  else if (limite > 1) linhas.push(`Cada pessoa reserva até ${limite} horários por dia.`);
+  if (limite === 1) linhas.push('É um horário por dia.');
+  else if (limite > 1) linhas.push(`Dá para ficar em até ${limite} horários no mesmo dia.`);
 
   const fecha = Number(a.minutosAntesDeFechar) || 0;
   if (fecha > 0) linhas.push(`O horário fecha ${emTextoDeTempo(fecha)} antes de começar.`);
 
   if (a.permitirCancelar) {
     const canc = Number(a.minutosParaCancelar) || 0;
-    linhas.push(canc > 0
-      ? `Você pode cancelar até ${emTextoDeTempo(canc)} antes do horário.`
-      : 'Você pode cancelar a qualquer momento antes do horário.');
+    const prazo = canc > 0 ? `até ${emTextoDeTempo(canc)} antes` : 'a qualquer momento antes do horário';
+    linhas.push(matricula
+      ? `Não vai poder ir? Toque em "Não vou" ${prazo} e seu lugar volta para a agenda.`
+      : `Você pode cancelar ${prazo}.`);
   } else {
     linhas.push('Cancelamento pelo app está desligado — fale com o estúdio.');
   }
 
-  if (a.contarMatriculasNaLotacao !== false) {
+  if (!matricula && a.contarMatriculasNaLotacao !== false) {
     linhas.push('As vagas já descontam quem tem aula fixa naquele horário.');
-  }
-  if (a.respeitarFrequencia !== false) {
-    linhas.push('Quem é matriculado reserva até o número de vezes por semana da própria matrícula.');
   }
 
   return linhas;
@@ -520,7 +536,7 @@ rotas.get('/agenda', exigirLogin, (req, res) => {
     meus: meusHorarios(req.aluno.telefone, hoje),
     matricula: agenda.minhaMatricula(req.aluno.telefone, hoje),
     recado: config.ler().estudio.recado || '',
-    regras: regrasEmTexto(),
+    regras: regrasEmTexto(matriculas.porTelefone(req.aluno.telefone)),
     alerta: alertaAtivo(),
   });
 });
