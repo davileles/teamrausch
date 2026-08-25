@@ -160,6 +160,23 @@
     text-transform:uppercase;color:var(--amarelo);display:block;margin-bottom:4px}
   .minha-matricula span{font:500 13px/1.5 'Work Sans',sans-serif;color:var(--fraco);display:block}
 
+  /* Lotação da semana: quantos alunos fixos por horário, contra a capacidade
+     que está valendo na aba Configurações. */
+  .lot-tabela{width:100%;border-collapse:collapse;margin-top:12px;
+    font:500 12.5px 'Work Sans',sans-serif}
+  .lot-tabela th{font:400 13px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--fraco);padding:6px 2px;text-align:center}
+  .lot-tabela th.h{text-align:right;padding-right:10px;color:var(--texto)}
+  .lot-tabela td{border:1px solid var(--linha);padding:7px 2px;text-align:center;color:var(--fraco)}
+  .lot-tabela td.vazia{border-color:transparent;color:var(--fraco-2)}
+  .lot-tabela td.cheio{color:var(--vermelho);border-color:#4A2124;font-weight:700}
+  .lot-tabela td.fora{background:var(--fundo-2);color:var(--amarelo-2)}
+  .lot-legenda{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;
+    font:500 12px 'Work Sans',sans-serif;color:var(--fraco)}
+  .lot-legenda i{font-style:normal}
+  .lot-legenda i.cheio{color:var(--vermelho)}
+  .lot-legenda i.fora{color:var(--amarelo-2)}
+
   .recado{background:var(--superficie);border:1px solid var(--linha-2);color:var(--texto);padding:14px 16px;
     font:500 14px/1.55 'Work Sans',sans-serif;margin:20px 0;border-left:4px solid var(--amarelo)}
   .vazio{padding:34px 0;color:var(--fraco);font:400 13.5px 'Work Sans',sans-serif;text-align:center}
@@ -1259,6 +1276,7 @@ async function carregarMatriculas(){
       <div class="subabas" id="sub-mat">
         <button data-sub="alunos" aria-selected="${matEstado.sub==='alunos'}">Alunos</button>
         <button data-sub="grade" aria-selected="${matEstado.sub==='grade'}">Grade do dia</button>
+        <button data-sub="lotacao" aria-selected="${matEstado.sub==='lotacao'}">Lotação da semana</button>
       </div>
       <div data-painel="alunos" ${matEstado.sub==='alunos'?'':'hidden'}>
         <p class="ajuda">${resumo.ativas} ativos · ${resumo.mensalistas} mensalistas ·
@@ -1297,6 +1315,9 @@ async function carregarMatriculas(){
       </div>
       <div data-painel="grade" ${matEstado.sub==='grade'?'':'hidden'}>
         <div id="mat-grade"><div class="vazio">Carregando…</div></div>
+      </div>
+      <div data-painel="lotacao" ${matEstado.sub==='lotacao'?'':'hidden'}>
+        <div id="mat-lotacao"><div class="vazio">Carregando…</div></div>
       </div>`;
 
     alvo.querySelector('#sub-mat').addEventListener('click', e=>{
@@ -1340,10 +1361,57 @@ async function carregarMatriculas(){
     alvo.querySelectorAll('.mat-form').forEach(f=> ligarFicha(f, f.dataset.id || null));
 
     if (matEstado.sub === 'grade') await carregarGradeDoDia();
+    if (matEstado.sub === 'lotacao') await carregarLotacao();
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
 /* ------------------------- grade projetada do dia ------------------------ */
+
+/**
+ * Lotação da semana: alunos fixos de cada horário contra a capacidade que está
+ * valendo na aba Configurações. Serve para responder duas perguntas sem
+ * adivinhação — a agenda oferece todos os horários que a grade usa? e alguma
+ * turma está com mais gente do que cabe?
+ */
+async function carregarLotacao(){
+  const alvo = document.getElementById('mat-lotacao');
+  if (!alvo) return;
+  try{
+    const r = await api('/matriculas/grade/ocupacao');
+    if (!r.slots.length){
+      alvo.innerHTML = '<div class="vazio">Nenhum horário fixo cadastrado.</div>';
+      return;
+    }
+    const dias  = [1,2,3,4,5,6,0].filter(d=>r.slots.some(s=>s.dia===d));
+    const horas = [...new Set(r.slots.map(s=>s.hora))].sort();
+    const achar = (d,h)=> r.slots.find(s=>s.dia===d && s.hora===h);
+
+    alvo.innerHTML = `
+      <p class="ajuda">Quantos alunos têm horário fixo em cada turma, comparado com a
+        capacidade configurada. ${r.foraDaAgenda
+          ? `<b>${r.foraDaAgenda} ${r.foraDaAgenda===1?'horário':'horários'} da grade não ${
+              r.foraDaAgenda===1?'existe':'existem'} na aba Agendar</b> — os alunos têm aula,
+             mas ninguém consegue reservar ali.`
+          : 'Todos os horários da grade existem na aba Agendar.'}</p>
+      <table class="lot-tabela">
+        <thead><tr><th class="h"></th>${dias.map(d=>`<th>${NOME_DIA[d]}</th>`).join('')}</tr></thead>
+        <tbody>${horas.map(h=>`<tr>
+          <th class="h">${h}</th>
+          ${dias.map(d=>{ const s = achar(d,h);
+            if (!s) return '<td class="vazia">·</td>';
+            const cheio = s.capacidade && s.total > s.capacidade;
+            return `<td class="${s.naAgenda?'':'fora'} ${cheio?'cheio':''}"
+              title="${s.naAgenda ? `capacidade ${s.capacidade}` : 'fora da agenda'}">${
+              s.total}${s.capacidade?'/'+s.capacidade:''}</td>`;
+          }).join('')}
+        </tr>`).join('')}</tbody>
+      </table>
+      <div class="lot-legenda">
+        <span><i class="fora">amarelo</i> — horário não existe na aba Agendar</span>
+        <span><i class="cheio">vermelho</i> — mais alunos fixos do que a capacidade</span>
+      </div>`;
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
 
 async function carregarGradeDoDia(){
   const alvo = document.getElementById('mat-grade');
