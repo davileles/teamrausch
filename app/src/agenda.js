@@ -2,6 +2,8 @@
 
 const config = require('./config');
 const store = require('./agenda-store');
+const matriculas = require('./matriculas-store');
+const grade = require('./grade');
 
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
 const NOME_DO_DIA = {
@@ -56,6 +58,81 @@ function porExtenso(data) {
   return `${d}/${m}/${a}`;
 }
 
+/* --------------------------- matrículas ---------------------------------- */
+/**
+ * A agenda tem duas origens de gente no mesmo horário:
+ *
+ *   - RESERVA: alguém marcou pelo app (fica em `agenda-store`).
+ *   - FIXO:    a grade da matrícula projetada naquele dia (`matriculas-store`
+ *              + `grade.js`), já descontadas as aulas desmarcadas e somadas as
+ *              extras do dia.
+ *
+ * Antes só a primeira contava. Com 120 alunos matriculados e nenhum deles
+ * reservando pelo app, uma segunda às 18:00 com 13 alunos fixos aparecia como
+ * "8 de 8 livres" — e quem reservasse chegaria numa sala lotada. Aqui as duas
+ * origens ocupam o mesmo balde.
+ */
+
+/** Aulas fixas de um dia, agrupadas por horário. */
+function fixosDoDia(data) {
+  const mapa = new Map();
+  if (config.ler().agenda.contarMatriculasNaLotacao === false) return mapa;
+  const excecoes = matriculas.excecoes({ de: data, ate: data });
+  for (const item of grade.agendaDoDia(matriculas.listar(), data, excecoes)) {
+    if (!mapa.has(item.hora)) mapa.set(item.hora, []);
+    mapa.get(item.hora).push(item);
+  }
+  return mapa;
+}
+
+/** Aulas fixas de UMA matrícula num dia — usado nos limites e no cancelamento. */
+function fixosDaMatricula(matricula, data) {
+  if (!matricula) return [];
+  return grade.agendaDoDia(
+    [matricula], data,
+    matriculas.excecoes({ de: data, ate: data, matriculaId: matricula.id }));
+}
+
+/** Domingo da semana de uma data — a frequência da matrícula é semanal. */
+function domingoDa(data) {
+  const d = new Date(`${data}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Lotação de um horário, sem contar ninguém duas vezes: quem tem aula fixa e
+ * ainda assim reservou pelo app ocupa um lugar só.
+ */
+function lotacao(data, hora, naGrade) {
+  const reservas = store.doHorario(data, hora);
+  const telsFixos = new Set(naGrade.map((f) => f.telefone).filter(Boolean));
+  const avulsas = reservas.filter((r) => !telsFixos.has(r.telefone));
+  return { reservas, avulsas, ocupadas: naGrade.length + avulsas.length };
+}
+
+/**
+ * Dias com aula na semana da data, olhando fixos e reservas juntos.
+ * Devolve também se o próprio dia já tem aula: marcar um segundo horário num
+ * dia que já conta não gasta uma nova ida da semana — quem cuida disso é o
+ * `limitePorDia`.
+ */
+function semanaDaMatricula(matricula, telefone, data) {
+  const inicio = domingoDa(data);
+  let dias = 0;
+  let noDia = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = somarDias(inicio, i);
+    const horas = new Set(fixosDaMatricula(matricula, d).map((x) => x.hora));
+    if (telefone) {
+      for (const a of store.daData(d)) if (a.telefone === telefone) horas.add(a.hora);
+    }
+    if (!horas.size) continue;
+    if (d === data) noDia = horas.size; else dias += 1;
+  }
+  return { dias, noDia, total: dias + (noDia ? 1 : 0) };
+}
+
 /* ------------------------------ agenda ----------------------------------- */
 
 /** Minutos entre agora e o começo do horário. Negativo = já passou. */
@@ -72,7 +149,7 @@ function datasAbertas() {
 }
 
 /** Monta um dia com todos os horários e a situação de cada um. */
-function montarDia(data, telefone) {
+function montarDia(data, telefone, minhaMatricula) {
   const c = config.ler();
   const fuso = c.estudio.fuso;
   const bloqueada = (c.agenda.datasBloqueadas || []).includes(data);
@@ -80,28 +157,48 @@ function montarDia(data, telefone) {
     .slice()
     .sort((a, b) => emMinutos(a.hora) - emMinutos(b.hora));
 
+  const fixos = fixosDoDia(data);
+  const minha = minhaMatricula === undefined
+    ? (telefone ? matriculas.porTelefone(telefone) : null)
+    : minhaMatricula;
+
   const horarios = modelo.map((slot) => {
     const capacidade = Number(slot.capacidade) || Number(c.agenda.capacidadePadrao) || 0;
-    const reservas = store.doHorario(data, slot.hora);
+    const naGrade = fixos.get(slot.hora) || [];
+    const { reservas, ocupadas } = lotacao(data, slot.hora, naGrade);
+
+    const meuFixo = minha ? naGrade.find((f) => f.matriculaId === minha.id) : null;
     const meu = telefone ? reservas.find((r) => r.telefone === telefone) : null;
+
     const faltam = minutosAte(data, slot.hora, fuso);
     const fechou = faltam < Number(c.agenda.minutosAntesDeFechar || 0);
+    const aTempo = c.agenda.permitirCancelar &&
+      faltam >= Number(c.agenda.minutosParaCancelar || 0);
 
     let situacao = 'aberto';
     if (bloqueada) situacao = 'bloqueado';
-    else if (meu) situacao = 'meu';
+    else if (meuFixo || meu) situacao = 'meu';
     else if (fechou) situacao = 'fechado';
-    else if (reservas.length >= capacidade) situacao = 'lotado';
+    else if (ocupadas >= capacidade) situacao = 'lotado';
 
     return {
       hora: slot.hora,
       capacidade,
-      ocupadas: reservas.length,
-      vagas: Math.max(0, capacidade - reservas.length),
+      ocupadas,
+      vagas: Math.max(0, capacidade - ocupadas),
+      // Abertura da conta: o aluno entende por que um horário "vazio" já tem
+      // gente. `naGrade` é matrícula; `avulsas`, quem marcou pelo app.
+      naGrade: naGrade.length,
+      avulsas: ocupadas - naGrade.length,
       situacao,
+      // 'fixo' = veio da matrícula (a pessoa não precisou reservar);
+      // 'extra' = aula avulsa lançada pelo estúdio; 'reserva' = marcou no app.
+      origem: meuFixo ? (meuFixo.origem === 'extra' ? 'extra' : 'fixo') : (meu ? 'reserva' : null),
       meuAgendamentoId: meu ? meu.id : null,
-      podeCancelar: Boolean(meu) && c.agenda.permitirCancelar &&
-        faltam >= Number(c.agenda.minutosParaCancelar || 0),
+      podeCancelar: Boolean(meu) && aTempo,
+      // Desmarcar aula fixa não cancela agendamento nenhum: registra uma
+      // exceção na matrícula. Por isso vai num campo separado.
+      podeDesmarcar: Boolean(meuFixo) && !meu && aTempo,
     };
   });
 
@@ -115,7 +212,30 @@ function montarDia(data, telefone) {
 }
 
 function montarDias(telefone) {
-  return datasAbertas().map((d) => montarDia(d, telefone));
+  const minha = telefone ? matriculas.porTelefone(telefone) : null;
+  return datasAbertas().map((d) => montarDia(d, telefone, minha));
+}
+
+/**
+ * A matrícula do aluno logado, como a tela precisa ver: frequência contratada,
+ * horário padrão e quanto já foi usado nesta semana.
+ */
+function minhaMatricula(telefone, data) {
+  const m = matriculas.porTelefone(telefone);
+  if (!m) return null;
+  const semana = semanaDaMatricula(m, telefone, data);
+  const frequencia = grade.diasPorSemana(m);
+  return {
+    id: m.id,
+    nome: m.nome,
+    vinculo: m.vinculo || null,
+    frequencia,
+    gradeEmTexto: grade.gradeEmTexto(m),
+    grade: m.grade || [],
+    diasNaSemana: semana.total,
+    diasRestantesNaSemana: frequencia ? Math.max(0, frequencia - semana.total) : null,
+    respeitarFrequencia: config.ler().agenda.respeitarFrequencia !== false,
+  };
 }
 
 /**
@@ -145,8 +265,17 @@ function reservar(aluno, data, hora) {
     return { ok: false, motivo: 'Você já está nesse horário.' };
   }
 
+  const minha = matriculas.porTelefone(aluno.telefone);
+  const meusFixos = fixosDaMatricula(minha, data);
+  if (meusFixos.some((x) => x.hora === hora)) {
+    return { ok: false, motivo: 'Esse já é o seu horário fixo — você não precisa reservar.' };
+  }
+
+  // O limite do dia conta a aula da matrícula junto: quem já tem aula fixa às
+  // 18:00 não pega mais uma às 19:00 num estúdio com limite de 1 por dia.
   const limite = Number(c.agenda.limitePorDia) || 0;
-  if (limite > 0 && store.contarNoDia(aluno.telefone, data) >= limite) {
+  const noDia = store.contarNoDia(aluno.telefone, data) + meusFixos.length;
+  if (limite > 0 && noDia >= limite) {
     return {
       ok: false,
       motivo: limite === 1
@@ -155,8 +284,25 @@ function reservar(aluno, data, hora) {
     };
   }
 
+  // Frequência da matrícula: 3x por semana são três idas, não três por dia.
+  // Encaixe além disso é decisão do estúdio, não do app — por isso a mensagem
+  // manda falar com a recepção em vez de só recusar.
+  if (minha && c.agenda.respeitarFrequencia !== false) {
+    const frequencia = grade.diasPorSemana(minha);
+    const semana = semanaDaMatricula(minha, aluno.telefone, data);
+    if (frequencia > 0 && !semana.noDia && semana.dias >= frequencia) {
+      return {
+        ok: false,
+        motivo: `Sua matrícula é de ${frequencia}x por semana e você já tem ` +
+          `${semana.dias} ${semana.dias === 1 ? 'dia' : 'dias'} de aula nesta semana. ` +
+          'Para encaixar mais uma, fale com o estúdio.',
+      };
+    }
+  }
+
   const capacidade = Number(slot.capacidade) || Number(c.agenda.capacidadePadrao) || 0;
-  if (store.doHorario(data, hora).length >= capacidade) {
+  const naGrade = fixosDoDia(data).get(hora) || [];
+  if (lotacao(data, hora, naGrade).ocupadas >= capacidade) {
     return { ok: false, motivo: 'As vagas desse horário acabaram.' };
   }
 
@@ -187,26 +333,79 @@ function cancelar(aluno, id, ehAdmin) {
   return { ok: true };
 }
 
+/**
+ * Desmarcar uma aula da matrícula. Não existe agendamento para cancelar aqui:
+ * a aula é uma projeção da grade, então o que gravamos é a exceção do dia. O
+ * lugar volta para a agenda na hora, porque a lotação é recalculada a cada
+ * leitura.
+ */
+function desmarcarFixa(aluno, data, hora) {
+  const c = config.ler();
+  const minha = matriculas.porTelefone(aluno.telefone);
+  if (!minha) {
+    return { ok: false, motivo: 'Seu telefone ainda não está ligado a uma matrícula. Fale com o estúdio.' };
+  }
+  if (!c.agenda.permitirCancelar) {
+    return { ok: false, motivo: 'Cancelamento pelo app está desligado. Fale com o estúdio.' };
+  }
+  if (!fixosDaMatricula(minha, data).some((x) => x.hora === hora)) {
+    return { ok: false, motivo: 'Você não tem aula fixa nesse horário.' };
+  }
+  const faltam = minutosAte(data, hora, c.estudio.fuso);
+  const minimo = Number(c.agenda.minutosParaCancelar || 0);
+  if (faltam < minimo) {
+    return { ok: false, motivo: `Cancelamento só até ${minimo} minutos antes do horário.` };
+  }
+  const r = matriculas.registrarExcecao({
+    matriculaId: minha.id, data, tipo: 'cancelou', hora,
+    motivo: 'Desmarcado pelo aluno no app',
+  });
+  if (!r.ok) return r;
+  return { ok: true, excecao: r.excecao };
+}
+
 /** Lista de presença de um dia, para o administrador. */
 function listaDoDia(data) {
   const c = config.ler();
-  const dia = montarDia(data, null);
+  const dia = montarDia(data, null, null);
+  const fixos = fixosDoDia(data);
+
   return {
     ...dia,
-    horarios: dia.horarios.map((h) => ({
-      ...h,
-      alunos: store.doHorario(data, h.hora).map((r) => ({
-        id: r.id,
-        nome: r.nome || 'Sem nome',
-        telefone: r.telefone,
-        criadoEm: r.criadoEm,
-      })),
-    })),
+    horarios: dia.horarios.map((h) => {
+      const naGrade = fixos.get(h.hora) || [];
+      const telsFixos = new Set(naGrade.map((f) => f.telefone).filter(Boolean));
+      const alunos = [
+        ...naGrade.map((f) => ({
+          id: null,
+          matriculaId: f.matriculaId,
+          nome: f.nome || 'Sem nome',
+          telefone: f.telefone || null,
+          vinculo: f.vinculo || null,
+          origem: f.origem,          // 'fixo' | 'extra'
+          criadoEm: null,
+        })),
+        ...store.doHorario(data, h.hora)
+          .filter((r) => !telsFixos.has(r.telefone))
+          .map((r) => ({
+            id: r.id,
+            matriculaId: null,
+            nome: r.nome || 'Sem nome',
+            telefone: r.telefone,
+            vinculo: null,
+            origem: 'reserva',
+            criadoEm: r.criadoEm,
+          })),
+      ].sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+
+      return { ...h, alunos };
+    }),
     hoje: hoje(c.estudio.fuso),
   };
 }
 
 module.exports = {
-  hoje, montarDia, montarDias, datasAbertas, reservar, cancelar, listaDoDia,
+  hoje, montarDia, montarDias, datasAbertas, reservar, cancelar, desmarcarFixa,
+  listaDoDia, minhaMatricula, semanaDaMatricula, fixosDaMatricula,
   diaDaSemana, porExtenso, minutosAte, DIAS, NOME_DO_DIA,
 };
