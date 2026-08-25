@@ -36,6 +36,90 @@ let situacao = 'iniciando'; // iniciando | aguardando-qr | conectado | desconect
 let numeroConectado = null;
 let tentativas = 0;
 
+/* --------------------------- caderno de nomes ---------------------------- */
+/**
+ * O WhatsApp NÃO entrega o nome dos participantes junto com o grupo:
+ * `groupMetadata` devolve só os números. O nome chega por três caminhos, e
+ * nenhum deles é garantido:
+ *
+ *   1. sincronização da agenda no pareamento (`messaging-history.set`) — só
+ *      traz quem está salvo na agenda do celular que leu o QR;
+ *   2. `contacts.upsert` / `contacts.update`, ao longo do uso;
+ *   3. `pushName` da mensagem — o nome que a própria pessoa pôs no perfil dela,
+ *      e que só aparece quando ela escreve em algum grupo que este número vê.
+ *
+ * Por isso tudo o que passa é anotado aqui e gravado em disco: a janela de
+ * captura não volta. O que não for guardado na hora se perde na reconexão.
+ */
+const ARQUIVO_CONTATOS = path.join(PASTA, 'contatos.json');
+const nomes = new Map();   // '5511999999999' -> { agenda, perfil, em }
+let gravacaoNomes = null;
+
+function soNumero(entrada) {
+  const n = String(entrada || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+  return n || null;
+}
+
+function carregarContatos() {
+  try {
+    fs.mkdirSync(PASTA, { recursive: true });
+    if (!fs.existsSync(ARQUIVO_CONTATOS)) return;
+    const lido = JSON.parse(fs.readFileSync(ARQUIVO_CONTATOS, 'utf8'));
+    for (const [numero, dados] of Object.entries(lido.contatos || {})) nomes.set(numero, dados);
+    log(`${nomes.size} nome(s) no caderno`);
+  } catch (erro) {
+    log('não consegui ler o caderno de nomes:', erro.message);
+  }
+}
+
+function gravarContatos() {
+  if (gravacaoNomes) return;
+  gravacaoNomes = setTimeout(() => {
+    gravacaoNomes = null;
+    try {
+      fs.mkdirSync(PASTA, { recursive: true });
+      const corpo = JSON.stringify({
+        atualizadoEm: new Date().toISOString(),
+        total: nomes.size,
+        contatos: Object.fromEntries(nomes),
+      }, null, 2);
+      const temp = `${ARQUIVO_CONTATOS}.tmp`;
+      fs.writeFileSync(temp, corpo);
+      fs.renameSync(temp, ARQUIVO_CONTATOS);
+    } catch (erro) {
+      log('falha ao gravar o caderno de nomes:', erro.message);
+    }
+  }, 3000);
+  if (gravacaoNomes.unref) gravacaoNomes.unref();
+}
+
+/** Nome novo nunca apaga nome antigo: só preenche o que ainda está vazio ou mudou. */
+function anotarNome(jid, { agenda, perfil } = {}) {
+  const numero = soNumero(jid);
+  if (!numero || (!agenda && !perfil)) return;
+  const atual = nomes.get(numero) || {};
+  const limpo = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const novoAgenda = limpo(agenda) || atual.agenda || null;
+  const novoPerfil = limpo(perfil) || atual.perfil || null;
+  if (novoAgenda === (atual.agenda || null) && novoPerfil === (atual.perfil || null)) return;
+  nomes.set(numero, { agenda: novoAgenda, perfil: novoPerfil, em: new Date().toISOString() });
+  gravarContatos();
+}
+
+/**
+ * Grupo criado depois da mudança do WhatsApp para LID pode devolver o
+ * participante como `...@lid`, que é um identificador interno e não o telefone.
+ * Quando isso acontece e o servidor não manda o número junto, não há telefone
+ * para extrair — a linha sai marcada como oculta em vez de sair com lixo.
+ */
+function telefoneDoParticipante(p) {
+  const bruto = p.phoneNumber || p.jid || p.id || '';
+  if (String(bruto).endsWith('@lid')) return null;
+  return soNumero(bruto);
+}
+
+carregarContatos();
+
 /* ----------------------------- conexão ---------------------------------- */
 
 async function conectar() {
@@ -52,6 +136,31 @@ async function conectar() {
   });
 
   socket.ev.on('creds.update', saveCreds);
+
+  // Sincronização inicial: é aqui que a agenda do celular pareado aparece, uma
+  // única vez por pareamento. Se este bloco não guardar, não tem segunda chance.
+  socket.ev.on('messaging-history.set', ({ contacts }) => {
+    for (const contato of contacts || []) {
+      anotarNome(contato.id, { agenda: contato.name, perfil: contato.notify || contato.verifiedName });
+    }
+  });
+
+  const daAgenda = (lista) => {
+    for (const contato of lista || []) {
+      anotarNome(contato.id, { agenda: contato.name, perfil: contato.notify || contato.verifiedName });
+    }
+  };
+  socket.ev.on('contacts.upsert', daAgenda);
+  socket.ev.on('contacts.update', daAgenda);
+
+  // pushName: o nome do perfil de quem escreveu. Vale para gente que não está
+  // na agenda — em grupo grande é o que mais rende.
+  socket.ev.on('messages.upsert', ({ messages }) => {
+    for (const msg of messages || []) {
+      const autor = msg.key?.participant || msg.key?.remoteJid;
+      if (!msg.key?.fromMe && autor) anotarNome(autor, { perfil: msg.pushName });
+    }
+  });
 
   socket.ev.on('connection.update', (u) => {
     const { connection, lastDisconnect, qr } = u;
@@ -174,6 +283,91 @@ app.get('/qr', exigirToken, async (_req, res) => {
   const imagem = await QRCode.toDataURL(qrAtual, { margin: 1, width: 320 });
   res.send(pagina('Leia o QR', 'WhatsApp → Aparelhos conectados → Conectar aparelho.',
     `<img src="${imagem}" alt="QR de conexão" width="320" height="320">`));
+});
+
+/** Lista os grupos de que ESTE número participa. */
+app.get('/grupos', exigirToken, async (_req, res) => {
+  if (situacao !== 'conectado') {
+    return res.status(503).json({ erro: 'WhatsApp desconectado. Leia o QR em /qr.' });
+  }
+  try {
+    const todos = await socket.groupFetchAllParticipating();
+    const grupos = Object.values(todos)
+      .map((g) => ({
+        id: g.id,
+        nome: g.subject || '(sem nome)',
+        participantes: (g.participants || []).length,
+      }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    res.json({ total: grupos.length, grupos });
+  } catch (erro) {
+    log('falha ao listar grupos:', erro.message);
+    res.status(502).json({ erro: 'Não consegui listar os grupos.' });
+  }
+});
+
+/**
+ * Participantes de um grupo, com o nome que tivermos no caderno.
+ *
+ * `?formato=csv` devolve planilha pronta (com BOM, senão o Excel come os
+ * acentos). O campo `nome` fica em branco para quem nunca escreveu no grupo e
+ * não está na agenda — isso é limitação do WhatsApp, não do serviço.
+ */
+app.get('/grupos/participantes', exigirToken, async (req, res) => {
+  if (situacao !== 'conectado') {
+    return res.status(503).json({ erro: 'WhatsApp desconectado. Leia o QR em /qr.' });
+  }
+  const id = String(req.query.id || '').trim();
+  if (!id.endsWith('@g.us')) {
+    return res.status(400).json({ erro: 'Informe ?id=<jid do grupo>, terminado em @g.us.' });
+  }
+
+  try {
+    const meta = await socket.groupMetadata(id);
+    const participantes = (meta.participants || []).map((p) => {
+      const telefone = telefoneDoParticipante(p);
+      const anotado = (telefone && nomes.get(telefone)) || {};
+      return {
+        telefone,
+        oculto: !telefone,
+        nome: anotado.agenda || anotado.perfil || null,
+        nomeAgenda: anotado.agenda || null,
+        nomePerfil: anotado.perfil || null,
+        admin: p.admin || null,
+      };
+    });
+
+    const comNome = participantes.filter((p) => p.nome).length;
+
+    if (String(req.query.formato || '').toLowerCase() === 'csv') {
+      const escapar = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const linhas = [['telefone', 'nome', 'nome_agenda', 'nome_perfil', 'admin'].join(';')];
+      for (const p of participantes) {
+        linhas.push([p.telefone, p.nome, p.nomeAgenda, p.nomePerfil, p.admin].map(escapar).join(';'));
+      }
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Content-Disposition', 'attachment; filename="participantes.csv"');
+      return res.send('\uFEFF' + linhas.join('\n'));
+    }
+
+    res.json({
+      grupo: meta.subject || '(sem nome)',
+      id: meta.id,
+      total: participantes.length,
+      comNome,
+      semNome: participantes.length - comNome,
+      participantes,
+    });
+  } catch (erro) {
+    log('falha ao ler participantes:', erro.message);
+    res.status(502).json({ erro: 'Não consegui ler os participantes desse grupo.' });
+  }
+});
+
+/** Quantos nomes já foram capturados até agora. Serve para saber se vale exportar. */
+app.get('/contatos', exigirToken, (_req, res) => {
+  const lista = [...nomes.entries()].map(([telefone, d]) => ({ telefone, ...d }));
+  res.json({ total: lista.length, contatos: lista });
 });
 
 app.post('/enviar', exigirToken, async (req, res) => {
