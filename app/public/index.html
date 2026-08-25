@@ -1565,6 +1565,7 @@ function itemFrequencia(a){
     detalhes.push('nenhum check-in registrado');
   }
   detalhes.push(`${a.porSemana}×/sem combinado`);
+  if (a.mes) detalhes.push(`mês ${a.mes.realizado}/${a.mes.esperado}`);
   if (!a.gympassId) detalhes.push('sem Wellhub ID vinculado');
 
   const devendo = a.situacao === 'critico' || a.situacao === 'atrasado';
@@ -1616,8 +1617,17 @@ async function carregarFrequencia(){
     const mostrar = matEstado.freqSo === 'devendo' ? devendo : f.alunos;
     const j = f.janela;
 
+    // A janela pode voltar menor do que a pedida: ela para no dia 1º, porque o
+    // pacote do aluno renova na virada e falta do mês passado não é cobrada de
+    // novo. Sem dizer isso, o número curto pareceria erro.
+    const periodo = `${dataCurta(j.de)} a ${dataCurta(j.ate)}`;
+    const cabecalho = j.truncadaNoMes
+      ? `Do dia 1º até hoje (${periodo}) — ${j.dias} ${j.dias===1?'dia':'dias'} de mês.
+         A janela de ${j.diasPedidos} dias não atravessa a virada: o ciclo anterior já fechou.`
+      : `Últimos ${j.dias} dias (${periodo}), sem passar do dia 1º.`;
+
     alvo.innerHTML = `
-      <p class="ajuda">Últimos ${j.dias} dias (${dataCurta(j.de)} a ${dataCurta(j.ate)}).
+      <p class="ajuda">${cabecalho}
         O esperado sai da grade de cada aluno, já descontadas as aulas desmarcadas —
         a aula de hoje só entra na conta depois que o horário passa.</p>
 
@@ -1634,7 +1644,7 @@ async function carregarFrequencia(){
       </div>
 
       <div class="chips-mat" style="margin-bottom:14px">
-        <div class="grupo-filtro"><span>Janela</span>
+        <div class="grupo-filtro"><span>Janela (até o dia 1º)</span>
           ${[7,14,30].map(d=>`<button class="chip${matEstado.freqDias===d?' sel':''}"
             data-dias="${d}">${d} dias</button>`).join('')}
         </div>
