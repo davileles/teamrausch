@@ -85,7 +85,7 @@
   input[type=time]::-webkit-calendar-picker-indicator{margin-left:auto;opacity:.6;filter:invert(1)}
   input[type=checkbox]{width:auto;min-height:auto;accent-color:var(--vermelho)}
   /* Item de grid tem min-width:auto por padrão e empurra o vizinho para fora. */
-  .dupla > *, .gerador .grid > *, .ficha .campos > *, .linha-h > *, .linha-c > *{min-width:0}
+  .dupla > *, .gerador .grid > *, .ficha .campos > *, .add-h > *, .linha-c > *{min-width:0}
   input:focus,select:focus,textarea:focus{border-color:var(--amarelo)}
   input::placeholder,textarea::placeholder{color:var(--fraco)}
   input[disabled]{background:var(--fundo-2);border-color:var(--linha);color:var(--fraco-2)}
@@ -318,22 +318,48 @@
   .gerador .botoes{display:flex;gap:8px;flex-wrap:wrap}
   .gerador .botoes button{flex:1}
 
-  .dia-bloco{background:var(--superficie);border:1px solid var(--linha-2);padding:14px;margin-bottom:10px}
-  .dia-bloco .topo{display:flex;align-items:center;justify-content:space-between;gap:10px;
-    margin-bottom:12px;flex-wrap:wrap}
-  .dia-bloco .topo label{margin:0;font:400 15px Anton,sans-serif;letter-spacing:.08em;
+  /* Grade da semana: sete dias recolhidos. Uma linha por horário empilhava 90
+     linhas numa semana cheia e obrigava a rolar a tela inteira para ver o
+     sábado. Fechado, cada dia mostra a contagem e a prévia dos horários; só o
+     dia que você abre ocupa espaço. */
+  .dia-bloco{background:var(--superficie);border:1px solid var(--linha-2);margin-bottom:8px}
+  .dia-bloco > summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;
+    gap:9px;padding:13px 14px}
+  .dia-bloco > summary::-webkit-details-marker{display:none}
+  .dia-bloco > summary::before{content:'▸';color:var(--fraco-2);font-size:11px;line-height:1.6}
+  .dia-bloco[open] > summary::before{content:'▾'}
+  .dia-bloco > summary .nome{font:400 15px Anton,sans-serif;letter-spacing:.08em;
     text-transform:uppercase;color:var(--texto)}
-  .dia-bloco .topo .contagem{font:500 12px 'Work Sans',sans-serif;color:var(--fraco);
-    text-transform:none;letter-spacing:0}
-  .dia-bloco .acoes{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%}
+  .dia-bloco > summary .contagem{font:500 12px 'Work Sans',sans-serif;color:var(--fraco);
+    white-space:nowrap}
+  .dia-bloco > summary .previa{font:500 12px 'Work Sans',sans-serif;color:var(--fraco-2);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:right}
+  .dia-bloco .corpo{padding:2px 14px 14px}
+  .dia-bloco .acoes{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%;margin-top:12px}
   .dia-bloco .acoes select{grid-column:1 / -1;width:100%;padding:12px 13px;border-radius:var(--raio)}
   .dia-bloco .acoes button{width:100%}
-  .linha-h{display:grid;grid-template-columns:1.25fr 1fr auto;gap:8px;align-items:center;
-    padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--linha)}
-  .linha-h:last-child{border-bottom:none;margin-bottom:4px}
-  .linha-h input[type=time]{width:100%;font-weight:600}
-  .linha-h input[type=number]{width:100%}
-  .linha-h button{padding:11px 10px;white-space:nowrap;font-size:12px}
+
+  /* Um horário é uma ficha pequena, não uma linha de formulário: treze deles
+     cabem em três fileiras. Tocar no corpo edita; tocar no × remove. */
+  .lista-h{display:flex;flex-wrap:wrap;gap:7px}
+  .lista-h .sem-horario{font:500 12.5px 'Work Sans',sans-serif;color:var(--fraco-2);padding:4px 0}
+  .chip-h{display:inline-flex;align-items:center;gap:7px;background:var(--fundo-2);
+    border:1px solid var(--linha-2);border-radius:var(--raio);padding:0 0 0 11px;
+    font:500 13.5px 'Work Sans',sans-serif;color:var(--texto);cursor:pointer;
+    user-select:none;transition:border-color .15s,color .15s}
+  .chip-h:hover{border-color:var(--linha-3)}
+  .chip-h b{font-weight:600;padding:9px 0}
+  .chip-h small{color:var(--fraco);font-size:11px;font-weight:500}
+  .chip-h i{font-style:normal;color:var(--fraco-2);font-size:15px;line-height:1;
+    padding:10px 10px;border-left:1px solid var(--linha);align-self:stretch;display:flex;
+    align-items:center}
+  .chip-h i:hover{color:var(--vermelho)}
+  .chip-h.edit{border-color:var(--amarelo);color:var(--amarelo)}
+  .chip-h.edit small{color:var(--amarelo-2)}
+  .add-h{display:grid;grid-template-columns:1.1fr 1fr auto;gap:8px;align-items:center;margin-top:12px}
+  .add-h input{width:100%}
+  .add-h input[type=time]{font-weight:600}
+  .add-h button{padding:11px 12px;white-space:nowrap;font-size:12px}
 
   .aviso{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));
     transform:translateX(-50%);z-index:300;background:var(--superficie);border:1px solid var(--linha-3);
@@ -1511,67 +1537,134 @@ function linhaConquista(aulas='', titulo='', emoji=''){
     <button class="leve c-remover" aria-label="Remover conquista">Remover</button></div>`;
 }
 
-function linhaHorario(dia, hora='', capacidade=''){
-  return `<div class="linha-h" data-dia="${dia}">
-    <input type="time" step="3600" value="${hora}" class="h-hora">
-    <input type="number" min="1" max="200" value="${capacidade}" class="h-cap" placeholder="padrão">
-    <button class="leve h-remover" aria-label="Remover horário">Remover</button></div>`;
-}
-
 /* --------- grade de horários: gerador, cópia entre dias e contagem -------- */
 
+/**
+ * A grade vive aqui, não no DOM. Quando os horários eram inputs na tela, a
+ * ordem era a ordem de digitação: adicionar 11:00 numa grade pronta deixava o
+ * horário no fim da lista, e só salvar e recarregar arrumava. Com o modelo em
+ * memória, `pintarDia` ordena a cada desenho e a tela nunca fica fora de ordem.
+ */
+let gradeH = {};
+
+/** Qual horário de cada dia está aberto para edição — null quando nenhum. */
+const editandoH = {};
+
 function listaDo(dia){ return document.querySelector(`.lista-h[data-dia="${dia}"]`); }
-
-/** Lê os horários já montados na tela de um dia. */
-function horariosDo(dia){
-  return [...listaDo(dia).querySelectorAll('.linha-h')].map(l=>({
-    hora: l.querySelector('.h-hora').value,
-    capacidade: l.querySelector('.h-cap').value,
-  })).filter(s=>s.hora);
-}
-
-/** Redesenha um dia inteiro e atualiza o contador. */
-function pintarDia(dia, horarios){
-  listaDo(dia).innerHTML = horarios
-    .slice().sort((a,b)=>a.hora.localeCompare(b.hora))
-    .map(s=>linhaHorario(dia, s.hora, s.capacidade||'')).join('');
-  contarDia(dia);
-}
-
-function contarDia(dia){
-  const n = listaDo(dia).querySelectorAll('.linha-h').length;
-  const alvo = document.querySelector(`[data-cont="${dia}"]`);
-  if (alvo) alvo.textContent = n ? `— ${n} ${n===1?'horário':'horários'}` : '— fechado';
-}
-
-function contarTodos(){ DIAS.forEach(([k])=>contarDia(k)); }
+function horariosDo(dia){ return (gradeH[dia] || []).map(s=>({ ...s })); }
 
 const emMin = h => { const [a,b] = h.split(':').map(Number); return a*60+(b||0); };
 const emHora = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+const ordenarH = lista => lista.slice().sort((a,b)=>emMin(a.hora)-emMin(b.hora));
 
-function ligarGrade(alvo){
+function chipHorario(dia, s){
+  const editando = editandoH[dia] === s.hora;
+  return `<span class="chip-h${editando?' edit':''}" data-dia="${dia}" data-hora="${s.hora}"
+    title="${s.capacidade ? `capacidade ${s.capacidade}` : 'capacidade padrão'} — toque para editar">
+    <b>${s.hora}</b>${s.capacidade?`<small>${s.capacidade}</small>`:''}
+    <i class="chip-x" role="button" aria-label="Remover ${s.hora}">×</i></span>`;
+}
+
+/** Guarda a grade de um dia já ordenada e redesenha. */
+function definirDia(dia, horarios){
+  gradeH[dia] = ordenarH((horarios || []).filter(s=>s.hora).map(s=>({
+    hora: s.hora,
+    capacidade: Number(s.capacidade) || undefined,
+  })));
+  pintarDia(dia);
+}
+
+function pintarDia(dia){
+  const lista = gradeH[dia] = ordenarH(gradeH[dia] || []);
+  const el = listaDo(dia);
+  if (el){
+    el.innerHTML = lista.length
+      ? lista.map(s=>chipHorario(dia, s)).join('')
+      : '<span class="sem-horario">Nenhum horário — o estúdio não abre neste dia.</span>';
+  }
+  const cont = document.querySelector(`[data-cont="${dia}"]`);
+  if (cont) cont.textContent = lista.length
+    ? `${lista.length} ${lista.length===1?'horário':'horários'}` : 'fechado';
+  const previa = document.querySelector(`[data-previa="${dia}"]`);
+  if (previa) previa.textContent = lista.map(s=>s.hora).join(' · ');
+}
+
+function contarTodos(){ DIAS.forEach(([k])=>pintarDia(k)); }
+
+/** Insere ou substitui um horário do dia, a partir dos campos de baixo. */
+function guardarHorario(dia){
+  const campoHora = document.querySelector(`.h-nova[data-dia="${dia}"]`);
+  const campoCap  = document.querySelector(`.h-cap[data-dia="${dia}"]`);
+  const hora = campoHora.value;
+  if (!hora) return avisar('Escolha o horário.', 'erro');
+
+  const capacidade = Number(campoCap.value) || undefined;
+  const antiga = editandoH[dia];
+  // Tirar o horário antigo e o repetido na mesma passada: repetir um horário
+  // que já existe é correção de capacidade, não um segundo horário igual.
+  gradeH[dia] = (gradeH[dia] || []).filter(s=>s.hora !== hora && s.hora !== antiga);
+  gradeH[dia].push({ hora, capacidade });
+
+  editandoH[dia] = null;
+  campoHora.value = ''; campoCap.value = '';
+  document.querySelector(`.h-add[data-dia="${dia}"]`).textContent = 'Adicionar';
+  pintarDia(dia);
+}
+
+/** Traz um horário para os campos de baixo, para ajustar hora ou capacidade. */
+function editarHorario(dia, hora){
+  const s = (gradeH[dia] || []).find(x=>x.hora === hora);
+  if (!s) return;
+  const cancelar = editandoH[dia] === hora;
+  editandoH[dia] = cancelar ? null : hora;
+  document.querySelector(`.h-nova[data-dia="${dia}"]`).value = cancelar ? '' : s.hora;
+  document.querySelector(`.h-cap[data-dia="${dia}"]`).value = cancelar ? '' : (s.capacidade || '');
+  document.querySelector(`.h-add[data-dia="${dia}"]`).textContent = cancelar ? 'Adicionar' : 'Salvar';
+  pintarDia(dia);
+}
+
+function ligarGrade(alvo, horarios){
+  // O modelo é remontado a cada desenho da aba, a partir do que veio do
+  // servidor. Alterações não salvas se perdem ao sair da aba — como já era.
+  gradeH = {};
+  DIAS.forEach(([k])=>{
+    gradeH[k] = ordenarH((horarios && horarios[k] || []).map(s=>({
+      hora: s.hora, capacidade: Number(s.capacidade) || undefined,
+    })));
+    editandoH[k] = null;
+  });
+
   // A aba é redesenhada a cada visita; o container não. Sem esta trava os
   // listeners delegados se acumulariam e cada clique dispararia várias vezes.
   if (!alvo.dataset.gradeLigada){
     alvo.dataset.gradeLigada = '1';
     alvo.addEventListener('click', e=>{
       const add = e.target.closest('.h-add');
-      if (add){
-        listaDo(add.dataset.dia).insertAdjacentHTML('beforeend', linhaHorario(add.dataset.dia));
-        contarDia(add.dataset.dia);
+      if (add){ guardarHorario(add.dataset.dia); return; }
+
+      // O × fica dentro do chip, então vem antes na checagem.
+      const x = e.target.closest('.chip-x');
+      if (x){
+        const dia = x.closest('.chip-h').dataset.dia;
+        const hora = x.closest('.chip-h').dataset.hora;
+        gradeH[dia] = (gradeH[dia] || []).filter(s=>s.hora !== hora);
+        if (editandoH[dia] === hora) editarHorario(dia, hora);
+        pintarDia(dia);
         return;
       }
-      const rem = e.target.closest('.h-remover');
-      if (rem){
-        const dia = rem.closest('.linha-h').dataset.dia;
-        rem.closest('.linha-h').remove();
-        contarDia(dia);
-        return;
-      }
+      const chipH = e.target.closest('.chip-h');
+      if (chipH){ editarHorario(chipH.dataset.dia, chipH.dataset.hora); return; }
+
       const lim = e.target.closest('.h-limpar');
-      if (lim){ pintarDia(lim.dataset.dia, []); return; }
+      if (lim){ definirDia(lim.dataset.dia, []); return; }
       const chip = e.target.closest('#g-dias .chip');
       if (chip) chip.classList.toggle('sel');
+    });
+
+    // Enter no campo de horário adiciona, sem obrigar a mirar no botão.
+    alvo.addEventListener('keydown', e=>{
+      const campo = e.target.closest('.h-nova, .add-h .h-cap');
+      if (campo && e.key === 'Enter'){ e.preventDefault(); guardarHorario(campo.dataset.dia); }
     });
   }
 
@@ -1580,7 +1673,7 @@ function ligarGrade(alvo){
     sel.addEventListener('change', ()=>{
       const origem = sel.value; if (!origem) return;
       const destino = sel.dataset.dia;
-      pintarDia(destino, horariosDo(origem));
+      definirDia(destino, horariosDo(origem));
       sel.value = '';
       const nome = (DIAS.find(([k])=>k===origem)||[])[1] || origem;
       avisar(`Grade copiada de ${nome}.`, 'ok');
@@ -1613,7 +1706,7 @@ function ligarGrade(alvo){
     for (let m = emMin(inicio); m <= emMin(fim); m += passo) horarios.push({ hora: emHora(m), capacidade: cap });
     if (horarios.length > 60) return avisar('Isso geraria mais de 60 horários por dia. Revise o intervalo.', 'erro');
 
-    dias.forEach(d=>pintarDia(d, horarios));
+    dias.forEach(d=>definirDia(d, horarios));
     avisar(`${horarios.length} horários em ${dias.length} ${dias.length===1?'dia':'dias'}. Não esqueça de salvar.`, 'ok');
   });
 
@@ -1719,8 +1812,9 @@ async function carregarConfig(){
         <p class="ajuda">Separe por vírgula, no formato AAAA-MM-DD.</p></div>
 
       <h3>Horários da semana</h3>
-      <p class="ajuda">Use o gerador para criar a grade de uma vez. Depois ajuste dia a dia se precisar.
-        Deixe a capacidade em branco para usar a padrão.</p>
+      <p class="ajuda">Use o gerador para criar a grade de uma vez. Depois abra o dia e ajuste:
+        toque no horário para mudar a hora ou a capacidade, no × para remover.
+        A lista se reordena sozinha. Capacidade em branco usa a padrão.</p>
 
       <div class="gerador">
         <h4>Gerar grade automaticamente</h4>
@@ -1742,21 +1836,29 @@ async function carregarConfig(){
       </div>
 
       <div id="grade">${DIAS.map(([k,nome])=>`
-        <div class="dia-bloco" data-bloco="${k}">
-          <div class="topo">
-            <label>${nome} <span class="contagem" data-cont="${k}"></span></label>
+        <details class="dia-bloco" data-bloco="${k}">
+          <summary>
+            <span class="nome">${nome}</span>
+            <span class="contagem" data-cont="${k}"></span>
+            <span class="previa" data-previa="${k}"></span>
+          </summary>
+          <div class="corpo">
+            <div class="lista-h" data-dia="${k}"></div>
+            <div class="add-h">
+              <input type="time" step="3600" class="h-nova" data-dia="${k}" aria-label="Horário">
+              <input type="number" min="1" max="200" class="h-cap" data-dia="${k}"
+                placeholder="capacidade" aria-label="Capacidade">
+              <button class="leve h-add" data-dia="${k}">Adicionar</button>
+            </div>
             <div class="acoes">
               <select class="h-copiar-de" data-dia="${k}">
                 <option value="">Copiar de…</option>
                 ${DIAS.filter(([o])=>o!==k).map(([o,on])=>`<option value="${o}">${on}</option>`).join('')}
               </select>
-              <button class="leve h-add" data-dia="${k}">+ Horário</button>
-              <button class="leve h-limpar" data-dia="${k}">Limpar</button>
+              <button class="leve h-limpar" data-dia="${k}">Limpar dia</button>
             </div>
           </div>
-          <div class="lista-h" data-dia="${k}">${(c.agenda.horarios[k]||[]).map(s=>
-            linhaHorario(k, s.hora, s.capacidade||'')).join('')}</div>
-        </div>`).join('')}
+        </details>`).join('')}
       </div>
 
       <h3>Conquistas</h3>
@@ -1893,7 +1995,7 @@ async function carregarConfig(){
     });
 
     ligarSubabas(alvo);
-    ligarGrade(alvo);
+    ligarGrade(alvo, c.agenda.horarios);
     mostrarBackup();
     document.getElementById('btn-salvar').addEventListener('click', salvarConfig);
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
@@ -1902,15 +2004,10 @@ async function carregarConfig(){
 async function salvarConfig(){
   const v = id => document.getElementById(id).value.trim();
   const n = id => Number(document.getElementById(id).value);
+  // Sai do modelo, já ordenado. Um horário deixado nos campos de baixo sem
+  // clicar em Adicionar não entra — o que está na tela como chip é o que vale.
   const horarios = {};
-  DIAS.forEach(([k])=>{
-    horarios[k] = [...document.querySelectorAll(`.lista-h[data-dia="${k}"] .linha-h`)]
-      .map(l=>({
-        hora: l.querySelector('.h-hora').value,
-        capacidade: Number(l.querySelector('.h-cap').value) || undefined,
-      }))
-      .filter(s=>s.hora);
-  });
+  DIAS.forEach(([k])=>{ horarios[k] = ordenarH(gradeH[k] || []); });
 
   const conquistas = [...document.querySelectorAll('#lista-conquistas .linha-c')]
     .map(l=>({
