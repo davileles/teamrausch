@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const config = require('./config');
 const store = require('./agenda-store');
 const agenda = require('./agenda');
+const matriculas = require('./matriculas-store');
+const grade = require('./grade');
 const { enviarCodigo } = require('./mensageiro');
 
 const rotas = express.Router();
@@ -456,6 +458,13 @@ function regrasEmTexto() {
     linhas.push('Cancelamento pelo app está desligado — fale com o estúdio.');
   }
 
+  if (a.contarMatriculasNaLotacao !== false) {
+    linhas.push('As vagas já descontam quem tem aula fixa naquele horário.');
+  }
+  if (a.respeitarFrequencia !== false) {
+    linhas.push('Quem é matriculado reserva até o número de vezes por semana da própria matrícula.');
+  }
+
   return linhas;
 }
 
@@ -476,11 +485,40 @@ function alertaAtivo() {
   };
 }
 
+/**
+ * "Meus horários" junta o que a pessoa reservou no app com as aulas da
+ * matrícula dela. Antes só a reserva aparecia — quem tem grade fixa e nunca
+ * reserva via a tela dizer que não tinha horário nenhum.
+ *
+ * A grade não tem fim, então projetamos duas semanas: é o suficiente para a
+ * pessoa conferir a própria semana sem virar uma lista infinita.
+ */
+function meusHorarios(telefone, hoje) {
+  const minha = matriculas.porTelefone(telefone);
+  const lista = store.doAluno(telefone, hoje).map((a) => ({
+    id: a.id, data: a.data, hora: a.hora, origem: 'reserva',
+  }));
+
+  if (minha) {
+    const jaTem = new Set(lista.map((a) => `${a.data}|${a.hora}`));
+    for (const x of grade.proximasDaMatricula(
+      minha, matriculas.excecoes({ matriculaId: minha.id, de: hoje }), { de: hoje, dias: 14 })) {
+      if (jaTem.has(`${x.data}|${x.hora}`)) continue;
+      lista.push({ id: null, data: x.data, hora: x.hora, origem: x.origem });
+    }
+  }
+
+  return lista
+    .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora))
+    .map((a) => ({ ...a, porExtenso: agenda.porExtenso(a.data) }));
+}
+
 rotas.get('/agenda', exigirLogin, (req, res) => {
+  const hoje = agenda.hoje(config.ler().estudio.fuso);
   res.json({
     dias: agenda.montarDias(req.aluno.telefone),
-    meus: store.doAluno(req.aluno.telefone, agenda.hoje(config.ler().estudio.fuso))
-      .map((a) => ({ ...a, porExtenso: agenda.porExtenso(a.data) })),
+    meus: meusHorarios(req.aluno.telefone, hoje),
+    matricula: agenda.minhaMatricula(req.aluno.telefone, hoje),
     recado: config.ler().estudio.recado || '',
     regras: regrasEmTexto(),
     alerta: alertaAtivo(),
@@ -494,8 +532,17 @@ rotas.post('/agenda/reservar', exigirLogin, (req, res) => {
   res.json({ ok: true, agendamento: r.agendamento });
 });
 
+/**
+ * Cancelar aceita as duas naturezas de horário:
+ *   { id }          → reserva feita no app.
+ *   { data, hora }  → aula da matrícula, que vira uma exceção do dia.
+ * A tela não precisa saber a diferença: manda o que tem.
+ */
 rotas.post('/agenda/cancelar', exigirLogin, (req, res) => {
-  const r = agenda.cancelar(req.aluno, String(req.body.id || ''), req.admin);
+  const id = String(req.body.id || '');
+  const r = id
+    ? agenda.cancelar(req.aluno, id, req.admin)
+    : agenda.desmarcarFixa(req.aluno, String(req.body.data || ''), String(req.body.hora || ''));
   if (!r.ok) return res.status(409).json({ erro: r.motivo });
   res.json({ ok: true });
 });
