@@ -1145,7 +1145,7 @@ function linhaSlot(dia=1, hora=''){
   return `<div class="slot-grade">
     <select class="sg-dia">${DIAS_SEM.map(([v,r])=>
       `<option value="${v}"${v===dia?' selected':''}>${r}</option>`).join('')}</select>
-    <input type="time" class="sg-hora" value="${esc(hora)}">
+    <input type="time" step="3600" class="sg-hora" value="${esc(hora)}">
     <button class="leve sg-remover" aria-label="Remover horário">Remover</button>
   </div>`;
 }
@@ -1369,7 +1369,7 @@ async function carregarGradeDoDia(){
           <option value="">Encaixar aluno…</option>
           ${base.matriculas.map(m=>`<option value="${esc(m.id)}">${esc(m.nome)}</option>`).join('')}
         </select>
-        <input type="time" id="mat-encaixe-hora">
+        <input type="time" step="3600" id="mat-encaixe-hora">
         <button class="leve" id="mat-encaixe-ok">Encaixar</button>
       </div>
       ${dia.horarios.length ? dia.horarios.map(h=>`
@@ -1445,7 +1445,7 @@ function linhaConquista(aulas='', titulo='', emoji=''){
 
 function linhaHorario(dia, hora='', capacidade=''){
   return `<div class="linha-h" data-dia="${dia}">
-    <input type="time" value="${hora}" class="h-hora">
+    <input type="time" step="3600" value="${hora}" class="h-hora">
     <input type="number" min="1" max="200" value="${capacidade}" class="h-cap" placeholder="padrão">
     <button class="leve h-remover" aria-label="Remover horário">Remover</button></div>`;
 }
