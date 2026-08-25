@@ -103,6 +103,9 @@ function agendaDoDia(matriculas, data, excecoes = []) {
     if (e.tipo !== 'extra' || !e.hora) continue;
     const m = matriculas.find((x) => x.id === e.matriculaId);
     if (!m || !m.ativo) continue;
+    // Uma aula extra também pode ser desmarcada depois de encaixada. Sem esta
+    // linha o cancelamento era gravado e ignorado, e a aula continuava na tela.
+    if (cancelou(m.id, e.hora)) continue;
     itens.push({
       hora: e.hora,
       matriculaId: m.id,
