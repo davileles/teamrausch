@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-tema="claro">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Entrada · Wellhub</title>
 <link rel="icon" type="image/png" href="/favicon.png">
-<meta name="theme-color" content="#0E0F11">
+<meta name="theme-color" content="#F2F3F5">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -86,7 +86,8 @@
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 <script>
-/* Tema claro/escuro — escolha do usuário, guardada só neste aparelho.
+/* Tema claro/escuro — claro é o padrão; a escolha do usuário, quando há,
+   vale mais e fica guardada só neste aparelho.
    Roda antes do corpo desenhar para não haver piscada de tema errado. */
 (function(){
   var CHAVE='tr_tema', CLARO='#F2F3F5', ESCURO='#0E0F11';
@@ -97,7 +98,7 @@
     if(m) m.setAttribute('content', claro?CLARO:ESCURO);
   }
   var salvo=null; try{ salvo=localStorage.getItem(CHAVE); }catch(e){}
-  pintar(salvo||'escuro');
+  pintar(salvo||'claro');
   window.alternarTema=function(){
     var novo=document.documentElement.getAttribute('data-tema')==='claro'?'escuro':'claro';
     pintar(novo); try{ localStorage.setItem(CHAVE,novo); }catch(e){}
