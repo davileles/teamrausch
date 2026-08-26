@@ -383,6 +383,17 @@
   .sem-tel{color:var(--amarelo-2);margin:0}
   .nome-antigo{margin:10px 0 0;padding-left:10px;border-left:3px solid var(--linha-2)}
   /* ---- acesso ao app, dentro da ficha do aluno ---- */
+  /* Vínculo com o Wellhub dentro da ficha: mesma caixa do bloco de acesso, para
+     as duas ligações externas do aluno terem o mesmo peso visual. */
+  .mf-wh{margin-top:14px;padding:12px;background:var(--fundo-2);border:1px solid var(--linha)}
+  .mf-wh h4{font:400 12px Anton,sans-serif;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--fraco);margin:0 0 6px}
+  .mf-wh .estado{font:500 13px/1.5 'Work Sans',sans-serif;color:var(--texto);margin:0 0 10px}
+  .mf-wh .estado b{font-weight:700;color:var(--amarelo)}
+  .mf-wh .linha{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+  .mf-wh select{min-width:0}
+  .mf-wh .rodape{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .mf-wh .rodape button{flex:1;min-width:140px}
   .acesso{margin-top:14px;padding:12px;background:var(--fundo-2);border:1px solid var(--linha)}
   .acesso h4{font:400 12px Anton,sans-serif;letter-spacing:.1em;text-transform:uppercase;
     color:var(--fraco);margin:0 0 6px}
@@ -1462,7 +1473,7 @@ function fichaMatricula(m){
          sistema preenche sozinho e o vínculo passa a ser exato. -->
     <div class="campos mf-bloco-wellhub" ${mens?'hidden':''}>
       <input class="mf-wellhub" inputmode="numeric" value="${esc(m.gympassId||'')}"
-        placeholder="Wellhub ID (preenchido no 1º check-in)">
+        placeholder="Wellhub ID (preenchido no 1º check-in)" readonly>
       <!-- Plano no nome de outra pessoa: o portal manda o nome do titular, e é
            por ele que o check-in encontra esta ficha. Preencher aqui também
            trava o nome do aluno contra a renomeação automática. -->
@@ -1471,6 +1482,23 @@ function fichaMatricula(m){
     </div>
     ${m.titularWellhub ? `<p class="ajuda" style="margin:6px 0 0">🔒 Conta do Wellhub em nome de
       <b>${esc(m.titularWellhub)}</b> — o nome desta ficha não é alterado pelo portal.</p>` : ''}
+    <!-- Vínculo com o portal. O ID tem treze dígitos e ninguém decora, então a
+         escolha é por nome numa lista de quem realmente apareceu no Wellhub. -->
+    <div class="mf-wh" ${mens?'hidden':''}>
+      <h4>Cadastro no Wellhub</h4>
+      <p class="estado mf-wh-estado">${m.gympassId
+        ? `Vinculado · <b>${m.checkinsNaFicha||0}</b> check-in(s) nesta ficha`
+        : 'Sem vínculo — os check-ins desta pessoa não contam para ela.'}</p>
+      <div class="linha">
+        <select class="mf-wh-quem"><option value="">Carregando pessoas do portal…</option></select>
+        <button type="button" class="leve mf-wh-ok">Vincular</button>
+      </div>
+      ${m.gympassId ? `<div class="rodape">
+        <button type="button" class="leve mf-wh-tirar">Desvincular e soltar check-ins</button>
+      </div>` : ''}
+      <p class="ajuda" style="margin:8px 0 0">Vincular traz todos os check-ins daquela pessoa
+        para esta ficha, inclusive os que estiverem em outra por engano.</p>
+    </div>
     <div class="campos mf-cobranca" ${mens?'':'hidden'}>
       <select class="mf-ciclo">${['mensal','trimestral','semestral','anual'].map(x=>
         `<option value="${x}"${(m.ciclo||'mensal')===x?' selected':''}>${x[0].toUpperCase()+x.slice(1)}</option>`).join('')}</select>
@@ -1535,7 +1563,10 @@ function lerFicha(el){
     nome: el.querySelector('.mf-nome').value,
     telefone: el.querySelector('.mf-tel').value,
     aniversario: el.querySelector('.mf-nasc').value,
-    gympassId: el.querySelector('.mf-wellhub').value,
+    // `gympassId` não vai no PUT: o vínculo passou a ser feito pelo botão, que
+    // também move os check-ins. Mandar o campo aqui reescreveria o ID sem mexer
+    // no histórico, que é exatamente o descompasso que existia antes.
+
     titularWellhub: el.querySelector('.mf-titular')?.value ?? undefined,
     vinculo: el.querySelector('.mf-vinculo').value,
     experimental: el.querySelector('.mf-exp').checked,
@@ -1548,6 +1579,77 @@ function lerFicha(el){
     corpo.diaVencimento = el.querySelector('.mf-venc').value;
   }
   return corpo;
+}
+
+/**
+ * Vínculo com o portal, dentro da ficha.
+ *
+ * A lista de pessoas vem do histórico de check-ins, e não de um cadastro do
+ * Wellhub: quem nunca apareceu no estúdio não tem o que vincular. Quem já está
+ * em outra ficha aparece com o dono atual entre parênteses — é o que permite
+ * consertar dois alunos que caíram na mesma ficha sem adivinhar números.
+ *
+ * `id` vazio é ficha nova, ainda sem matrícula gravada: aí não há onde pendurar
+ * check-in, e o bloco só volta a valer depois de salvar.
+ */
+async function ligarVinculoWellhub(el, id){
+  const bloco = el.querySelector('.mf-wh');
+  if (!bloco) return;
+  const quem = bloco.querySelector('.mf-wh-quem');
+  const ok = bloco.querySelector('.mf-wh-ok');
+  const tirar = bloco.querySelector('.mf-wh-tirar');
+  const atual = el.querySelector('.mf-wellhub').value.trim();
+
+  if (!id){
+    quem.innerHTML = '<option value="">Salve a ficha para poder vincular</option>';
+    quem.disabled = true; ok.disabled = true;
+    return;
+  }
+
+  try{
+    const r = await api('/matriculas/checkins/pessoas');
+    quem.innerHTML = '<option value="">Escolha a pessoa no Wellhub…</option>' +
+      r.pessoas.map(p=>{
+        const dono = p.matriculaId && p.matriculaId !== id
+          ? ` — hoje em ${p.nomeMatricula || 'outra ficha'}` : '';
+        return `<option value="${esc(p.gympassId)}"${p.gympassId===atual?' selected':''}
+          >${esc(p.nome || 'Sem nome')} · ${p.quantos} check-in(s)${esc(dono)}</option>`;
+      }).join('');
+  }catch(err){
+    quem.innerHTML = `<option value="">Não consegui carregar: ${esc(err.message)}</option>`;
+    return;
+  }
+
+  ok.addEventListener('click', async ()=>{
+    const gympassId = quem.value;
+    if (!gympassId) return avisar('Escolha a pessoa no Wellhub.','erro');
+    if (gympassId === atual) return avisar('Esta pessoa já está vinculada a esta ficha.','');
+    const escolhida = quem.options[quem.selectedIndex].textContent;
+    if (escolhida.includes(' — hoje em ') &&
+      !confirm(`${escolhida.trim()}\n\nTirar dessa ficha e trazer todos os check-ins para cá?`)) return;
+    ok.disabled = true; ok.textContent = 'Vinculando…';
+    try{
+      const r = await api('/matriculas/'+id+'/wellhub',
+        {method:'POST', body: JSON.stringify({gympassId})});
+      avisar(`${r.movidos} check-in(s) trazidos para esta ficha`
+        + (r.tomadoDe ? `, tirados de "${r.tomadoDe}".` : '.'), 'ok');
+      matEstado.aberta = null; await redesenhar();
+    }catch(err){
+      avisar(err.message,'erro');
+      ok.disabled = false; ok.textContent = 'Vincular';
+    }
+  });
+
+  if (tirar) tirar.addEventListener('click', async ()=>{
+    if (!confirm('Desvincular do Wellhub?\n\nOs check-ins voltam a ficar sem aluno '
+      + 'e aparecem na aba Frequência para vincular de novo.')) return;
+    tirar.disabled = true;
+    try{
+      const r = await api('/matriculas/'+id+'/wellhub', {method:'DELETE'});
+      avisar(`Vínculo desfeito · ${r.soltos} check-in(s) soltos.`, 'ok');
+      matEstado.aberta = null; await redesenhar();
+    }catch(err){ avisar(err.message,'erro'); tirar.disabled = false; }
+  });
 }
 
 function ligarFicha(el, id){
@@ -1565,7 +1667,10 @@ function ligarFicha(el, id){
   el.querySelector('.mf-vinculo').addEventListener('change', e=>{
     el.querySelector('.mf-cobranca').hidden = e.target.value !== 'mensalista';
     el.querySelector('.mf-bloco-wellhub').hidden = e.target.value === 'mensalista';
+    const wh = el.querySelector('.mf-wh');
+    if (wh) wh.hidden = e.target.value === 'mensalista';
   });
+  ligarVinculoWellhub(el, id);
   el.querySelector('.mf-cancelar').addEventListener('click', ()=>{
     matEstado.aberta = null; redesenhar();
   });
