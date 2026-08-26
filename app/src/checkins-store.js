@@ -168,11 +168,38 @@ function normalizarNome(nome) {
 }
 
 /**
+ * Nomes pelos quais uma ficha pode ser reconhecida no portal.
+ *
+ * Normalmente é só o nome do aluno. Quando o plano está no nome de outra pessoa,
+ * `titularWellhub` guarda o nome que o Wellhub manda — é sempre 1 para 1, uma
+ * conta para um aluno, então esse nome identifica a ficha sem ambiguidade.
+ */
+function nomesDaFicha(m) {
+  return [
+    { nome: normalizarNome(m.nome), via: 'nome' },
+    { nome: normalizarNome(m.titularWellhub), via: 'titular' },
+  ].filter((x) => x.nome);
+}
+
+/** Primeiro + último nome, que é como o portal costuma abreviar. */
+function abreviar(nomeNormalizado) {
+  const p = String(nomeNormalizado || '').split(' ');
+  return p.length >= 2 ? `${p[0]} ${p[p.length - 1]}` : null;
+}
+
+/** Por qual dos nomes da ficha o alvo casou — ou null. */
+function viaNome(m, alvo, curto = false) {
+  const achado = nomesDaFicha(m)
+    .find((x) => (curto ? abreviar(x.nome) : x.nome) === alvo);
+  return achado ? achado.via : null;
+}
+
+/**
  * Acha a matrícula de um check-in. Devolve `{ matricula, via }` ou null.
  *
- * Ordem: id do Wellhub já gravado na matrícula, depois nome exato. O nome só
- * vale quando é de um único aluno ativo — dois "Ana Paula" na base derrubam a
- * tentativa em vez de sortear um.
+ * Ordem: id do Wellhub já gravado na matrícula, depois nome exato — do aluno ou
+ * do titular da conta. O nome só vale quando é de um único aluno ativo — dois
+ * "Ana Paula" na base derrubam a tentativa em vez de sortear um.
  */
 function acharMatricula(reg) {
   const lista = matriculas.listar();
@@ -185,20 +212,19 @@ function acharMatricula(reg) {
   const alvo = normalizarNome(reg.nome);
   if (!alvo) return null;
 
-  const candidatos = lista.filter((m) => m.ativo && normalizarNome(m.nome) === alvo);
-  if (candidatos.length === 1) return { matricula: candidatos[0], via: 'nome' };
+  const candidatos = lista.filter((m) => m.ativo && viaNome(m, alvo));
+  if (candidatos.length === 1) {
+    return { matricula: candidatos[0], via: viaNome(candidatos[0], alvo) };
+  }
 
   // Nome não bate exato: tenta primeiro + último sobrenome, que é como o
   // portal costuma abreviar. Ainda exigindo candidato único.
-  const partes = alvo.split(' ');
-  if (partes.length >= 2) {
-    const curto = `${partes[0]} ${partes[partes.length - 1]}`;
-    const porCurto = lista.filter((m) => {
-      const n = normalizarNome(m.nome).split(' ');
-      if (n.length < 2) return false;
-      return m.ativo && `${n[0]} ${n[n.length - 1]}` === curto;
-    });
-    if (porCurto.length === 1) return { matricula: porCurto[0], via: 'nome' };
+  const curto = abreviar(alvo);
+  if (curto) {
+    const porCurto = lista.filter((m) => m.ativo && viaNome(m, curto, true));
+    if (porCurto.length === 1) {
+      return { matricula: porCurto[0], via: viaNome(porCurto[0], curto, true) };
+    }
   }
 
   return null;
@@ -215,14 +241,17 @@ function vincularAutomatico(reg) {
   reg.matriculaId = achado.matricula.id;
   reg.vinculadoPor = achado.via;
 
-  // Casou pelo nome: grava o id do Wellhub na matrícula para que a próxima vez
-  // seja exata. É o que transforma um palpite bom em vínculo permanente.
-  if (achado.via === 'nome' && reg.gympassId && !achado.matricula.gympassId) {
+  // Casou pelo nome (do aluno ou do titular da conta): grava o id do Wellhub na
+  // matrícula para que a próxima vez seja exata. É o que transforma um palpite
+  // bom em vínculo permanente.
+  if (achado.via !== 'wellhub-id' && reg.gympassId && !achado.matricula.gympassId) {
     matriculas.definirGympassId(achado.matricula.id, reg.gympassId);
-    log(`${achado.matricula.nome}: Wellhub ID ${reg.gympassId} vinculado pelo nome.`);
+    log(`${achado.matricula.nome}: Wellhub ID ${reg.gympassId} vinculado pelo ${achado.via === 'titular' ? 'titular da conta' : 'nome'}.`);
   }
 
-  adotarNome(achado.matricula.id, reg.nome);
+  // Casou pelo titular: o nome que veio no check-in é de quem assina o plano,
+  // não do aluno. Adotá-lo trocaria o nome da ficha pelo da outra pessoa.
+  if (achado.via !== 'titular') adotarNome(achado.matricula.id, reg.nome);
   // Lido depois de adotarNome, senão o histórico guardaria o nome antigo.
   reg.nomeMatricula = (matriculas.porId(achado.matricula.id) || achado.matricula).nome;
   return true;
@@ -325,8 +354,14 @@ function porId(id) {
   return dados.checkins.find((c) => c.id === id) || null;
 }
 
-/** Vínculo manual, feito na tela quando o nome não casou sozinho. */
-function vincular(id, matriculaId) {
+/**
+ * Vínculo manual, feito na tela quando o nome não casou sozinho.
+ *
+ * `comoTitular` é o caso da conta em nome de outra pessoa: em vez de rebatizar
+ * o aluno com o nome que veio do portal, esse nome vai para `titularWellhub` e
+ * o nome da ficha fica travado.
+ */
+function vincular(id, matriculaId, { comoTitular = false } = {}) {
   const c = dados.checkins.find((x) => x.id === id);
   if (!c) return { ok: false, motivo: 'Check-in não encontrado.' };
   const m = matriculas.porId(matriculaId);
@@ -346,7 +381,12 @@ function vincular(id, matriculaId) {
   // `m` é a referência viva do store: renomear altera `m.nome` no lugar, então
   // o nome anterior é copiado antes da chamada.
   const nomeAntes = m.nome;
-  adotarNome(m.id, c.nome);
+  if (comoTitular) {
+    matriculas.definirTitular(m.id, c.nome);
+    log(`${m.nome}: conta do Wellhub em nome de ${c.nome} — nome da ficha travado.`);
+  } else {
+    adotarNome(m.id, c.nome);
+  }
   const nomeAtual = m.nome;
   c.nomeMatricula = nomeAtual;
 
@@ -363,7 +403,10 @@ function vincular(id, matriculaId) {
   }
 
   gravar();
-  return { ok: true, checkin: c, arrastados, nome: nomeAtual, renomeado: nomeAtual !== nomeAntes };
+  return {
+    ok: true, checkin: c, arrastados, nome: nomeAtual,
+    renomeado: nomeAtual !== nomeAntes, titular: comoTitular ? c.nome : null,
+  };
 }
 
 /** Desfaz o vínculo (id do Wellhub trocado de dono, erro de digitação). */
