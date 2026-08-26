@@ -337,6 +337,17 @@ function renomearDoWellhub(id, nomeDoPortal) {
   if (m.nomeWellhub === literal) return { ok: true, mudou: false };
   m.nomeWellhub = literal;
 
+  // Conta do Wellhub em nome de outra pessoa (pai, mãe, cônjuge): o portal manda
+  // o nome de quem assina o plano, mas quem treina é o aluno desta ficha.
+  // `nomeTravado` guarda essa decisão para sempre — sem ela, o próximo check-in
+  // (ou o `aplicar-nomes`) rebatizaria o aluno com o nome do titular.
+  if (m.nomeTravado) {
+    if (!m.titularWellhub) m.titularWellhub = literal;
+    m.atualizadoEm = new Date().toISOString();
+    gravar();
+    return { ok: true, mudou: false, travado: true };
+  }
+
   const novo = arrumarCaixa(literal);
   if (!novo || novo === m.nome) { gravar(); return { ok: true, mudou: false }; }
 
@@ -355,6 +366,33 @@ function renomearDoWellhub(id, nomeDoPortal) {
   m.atualizadoEm = new Date().toISOString();
   gravar();
   return { ok: true, mudou: true, de: antes, para: novo };
+}
+
+/**
+ * Marca a ficha como conta de terceiro: o plano do Wellhub está no nome do
+ * titular e quem treina é este aluno. É sempre 1 para 1 — uma conta, um aluno —
+ * então o nome do titular vira mais uma chave de reconhecimento do check-in,
+ * ao lado do `gympassId`.
+ *
+ * Grava `nomeWellhub` junto para que `renomearDoWellhub` já considere esse nome
+ * processado, e trava o nome do aluno contra a adoção automática.
+ */
+function definirTitular(id, nomeDoTitular, { travar = true } = {}) {
+  const m = porId(id);
+  if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+
+  const literal = String(nomeDoTitular || '').trim().replace(/\s+/g, ' ');
+  if (literal) {
+    m.titularWellhub = literal;
+    m.nomeWellhub = literal;
+    m.nomeTravado = Boolean(travar);
+  } else {
+    delete m.titularWellhub;
+    delete m.nomeTravado;
+  }
+  m.atualizadoEm = new Date().toISOString();
+  gravar();
+  return { ok: true, matricula: m };
 }
 
 function comMesmoNome(nome, exceto) {
@@ -379,6 +417,11 @@ function criar(campos = {}) {
     nome,
     telefone: String(campos.telefone || '').trim() || null,
     gympassId: String(campos.gympassId || '').trim() || null,
+    // Nome de quem assina o plano, quando não é o próprio aluno.
+    titularWellhub: String(campos.titularWellhub || '').trim() || null,
+    nomeTravado: campos.nomeTravado === undefined
+      ? Boolean(String(campos.titularWellhub || '').trim())
+      : Boolean(campos.nomeTravado),
     aniversario: null,   // preenchido logo abaixo, com validação
     ativo: campos.ativo === undefined ? true : Boolean(campos.ativo),
     // Aula experimental: a pessoa já treina e já tem ficha, mas o horário fixo
@@ -475,6 +518,15 @@ function atualizar(id, campos = {}) {
   if (campos.gympassId !== undefined) {
     const r = definirGympassId(id, campos.gympassId);
     if (!r.ok) return r;
+  }
+  // Preencher o titular já trava o nome; esvaziar o campo devolve a ficha ao
+  // comportamento normal (o portal volta a poder corrigir o nome do aluno).
+  if (campos.titularWellhub !== undefined) {
+    definirTitular(id, campos.titularWellhub);
+  }
+  if (campos.nomeTravado !== undefined) {
+    if (campos.nomeTravado) m.nomeTravado = true;
+    else delete m.nomeTravado;
   }
   if (campos.aniversario !== undefined) {
     const r = aplicarAniversario(m, campos.aniversario);
@@ -695,6 +747,10 @@ function importar(lista, { substituir = false } = {}) {
       nome,
       telefone: String(bruta.telefone || '').trim() || null,
       gympassId: String(bruta.gympassId || '').trim() || null,
+      titularWellhub: String(bruta.titularWellhub || '').trim() || null,
+      nomeTravado: bruta.nomeTravado === undefined
+        ? Boolean(String(bruta.titularWellhub || '').trim())
+        : Boolean(bruta.nomeTravado),
       aniversario: aniversario.normalizar(bruta.aniversario),
       ativo: bruta.ativo === undefined ? true : Boolean(bruta.ativo),
       vinculo,
@@ -735,6 +791,7 @@ function resumo() {
     experimentais: ativas.filter((m) => m.experimental).length,
     // Wellhub sem id é aluno cujo check-in ainda não tem onde cair.
     semWellhubId: ativas.filter((m) => m.vinculo === 'wellhub' && !m.gympassId).length,
+    contasDeTerceiro: ativas.filter((m) => m.titularWellhub).length,
     semAniversario: ativas.filter((m) => !m.aniversario).length,
     aRevisar: dados.matriculas.filter((m) => (m.revisar || []).length).length,
     excecoes: dados.excecoes.length,
@@ -749,7 +806,8 @@ semear()
 setInterval(() => limparAntigas(), 24 * 3600000).unref();
 
 module.exports = {
-  listar, porId, porTelefone, porGympassId, definirGympassId, renomearDoWellhub, arrumarCaixa,
+  listar, porId, porTelefone, porGympassId, definirGympassId, definirTitular,
+  renomearDoWellhub, arrumarCaixa,
   criar, atualizar, inativar, remover,
   excecoes, registrarExcecao, apagarExcecao,
   importar, resumo, backup, normalizarHorarios, horaCheia, complementarTelefones,
