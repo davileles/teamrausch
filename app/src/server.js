@@ -250,6 +250,25 @@ app.get('/matriculas/telefones/aplicar', async (req, res) => {
   }
 });
 
+/* Reaplica `teamrausch/wellhub-ids.json` (repo privado) nas fichas que ainda
+   estão sem Wellhub ID. Nunca sobrescreve vínculo existente. Roda sozinho no
+   boot; isto é para rodar de novo depois de acrescentar IDs ao arquivo, sem
+   esperar deploy. Protegido por PANEL_TOKEN. */
+app.all('/matriculas/wellhub/aplicar', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  try {
+    const r = await matriculas.complementarWellhubIds();
+    // Órfão do mesmo ID passa a ter dono: sem esta passada, o histórico só
+    // ligaria no próximo check-in da pessoa.
+    const religados = checkinsStore.revincularOrfaos();
+    res.json({ ...r, religados });
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
 /* ---------------------------------------------------------------------------
    Poller do portal Wellhub — estado, chave liga/desliga e ciclo sob demanda
    Tudo protegido por PANEL_TOKEN. Aceita GET para abrir direto do navegador.
