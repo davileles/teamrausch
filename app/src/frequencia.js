@@ -117,15 +117,17 @@ function metaDoMes(matricula) {
  *   ou três dias sem exigência nenhuma. O mês tem 30 ou 31 dias, e o aluno tem
  *   até o último deles para fechar o pacote.
  */
-function devidoAteAgora(matricula, ate) {
-  const meta = metaDoMes(matricula);
+function devidoAteAgora(matricula, ate, metaOverride) {
+  const meta = metaOverride !== undefined ? Number(metaOverride) : metaDoMes(matricula);
   if (!meta) return 0;
-  const porSemana = Math.min(grade.diasPorSemana(matricula), TETO_SEMANAL);
-  const dia = Number(String(ate).slice(8, 10));
-
   if (ate >= fimDoMes(ate)) return meta;
+
+  const dia = Number(String(ate).slice(8, 10));
   const cotas = Math.min(Math.floor(dia / 7), SEMANAS_NO_MES - 1);
-  return Math.min(cotas * porSemana, meta);
+  // Fração de cota arredonda para baixo: numa conta dividida a fatia pode ser 7,
+  // e 7/4 por semana não é inteiro. Cobrar 2 na primeira semana de quem deve
+  // 1,75 seria adiantar exigência que o mês ainda vai equilibrar.
+  return Math.min(Math.floor((meta * cotas) / SEMANAS_NO_MES), meta);
 }
 
 /**
@@ -143,15 +145,14 @@ function diasRestantes(ate) {
 }
 
 /** Onde vence a próxima cota e quanto ela exige. Null quando o mês já fechou. */
-function proximoMarco(matricula, ate) {
-  const meta = metaDoMes(matricula);
+function proximoMarco(matricula, ate, metaOverride) {
+  const meta = metaOverride !== undefined ? Number(metaOverride) : metaDoMes(matricula);
   if (!meta || ate >= fimDoMes(ate)) return null;
-  const porSemana = Math.min(grade.diasPorSemana(matricula), TETO_SEMANAL);
   const dia = Number(String(ate).slice(8, 10));
   const cotas = Math.min(Math.floor(dia / 7), SEMANAS_NO_MES - 1);
 
   const proxima = cotas + 1;
-  const exigido = Math.min(proxima * porSemana, meta);
+  const exigido = Math.min(Math.floor((meta * proxima) / SEMANAS_NO_MES), meta);
   const data = proxima >= SEMANAS_NO_MES
     ? fimDoMes(ate)
     : `${String(ate).slice(0, 8)}${String(proxima * 7).padStart(2, '0')}`;
@@ -200,6 +201,102 @@ function aulasPrevistas(matricula, excecoes, { de, ate }) {
   return out;
 }
 
+/* ------------------------- conta compartilhada --------------------------- */
+
+/**
+ * Reparte um total inteiro entre pesos, pelo método do maior resto.
+ *
+ * Proporção pura devolve fração, e check-in não se parte: 12 sobre pesos 3 e 2
+ * dá 7,2 e 4,8. Arredondar cada um por conta própria daria 7 e 5 aqui, mas 8 e
+ * 5 noutro caso — treze de uma conta que rende doze. O maior resto distribui as
+ * sobras uma a uma e fecha exatamente no total.
+ */
+function repartir(pesos, total) {
+  const soma = pesos.reduce((s, p) => s + p, 0);
+  if (!soma || !total) return pesos.map(() => 0);
+
+  const exatos = pesos.map((p) => (p * total) / soma);
+  const cotas = exatos.map(Math.floor);
+  let sobra = total - cotas.reduce((s, x) => s + x, 0);
+
+  // Maior resto primeiro; empate vai para a grade maior, que é quem tem mais
+  // aula prevista para usar a vaga.
+  const ordem = exatos
+    .map((x, i) => ({ i, resto: x - Math.floor(x), peso: pesos[i] }))
+    .sort((a, b) => b.resto - a.resto || b.peso - a.peso);
+
+  for (const item of ordem) {
+    if (sobra <= 0) break;
+    cotas[item.i] += 1;
+    sobra -= 1;
+  }
+  return cotas;
+}
+
+/**
+ * Distribui as datas da conta entre os participantes, intercalando.
+ *
+ * Dar os sete primeiros ao titular e os cinco últimos à outra pessoa fecharia a
+ * mesma conta no fim do mês, mas no dia 14 um apareceria em dia e o outro
+ * zerado — e a régua de marcos existe justamente para cobrar no meio do
+ * caminho. Intercalar mantém os dois no mesmo ritmo.
+ *
+ * A escolha de cada data vai para quem tem o maior crédito acumulado (round
+ * robin ponderado): com cotas 7 e 5 a sequência sai A,B,A,A,B,A,B,A,A,B,A,B —
+ * proporcional em qualquer ponto do mês, não só no fim.
+ */
+function intercalar(datas, cotas) {
+  const total = cotas.reduce((s, x) => s + x, 0);
+  const saida = cotas.map(() => []);
+  if (!total) return saida;
+
+  const credito = cotas.map(() => 0);
+  const restante = cotas.slice();
+  const ordenadas = [...datas].sort();
+
+  for (const data of ordenadas) {
+    for (let i = 0; i < cotas.length; i += 1) credito[i] += cotas[i] / total;
+
+    let escolhido = -1;
+    for (let i = 0; i < cotas.length; i += 1) {
+      if (restante[i] <= 0) continue;
+      if (escolhido === -1 || credito[i] > credito[escolhido]) escolhido = i;
+    }
+    // Todas as cotas cheias: o que passa disso é excedente da conta e não conta
+    // para ninguém — o Wellhub não repassa além do teto.
+    if (escolhido === -1) break;
+
+    saida[escolhido].push(data);
+    credito[escolhido] -= 1;
+    restante[escolhido] -= 1;
+  }
+  return saida;
+}
+
+/**
+ * Divide uma conta do Wellhub entre o titular e quem treina junto.
+ *
+ * @param participantes  [titular, ...dependentes] — o titular vem primeiro
+ * @param datasDaConta   datas de check-in do Wellhub ID do titular
+ * @returns Map matriculaId → { datas, meta, cota, peso }
+ */
+function repartirConta(participantes, datasDaConta = []) {
+  const pesos = participantes.map((m) => grade.diasPorSemana(m));
+  const somaSemanal = pesos.reduce((s, p) => s + p, 0);
+  // A conta rende no máximo três por semana, some a grade de quantos for: é uma
+  // assinatura só, e o teto do repasse é dela, não de cada pessoa.
+  const metaConta = Math.min(somaSemanal, TETO_SEMANAL) * SEMANAS_NO_MES;
+
+  const cotas = repartir(pesos, metaConta);
+  const fatias = intercalar([...new Set(datasDaConta)], cotas);
+
+  const mapa = new Map();
+  participantes.forEach((m, i) => {
+    mapa.set(m.id, { datas: fatias[i], meta: cotas[i], cota: cotas[i], peso: pesos[i] });
+  });
+  return mapa;
+}
+
 /**
  * Situação de uma matrícula na janela.
  *
@@ -234,9 +331,10 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
   const feitasMes = [...new Set(
     datasFeitas.filter((d) => d >= primeiroDoMes && d <= ate))].sort();
 
-  const metaMes = metaDoMes(matricula);
+  // Conta compartilhada: a meta vem da fatia da conta, não da grade da ficha.
+  const metaMes = opcoes.metaMes !== undefined ? Number(opcoes.metaMes) : metaDoMes(matricula);
   const faltamNoMes = Math.max(metaMes - feitasMes.length, 0);
-  const devido = devidoAteAgora(matricula, ate);
+  const devido = devidoAteAgora(matricula, ate, metaMes);
   const saldoRitmo = feitasMes.length - devido;
 
   // Viabilidade do fechamento: o marco da semana pode estar em dia e o mês já
@@ -300,7 +398,9 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
       devido,
       saldoRitmo,
       atrasoNoRitmo: Math.max(devido - feitasMes.length, 0),
-      proximoMarco: proximoMarco(matricula, ate),
+      proximoMarco: proximoMarco(matricula, ate, metaMes),
+      // Conta dividida: quanto da assinatura do titular é desta ficha.
+      conta: opcoes.conta || null,
       // `no-limite`: só fecha vindo todos os dias que sobraram.
       // `impossivel`: não fecha mais, faça o que fizer.
       diasRestantes: restantes,
@@ -364,6 +464,54 @@ const ORDEM = { critico: 0, atrasado: 1, experimental: 2, 'sem-aula': 3,
   'em-dia': 4, quitado: 5, 'sem-grade': 6 };
 
 /**
+ * Monta a divisão de todas as contas compartilhadas da base.
+ *
+ * Os check-ins ficam gravados na ficha do titular — é dele o Wellhub ID e é ele
+ * quem passa no portal. Aqui a lista dele é repartida entre quem treina na mesma
+ * assinatura, e cada um recebe a fatia com a meta correspondente.
+ *
+ * @returns Map matriculaId → { datas, meta, conta } — só para quem está em grupo
+ */
+function dividirContas(matriculas, mapaDatas) {
+  const fora = new Map();
+  const ativos = matriculas.filter((m) => m.ativo);
+
+  const porTitular = new Map();
+  for (const m of ativos) {
+    if (!m.contaDe) continue;
+    if (!porTitular.has(m.contaDe)) porTitular.set(m.contaDe, []);
+    porTitular.get(m.contaDe).push(m);
+  }
+
+  for (const [titularId, dependentes] of porTitular) {
+    const titular = ativos.find((m) => m.id === titularId);
+    // Titular inativo ou apagado: os dependentes voltam a ser avaliados
+    // sozinhos, o que os deixa devendo — e é justamente o sinal de que a conta
+    // precisa ser reapontada.
+    if (!titular) continue;
+
+    const participantes = [titular, ...dependentes];
+    const repartido = repartirConta(participantes, mapaDatas.get(titularId) || []);
+
+    for (const p of participantes) {
+      const r = repartido.get(p.id);
+      fora.set(p.id, {
+        datas: r.datas,
+        meta: r.meta,
+        conta: {
+          titularId,
+          titular: titular.nome,
+          ehTitular: p.id === titularId,
+          cota: r.cota,
+          participantes: participantes.map((x) => x.nome),
+        },
+      });
+    }
+  }
+  return fora;
+}
+
+/**
  * Painel completo. `mapaDatas` é o Map matriculaId → datas de `checkins-store`.
  *
  * Por padrão avalia só quem é Wellhub: mensalista não faz check-in no portal,
@@ -372,9 +520,18 @@ const ORDEM = { critico: 0, atrasado: 1, experimental: 2, 'sem-aula': 3,
  */
 function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
   const vinculo = opcoes.vinculo === undefined ? 'wellhub' : opcoes.vinculo;
+  const divisao = dividirContas(matriculas, mapaDatas);
+
   const lista = matriculas
     .filter((m) => m.ativo && (!vinculo || m.vinculo === vinculo))
-    .map((m) => avaliar(m, mapaDatas.get(m.id) || [], excecoes, opcoes));
+    .map((m) => {
+      const fatia = divisao.get(m.id);
+      // Sem conta compartilhada nada muda: `fatia` é undefined e o aluno é
+      // avaliado pela própria grade, como sempre foi.
+      return fatia
+        ? avaliar(m, fatia.datas, excecoes, { ...opcoes, metaMes: fatia.meta, conta: fatia.conta })
+        : avaliar(m, mapaDatas.get(m.id) || [], excecoes, opcoes);
+    });
 
   lista.sort((a, b) =>
     (ORDEM[a.situacao] - ORDEM[b.situacao]) ||
@@ -440,7 +597,7 @@ function devedores(painelPronto) {
 
 module.exports = {
   avaliar, painel, devedores, aulasPrevistas, metaDoMes, devidoAteAgora, proximoMarco,
-  diasRestantes,
+  diasRestantes, repartirConta, dividirContas, repartir, intercalar,
   hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes,
   TOLERANCIA_MIN, SEMANAS_NO_MES, TETO_SEMANAL,
 };
