@@ -48,6 +48,8 @@ const FUSO = process.env.TZ_ESTUDIO || 'America/Sao_Paulo';
 const TOLERANCIA_MIN = Number(process.env.FREQ_TOLERANCIA_MIN || 90);
 /** Semanas cobradas num mês, do jeito que o pacote é vendido. */
 const SEMANAS_NO_MES = Number(process.env.FREQ_SEMANAS_MES || 4);
+/** Teto de check-ins por semana que o Wellhub repassa (12 no mês ÷ 4 semanas). */
+const TETO_SEMANAL = Number(process.env.FREQ_TETO_SEMANAL || 3);
 
 function hojeLocal() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -75,19 +77,26 @@ function fimDoMes(data) {
 }
 
 /**
- * Meta do mês: o combinado semanal multiplicado por quatro.
+ * Meta do mês: o combinado semanal multiplicado por quatro, limitado a 12.
  *
  * O pacote é vendido assim — 1x por semana são 4 no mês, 2x são 8, 3x são 12 —
  * e não por dia de calendário. Contar as ocorrências reais de cada dia da
  * semana daria 13 para quem treina segunda, quarta e sexta em agosto (que tem
  * cinco segundas), cobrando um treino que o aluno não contratou.
  *
+ * O TETO DE TRÊS POR SEMANA É FINANCEIRO, NÃO DE TREINO
+ *   O Wellhub repassa no máximo 12 check-ins por mês. Quem treina de segunda a
+ *   sexta continua vindo cinco vezes, mas do 13º check-in em diante não entra
+ *   nada — essas aulas o aluno paga direto ao estúdio. Cobrar 20 check-ins dele
+ *   seria cobrar oito que não geram receita nenhuma.
+ *
  * Vem da grade, e não de um número guardado na ficha: `diasPorSemana` conta
  * dias distintos, então quem tem dois horários na mesma terça continua sendo
  * 1x por semana.
  */
 function metaDoMes(matricula) {
-  return grade.diasPorSemana(matricula) * SEMANAS_NO_MES;
+  const porSemana = Math.min(grade.diasPorSemana(matricula), TETO_SEMANAL);
+  return porSemana * SEMANAS_NO_MES;
 }
 
 function emMinutos(hora) {
@@ -200,6 +209,10 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
       // `faltam` são o número do fim do mês.
       meta: metaDoMes(matricula),
       faltam: Math.max(metaDoMes(matricula) - feitasMes.length, 0),
+      // Quantos check-ins por semana valem no financeiro, já com o teto
+      // aplicado. A tela usa isto para não parecer que a grade do aluno mudou.
+      porSemanaCobravel: Math.min(grade.diasPorSemana(matricula), TETO_SEMANAL),
+      acimaDoTeto: grade.diasPorSemana(matricula) > TETO_SEMANAL,
     },
     porSemana: grade.diasPorSemana(matricula),
     semGrade: !(matricula.grade || []).length,
@@ -299,5 +312,6 @@ function devedores(painelPronto) {
 
 module.exports = {
   avaliar, painel, devedores, aulasPrevistas, metaDoMes,
-  hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes, TOLERANCIA_MIN, SEMANAS_NO_MES,
+  hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes,
+  TOLERANCIA_MIN, SEMANAS_NO_MES, TETO_SEMANAL,
 };
