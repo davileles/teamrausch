@@ -1901,8 +1901,16 @@ function itemFrequencia(a){
   } else {
     detalhes.push('nenhum check-in registrado');
   }
-  detalhes.push(`${a.porSemana}×/sem combinado`);
-  if (a.mes) detalhes.push(`mês ${a.mes.realizado}/${a.mes.esperado}`);
+  // Grade de 5x com teto de 3: dizer só "5×/sem" faria a meta de 12 parecer
+  // erro de conta. O excedente existe, mas o Wellhub não repassa.
+  detalhes.push(a.mes && a.mes.acimaDoTeto
+    ? `${a.porSemana}×/sem · ${a.mes.porSemanaCobravel}× pelo Wellhub`
+    : `${a.porSemana}×/sem combinado`);
+  if (a.mes && a.mes.meta){
+    detalhes.push(a.mes.faltam
+      ? `faltam ${a.mes.faltam} até ${dataCurta(a.mes.fecha)}`
+      : 'pacote do mês fechado');
+  }
   if (!a.gympassId) detalhes.push('sem Wellhub ID vinculado');
 
   const devendo = a.situacao === 'critico' || a.situacao === 'atrasado';
@@ -1912,7 +1920,8 @@ function itemFrequencia(a){
   return `<div class="freq-item ${esc(a.situacao)}" data-id="${esc(a.matriculaId)}">
     <div class="cabeca">
       <b>${esc(a.nome)}</b>
-      <span class="freq-conta">${a.realizado}/${a.esperado}</span>
+      <span class="freq-conta">${a.mes && a.mes.meta
+        ? `${a.mes.realizado}/${a.mes.meta}` : `${a.realizado}/${a.esperado}`}</span>
     </div>
     <p class="ajuda">${s.marca} ${s.rotulo} · ${detalhes.map(esc).join(' · ')}</p>
     <label class="marcar"><input type="checkbox" class="fq-exp" ${a.experimental?'checked':''}>
@@ -2019,13 +2028,17 @@ async function carregarFrequencia(){
 
     alvo.innerHTML = `
       <p class="ajuda">${cabecalho}
-        O esperado sai da grade de cada aluno, já descontadas as aulas desmarcadas —
-        a aula de hoje só entra na conta depois que o horário passa.</p>
+        O número grande de cada aluno é o pacote do mês: check-ins feitos sobre a meta,
+        que é o combinado semanal vezes quatro, limitado a 12 — o Wellhub não repassa
+        mais do que isso. As situações (crítico, atrasado, em dia) olham a janela curta,
+        para cobrar no meio do caminho em vez de no fechamento.</p>
 
       <div class="freq-cartoes">
         ${cartaoFreq(f.resumo.criticos, 'críticos', 'critico')}
         ${cartaoFreq(f.resumo.atrasados, 'atrasados', 'atrasado')}
         ${cartaoFreq(f.resumo.emDia, 'em dia', 'em-dia')}
+        ${cartaoFreq(f.resumo.faltamMes, 'faltam no mês', f.resumo.faltamMes ? 'atrasado' : 'em-dia')}
+        ${cartaoFreq(`${f.resumo.realizadoMes}/${f.resumo.metaMes}`, 'pacote do mês')}
         ${cartaoFreq(f.checkins.ultimos7, 'check-ins 7d')}
         ${f.resumo.experimentais ? cartaoFreq(f.resumo.experimentais, 'experimentais') : ''}
       </div>
