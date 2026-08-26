@@ -697,8 +697,9 @@
       <input id="in-senha" type="password" autocomplete="current-password" enterkeyhint="go" placeholder="••••••••">
     </div>
     <div class="campo" id="campo-nome" hidden>
-      <label for="in-nome">Como você quer ser chamado</label>
-      <input id="in-nome" type="text" placeholder="Seu nome ou apelido" autocomplete="name">
+      <label for="in-nome">Nome completo</label>
+      <input id="in-nome" type="text" placeholder="Nome e sobrenome" autocomplete="name"
+             enterkeyhint="next">
     </div>
     <div class="campo" id="campo-aniversario" hidden>
       <label for="in-aniversario">Seu aniversário</label>
@@ -837,6 +838,14 @@ inAniversario.addEventListener('input', e=>{
 });
 inAniversario.addEventListener('keydown', e=>{
   if (e.key === 'Enter') document.getElementById('btn-entrar').click();
+});
+
+document.getElementById('in-nome').addEventListener('keydown', e=>{
+  if (e.key !== 'Enter') return;
+  // No primeiro acesso os dois campos aparecem juntos: Enter no nome desce para
+  // o aniversário em vez de tentar confirmar com ele em branco.
+  if (!document.getElementById('campo-aniversario').hidden) inAniversario.focus();
+  else document.getElementById('btn-entrar').click();
 });
 
 /**
