@@ -24,7 +24,30 @@
     --texto:#F5F5F3;--apagado:#A6ABB2;--fraco:#949AA2;--fraco-2:#7B818A;
     --vermelho:#E01F26;--vermelho-esc:#B8161C;--amarelo:#F5C518;--amarelo-2:#C9BE86;
     --amarelo-fundo:#211E12;--liberado:#1B6B4A;
+    /* O que antes estava cravado no meio do CSS e por isso não trocava de tema:
+       bordas tingidas, véus, sombras, e o inverter dos ícones de data. */
+    --borda-amarela:#5A5230;--borda-vermelha:#4A2124;
+    --veu:rgba(0,0,0,.72);--sombra-modal:0 18px 50px rgba(0,0,0,.6);
+    --sombra-fixa:0 -12px 28px rgba(8,9,11,.85);--sombra-aviso:0 8px 30px rgba(0,0,0,.5);
+    --aba-ativa:#fff;--inv-icone:1;
     --raio:2px;
+  }
+  /* ── Tema claro ──────────────────────────────────────────────────────────
+     Mesma marca, outra luz: o preto vira papel, as superfícies ficam ACIMA do
+     fundo em branco puro (no escuro o degrau é para cima, aqui também) e o
+     vermelho e o amarelo escurecem só o suficiente para se lerem sobre claro
+     — amarelo #F5C518 sobre branco é ilegível. Nada além das variáveis muda. */
+  :root[data-tema=claro]{
+    color-scheme:light;
+    --preto:#F2F3F5;--preto-2:#FFFFFF;--superficie:#FFFFFF;--fundo-2:#E9EBEF;--fundo-3:#DDE0E6;
+    --linha:#D6DAE0;--linha-2:#C3C9D1;--linha-3:#A7AEB8;
+    --texto:#15181C;--apagado:#414750;--fraco:#5C636C;--fraco-2:#7A8189;
+    --vermelho:#C8161C;--vermelho-esc:#9E1116;--amarelo:#9A6E00;--amarelo-2:#7E6412;
+    --amarelo-fundo:#FCF6E3;--liberado:#15694A;
+    --borda-amarela:#DCC98B;--borda-vermelha:#EDBFC1;
+    --veu:rgba(21,24,28,.42);--sombra-modal:0 18px 50px rgba(21,24,28,.20);
+    --sombra-fixa:0 -12px 28px rgba(21,24,28,.14);--sombra-aviso:0 8px 30px rgba(21,24,28,.22);
+    --aba-ativa:var(--texto);--inv-icone:0;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   /* A barra de rolagem some quando a aba é curta e volta quando é longa.
@@ -71,7 +94,7 @@
     cursor:pointer;padding:13px 10px 15px;font:400 12px Anton,sans-serif;letter-spacing:.1em;
     text-transform:uppercase;color:var(--fraco);white-space:nowrap;transition:color .15s}
   nav button[aria-selected=false]:hover{color:var(--texto)}
-  nav button[aria-selected=true]{border-top-color:var(--vermelho);color:#fff}
+  nav button[aria-selected=true]{border-top-color:var(--vermelho);color:var(--aba-ativa)}
 
   h2{font:400 26px Anton,sans-serif;letter-spacing:.03em;text-transform:uppercase;margin:26px 0 6px}
   h3{font:400 16px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
@@ -88,7 +111,8 @@
   input[type=date]::-webkit-date-and-time-value,
   input[type=time]::-webkit-date-and-time-value{text-align:left;margin:0}
   input[type=date]::-webkit-calendar-picker-indicator,
-  input[type=time]::-webkit-calendar-picker-indicator{margin-left:auto;opacity:.6;filter:invert(1)}
+  input[type=time]::-webkit-calendar-picker-indicator{margin-left:auto;opacity:.6;
+    filter:invert(var(--inv-icone))}
   input[type=checkbox]{width:auto;min-height:auto;accent-color:var(--vermelho)}
   /* Item de grid tem min-width:auto por padrão e empurra o vizinho para fora. */
   .dupla > *, .gerador .grid > *, .ficha .campos > *, .add-h > *, .linha-c > *{min-width:0}
@@ -151,7 +175,7 @@
   .slot .acoes-slot{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px}
   .slot .acoes-slot .leve{margin-top:0;padding:11px 6px;font-size:11px}
   /* Modo troca: a agenda inteira vira uma escolha de destino. */
-  .faixa-troca{background:var(--amarelo-fundo);border:1px solid #5A5230;
+  .faixa-troca{background:var(--amarelo-fundo);border:1px solid var(--borda-amarela);
     border-left:4px solid var(--amarelo);padding:13px 16px;margin:18px 0}
   .faixa-troca b{display:block;font:400 15px Anton,sans-serif;letter-spacing:.06em;
     text-transform:uppercase;color:var(--amarelo);margin-bottom:4px}
@@ -163,14 +187,14 @@
   .slot.meu .hora{color:var(--amarelo)}
   .slot.meu .conta{color:var(--amarelo)}
   .slot.meu .marcas i.ocupada{background:var(--amarelo);border-color:var(--amarelo)}
-  .slot.meu .leve{border-color:#5A5230;color:var(--amarelo-2)}
+  .slot.meu .leve{border-color:var(--borda-amarela);color:var(--amarelo-2)}
   .slot.meu .leve:hover{border-color:var(--vermelho);color:#fff}
   .slot.indisponivel{background:var(--fundo-2);border-color:var(--linha)}
   .slot.indisponivel .hora{color:var(--fraco-2)}
   .slot .selo{font:400 14px/22px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
     color:var(--fraco-2);border:1px solid var(--linha);padding:11px;min-height:44px}
-  .slot .selo.meu{color:var(--amarelo);border-color:#5A5230}
-  .slot .selo.cheio{color:var(--vermelho);border-color:#4A2124}
+  .slot .selo.meu{color:var(--amarelo);border-color:var(--borda-amarela)}
+  .slot .selo.cheio{color:var(--vermelho);border-color:var(--borda-vermelha)}
 
   /* Faixa da matrícula: frequência contratada e horário padrão, no topo. */
   .minha-matricula{background:var(--superficie);border:1px solid var(--linha-2);
@@ -196,7 +220,7 @@
     border-left:4px solid var(--amarelo);padding:14px 16px;margin-top:12px}
   .lot-detalhe b{font:400 15px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
     color:var(--amarelo);display:block;margin-bottom:2px}
-  .lot-tabela td.cheio{color:var(--vermelho);border-color:#4A2124;font-weight:700}
+  .lot-tabela td.cheio{color:var(--vermelho);border-color:var(--borda-vermelha);font-weight:700}
   .lot-tabela td.fora{background:var(--fundo-2);color:var(--amarelo-2)}
   .lot-legenda{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;
     font:500 12px 'Work Sans',sans-serif;color:var(--fraco)}
@@ -226,10 +250,10 @@
     margin:0 0 16px;padding-top:14px;border-top:1px solid var(--linha);white-space:pre-wrap}
 
   /* Alerta em popup: aparece uma vez por texto novo, ao entrar */
-  .fundo-modal{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:400;
+  .fundo-modal{position:fixed;inset:0;background:var(--veu);z-index:400;
     display:flex;align-items:center;justify-content:center;padding:22px}
   .modal{background:var(--superficie);border:1px solid var(--linha-3);max-width:420px;width:100%;
-    overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+    overflow:hidden;box-shadow:var(--sombra-modal)}
   .modal .topo{background:var(--vermelho);color:#fff;padding:13px 20px;
     font:400 15px Anton,sans-serif;letter-spacing:.12em;text-transform:uppercase}
   .modal .corpo{padding:20px;font:400 15px/1.6 'Work Sans',sans-serif;white-space:pre-wrap;color:var(--texto)}
@@ -305,7 +329,7 @@
   .painel-config .colunas > div{min-width:0}
   /* Salvar sempre à mão: gruda logo acima das abas enquanto o formulário rola. */
   #btn-salvar{position:sticky;bottom:calc(62px + env(safe-area-inset-bottom));z-index:40;
-    box-shadow:0 -12px 28px rgba(8,9,11,.85)}
+    box-shadow:var(--sombra-fixa)}
 
   .nota{background:var(--fundo-2);border:1px solid var(--linha);border-left:4px solid var(--amarelo);
     padding:12px 15px;font:400 13px/1.55 'Work Sans',sans-serif;color:var(--apagado);margin-bottom:16px}
@@ -533,12 +557,12 @@
   .aviso{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));
     transform:translateX(-50%);z-index:300;background:var(--superficie);border:1px solid var(--linha-3);
     color:var(--texto);padding:14px 22px;font:400 15px Anton,sans-serif;letter-spacing:.08em;
-    text-transform:uppercase;max-width:calc(100% - 36px);box-shadow:0 8px 30px rgba(0,0,0,.5)}
+    text-transform:uppercase;max-width:calc(100% - 36px);box-shadow:var(--sombra-aviso)}
   .aviso.ok{background:var(--liberado);border-color:var(--liberado);color:#fff}
   .aviso.erro{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
 
   /* login */
-  .entrada{max-width:420px;margin:0 auto;padding:44px 22px;min-height:100vh;
+  .entrada{position:relative;max-width:420px;margin:0 auto;padding:44px 22px;min-height:100vh;
     display:flex;flex-direction:column;justify-content:center}
   .entrada .logo-login{display:block;width:132px;max-width:44%;height:auto;margin:0 0 34px}
   .entrada .marca{font:400 42px/0.95 Anton,sans-serif;letter-spacing:.01em;text-transform:uppercase;
@@ -603,15 +627,53 @@
     .entrada{padding:22px;min-height:auto}
   }
 
+
+  /* Alternador de tema: o ícone mostra para onde se vai, não onde se está. */
+  .tema{background:transparent;border:1px solid var(--linha-3);color:var(--apagado);
+    border-radius:var(--raio,2px);cursor:pointer;padding:0;width:40px;height:40px;
+    display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+    transition:border-color .15s,color .15s,background .15s}
+  .tema:hover{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
+  .tema svg{display:block}
+  .tema .i-lua{display:none}
+  :root[data-tema=claro] .tema .i-sol{display:none}
+  :root[data-tema=claro] .tema .i-lua{display:block}
+  .cab .eu button.tema{padding:0;width:40px;height:40px;min-height:40px}
+  .entrada .tema{position:absolute;top:18px;right:18px}
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
+<script>
+/* Tema claro/escuro — escolha do usuário, guardada só neste aparelho.
+   Roda antes do corpo desenhar para não haver piscada de tema errado. */
+(function(){
+  var CHAVE='tr_tema', CLARO='#F2F3F5', ESCURO='#0E0F11';
+  function pintar(t){
+    var claro = t==='claro';
+    document.documentElement.setAttribute('data-tema', claro?'claro':'escuro');
+    var m=document.querySelector('meta[name="theme-color"]');
+    if(m) m.setAttribute('content', claro?CLARO:ESCURO);
+  }
+  var salvo=null; try{ salvo=localStorage.getItem(CHAVE); }catch(e){}
+  pintar(salvo||'escuro');
+  window.alternarTema=function(){
+    var novo=document.documentElement.getAttribute('data-tema')==='claro'?'escuro':'claro';
+    pintar(novo); try{ localStorage.setItem(CHAVE,novo); }catch(e){}
+  };
+  document.addEventListener('click',function(ev){
+    var alvo=ev.target&&ev.target.closest?ev.target.closest('.tema'):null;
+    if(alvo){ ev.preventDefault(); window.alternarTema(); }
+  });
+})();
+</script>
 </head>
 <body>
 
 <!-- ======================= LOGIN ======================= -->
 <section id="tela-login" class="entrada">
+  <button class="tema" type="button" aria-label="Alternar tema claro ou escuro" title="Alternar tema claro/escuro"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="i-sol"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.1M12 19.3v2.1M4.5 4.5l1.5 1.5M18 18l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.5 19.5l1.5-1.5M18 6l1.5-1.5"/></g><path class="i-lua" d="M20.2 14.6A8.5 8.5 0 0 1 9.4 3.8 8.7 8.7 0 1 0 20.2 14.6Z"/></svg></button>
   <img src="/logo.png" alt="Team Rausch Studio" class="logo-login">
-  <div class="marca" id="marca-login">Reserve<br>seu <span style="color:#E01F26">horário</span></div>
+  <div class="marca" id="marca-login">Reserve<br>seu <span style="color:var(--vermelho)">horário</span></div>
   <div class="sub" id="sub-login">Seu telefone é sua conta. Sem senha, sem cadastro longo.</div>
 
   <div id="passo-telefone">
@@ -620,7 +682,7 @@
       <input id="in-telefone" type="tel" inputmode="numeric" enterkeyhint="go"
              placeholder="(31) 98888-7777" autocomplete="tel">
     </div>
-    <button class="acao" id="btn-codigo">Entrar</button>
+    <button class="acao" id="btn-codigo">Receber código</button>
   </div>
 
   <div id="passo-codigo" hidden>
@@ -656,6 +718,7 @@
       <h1 id="nome-estudio">Agendamento</h1>
       <div class="eu">
         <small id="quem-sou"></small>
+        <button class="tema" type="button" aria-label="Alternar tema claro ou escuro" title="Alternar tema claro/escuro"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="i-sol"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.1M12 19.3v2.1M4.5 4.5l1.5 1.5M18 18l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.5 19.5l1.5-1.5M18 6l1.5-1.5"/></g><path class="i-lua" d="M20.2 14.6A8.5 8.5 0 0 1 9.4 3.8 8.7 8.7 0 1 0 20.2 14.6Z"/></svg></button>
         <button id="btn-sair-topo" type="button">Sair</button>
       </div>
     </div>
@@ -2224,11 +2287,8 @@ async function carregarFrequencia(){
     const pessoasOrfas = agruparOrfaos(orfaos.checkins);
     // O outro lado do buraco: ficha Wellhub sem conta ligada. Sai da mesma
     // chamada que popula o seletor de alunos, sem pedir nada a mais ao servidor.
-    // `contaDe` também é vínculo: a ficha treina na assinatura de outro aluno e
-    // por isso nunca vai ter Wellhub ID próprio. Sem esta exceção ela ficaria
-    // para sempre na lista de pendências, pedindo algo que já foi resolvido.
     const semConta = base.matriculas
-      .filter(m=>m.ativo && m.vinculo === 'wellhub' && !m.gympassId && !m.contaDe)
+      .filter(m=>m.ativo && m.vinculo === 'wellhub' && !m.gympassId)
       .sort((a,b)=> a.nome.localeCompare(b.nome,'pt-BR'));
     const devendo = f.alunos.filter(a=>a.situacao==='critico'||a.situacao==='atrasado');
     const mostrar = matEstado.freqSo === 'devendo' ? devendo
