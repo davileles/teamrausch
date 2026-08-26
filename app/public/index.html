@@ -2224,8 +2224,11 @@ async function carregarFrequencia(){
     const pessoasOrfas = agruparOrfaos(orfaos.checkins);
     // O outro lado do buraco: ficha Wellhub sem conta ligada. Sai da mesma
     // chamada que popula o seletor de alunos, sem pedir nada a mais ao servidor.
+    // `contaDe` também é vínculo: a ficha treina na assinatura de outro aluno e
+    // por isso nunca vai ter Wellhub ID próprio. Sem esta exceção ela ficaria
+    // para sempre na lista de pendências, pedindo algo que já foi resolvido.
     const semConta = base.matriculas
-      .filter(m=>m.ativo && m.vinculo === 'wellhub' && !m.gympassId)
+      .filter(m=>m.ativo && m.vinculo === 'wellhub' && !m.gympassId && !m.contaDe)
       .sort((a,b)=> a.nome.localeCompare(b.nome,'pt-BR'));
     const devendo = f.alunos.filter(a=>a.situacao==='critico'||a.situacao==='atrasado');
     const mostrar = matEstado.freqSo === 'devendo' ? devendo
