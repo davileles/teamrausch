@@ -99,6 +99,51 @@ function metaDoMes(matricula) {
   return porSemana * SEMANAS_NO_MES;
 }
 
+/**
+ * Quanto o pacote já deveria ter rendido a esta altura do mês.
+ *
+ * O combinado é semanal, então a cobrança também é: quem faz 3x por semana
+ * precisa ter 3 no dia 7, 6 no dia 14, 9 no dia 21 e os 12 no fechamento. Sem
+ * esses marcos, um aluno pode passar três semanas sumido e ainda parecer em dia
+ * porque "ainda dá tempo" — e no dia 28 não dá mais, com quatro reposições
+ * empilhadas numa semana que só tem três vagas.
+ *
+ * A COTA VENCE NO FIM DA SEMANA, NÃO NO COMEÇO
+ *   `Math.floor(dia / 7)` conta semanas fechadas: no dia 26 são três, e o
+ *   exigido é 9. Cobrar 12 no dia 22 seria cobrar uma semana que mal começou.
+ *
+ * A ÚLTIMA COTA VENCE NO ÚLTIMO DIA DO MÊS
+ *   Pela conta de sete em sete, a quarta cota cairia no dia 28 e sobrariam dois
+ *   ou três dias sem exigência nenhuma. O mês tem 30 ou 31 dias, e o aluno tem
+ *   até o último deles para fechar o pacote.
+ */
+function devidoAteAgora(matricula, ate) {
+  const meta = metaDoMes(matricula);
+  if (!meta) return 0;
+  const porSemana = Math.min(grade.diasPorSemana(matricula), TETO_SEMANAL);
+  const dia = Number(String(ate).slice(8, 10));
+
+  if (ate >= fimDoMes(ate)) return meta;
+  const cotas = Math.min(Math.floor(dia / 7), SEMANAS_NO_MES - 1);
+  return Math.min(cotas * porSemana, meta);
+}
+
+/** Onde vence a próxima cota e quanto ela exige. Null quando o mês já fechou. */
+function proximoMarco(matricula, ate) {
+  const meta = metaDoMes(matricula);
+  if (!meta || ate >= fimDoMes(ate)) return null;
+  const porSemana = Math.min(grade.diasPorSemana(matricula), TETO_SEMANAL);
+  const dia = Number(String(ate).slice(8, 10));
+  const cotas = Math.min(Math.floor(dia / 7), SEMANAS_NO_MES - 1);
+
+  const proxima = cotas + 1;
+  const exigido = Math.min(proxima * porSemana, meta);
+  const data = proxima >= SEMANAS_NO_MES
+    ? fimDoMes(ate)
+    : `${String(ate).slice(0, 8)}${String(proxima * 7).padStart(2, '0')}`;
+  return { data, exigido };
+}
+
 function emMinutos(hora) {
   const [h, m] = String(hora || '00:00').split(':').map(Number);
   return (h || 0) * 60 + (m || 0);
@@ -177,6 +222,8 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
 
   const metaMes = metaDoMes(matricula);
   const faltamNoMes = Math.max(metaMes - feitasMes.length, 0);
+  const devido = devidoAteAgora(matricula, ate);
+  const saldoRitmo = feitasMes.length - devido;
 
   // O QUE SE PODE COBRAR NUNCA PASSA DO QUE FALTA NO MÊS
   //   Quem treina de segunda a sexta tem cinco aulas previstas na semana, mas o
@@ -226,13 +273,20 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
       // Aulas previstas na janela que já não geram check-in porque o pacote
       // acabou. Existem, o aluno vem, mas o repasse não cobre.
       forasDoPacote: metaMes ? Math.max(previstas.length - faltamNoMes, 0) : 0,
+      // Ritmo: o que o pacote já deveria ter rendido até hoje, e onde vence a
+      // próxima cota. É daqui que sai a situação do aluno.
+      devido,
+      saldoRitmo,
+      atrasoNoRitmo: Math.max(devido - feitasMes.length, 0),
+      proximoMarco: proximoMarco(matricula, ate),
     },
     porSemana: grade.diasPorSemana(matricula),
     semGrade: !(matricula.grade || []).length,
     esperado,
     realizado,
     saldo,
-    situacao: classificar(saldo, esperado, matricula, { metaMes, faltamNoMes }),
+    situacao: classificar(saldo, esperado, matricula,
+      { metaMes, faltamNoMes, saldoRitmo }),
     previstas,
     datas: feitas,
     ultimoCheckin: ultimo,
@@ -255,6 +309,16 @@ function classificar(saldo, esperado, matricula, mes = {}) {
   // Fica antes do saldo de propósito — é o estado final do ciclo, e cobrar
   // alguém que já entregou tudo é o erro mais caro que esta tela pode cometer.
   if (mes.metaMes && mes.faltamNoMes === 0) return 'quitado';
+
+  // QUEM TEM PACOTE É JULGADO PELO RITMO DO MÊS, NÃO PELA JANELA DE SETE DIAS
+  //   A janela responde "veio esta semana?"; o pacote responde "vai fechar o
+  //   mês?". São perguntas diferentes, e a segunda é a que custa dinheiro: um
+  //   aluno pode ter vindo ontem e ainda estar duas cotas atrás, com mais
+  //   reposições pendentes do que dias úteis restantes.
+  if (mes.metaMes) {
+    if (mes.saldoRitmo >= 0) return 'em-dia';
+    return mes.saldoRitmo <= -2 ? 'critico' : 'atrasado';
+  }
   if (!esperado) return 'sem-aula';       // janela sem nenhuma aula prevista
   if (saldo >= 0) return 'em-dia';
   return saldo <= -2 ? 'critico' : 'atrasado';
@@ -329,7 +393,7 @@ function devedores(painelPronto) {
 }
 
 module.exports = {
-  avaliar, painel, devedores, aulasPrevistas, metaDoMes,
+  avaliar, painel, devedores, aulasPrevistas, metaDoMes, devidoAteAgora, proximoMarco,
   hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes,
   TOLERANCIA_MIN, SEMANAS_NO_MES, TETO_SEMANAL,
 };
