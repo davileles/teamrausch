@@ -49,10 +49,13 @@ const matriculas = require('./matriculas-store');
 const DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ARQUIVO = path.join(DIR, 'checkins.json');
 const CAMINHO_BACKUP = process.env.GITHUB_PATH_CHECKINS || 'teamrausch/checkins.json';
+const CAMINHO_HISTORICO = process.env.GITHUB_PATH_CHECKINS_HISTORICO
+  || 'teamrausch/checkins-historico.json';
 const FUSO = process.env.TZ_ESTUDIO || 'America/Sao_Paulo';
 const RETENCAO_DIAS = Number(process.env.CHECKINS_RETENCAO_DIAS || 400);
 
 const backup = backupGithub.criar(CAMINHO_BACKUP, 'Check-ins Wellhub');
+const fonteHistorico = backupGithub.criar(CAMINHO_HISTORICO, 'Histórico de check-ins');
 
 let dados = { checkins: [] };
 let pendente = null;
@@ -242,6 +245,30 @@ function acharMatricula(reg) {
     }
   }
 
+  // Ficha cadastrada com o nome curto: "Aender" contra "Aender Soares Quaresma".
+  // Boa parte da base veio assim da planilha do estúdio, e essas fichas nunca
+  // casariam pelas duas regras acima — o aluno treinaria o mês inteiro e todo
+  // check-in dele ficaria órfão.
+  //
+  // A regra é conter, não parecer: todas as palavras da ficha têm de aparecer
+  // no nome do portal. "Erika Ribeiro" casa com "Erika Cristina Silva Ribeiro";
+  // "Erika Fonseca" não. Candidato único, senão desiste — duas fichas "Ana" na
+  // base derrubam a tentativa em vez de creditar treino na pessoa errada.
+  //
+  // Só entre fichas Wellhub: mensalista não faz check-in no portal, e sem esse
+  // filtro uma ficha "Regina" abraçaria a "Sonia Regina" de outra pessoa.
+  const palavrasAlvo = new Set(alvo.split(' '));
+  const contido = (nome) => {
+    const p = String(nome || '').split(' ').filter(Boolean);
+    return p.length > 0 && p.every((x) => palavrasAlvo.has(x));
+  };
+  const porConter = lista.filter((m) => m.ativo && m.vinculo === 'wellhub' &&
+    nomesDaFicha(m).some((x) => contido(x.nome)));
+  if (porConter.length === 1) {
+    const achado = nomesDaFicha(porConter[0]).find((x) => contido(x.nome));
+    return { matricula: porConter[0], via: achado.via };
+  }
+
   return null;
 }
 
@@ -314,6 +341,9 @@ function registrar(bruto, origem = 'portal') {
   const gympassId = String(bruto.gympassId ?? bruto.gympass_id ?? '').trim() || null;
   const criadoEm = bruto.criadoEm || bruto.checked_in_at || new Date().toISOString();
   const data = bruto.data || dataLocal(criadoEm);
+  // A planilha do Wellhub já vem com data e hora locais; converter de novo
+  // jogaria o check-in das 05:54 para 02:54.
+  const hora = bruto.hora || horaLocal(criadoEm);
 
   const jaTem = gympassId ? existente(gympassId, data) : null;
   if (jaTem) {
@@ -329,7 +359,7 @@ function registrar(bruto, origem = 'portal') {
     nome: bruto.nome || null,
     produto: bruto.produto || null,
     data,
-    hora: horaLocal(criadoEm),
+    hora,
     criadoEm,
     registradoEm: new Date().toISOString(),
     origem,
@@ -501,6 +531,51 @@ function revincularOrfaos() {
   return { ligados, restantes: dados.checkins.filter((c) => !c.matriculaId).length };
 }
 
+/* ---------------------------- backfill do mês ----------------------------- */
+
+/**
+ * Traz para o histórico os check-ins que aconteceram antes do poller existir.
+ *
+ * O poller só começou a gravar em 25/08; o relatório do portal ("Detalhes do
+ * check-in") tem o mês inteiro. Sem este backfill não há como responder quantos
+ * treinos faltam até o dia 31 — metade do mês simplesmente não existe na base.
+ *
+ * FONTE: `teamrausch/checkins-historico.json` no repositório privado, no
+ * formato `{ checkins: [{ gympassId, nome, data, hora, produto, criadoEm }] }`.
+ * Editar o backup `checkins.json` direto não funcionaria: o volume é a fonte de
+ * verdade e o próximo `gravar()` sobrescreveria o que fosse colocado lá à mão.
+ *
+ * SEGURO DE RODAR DE NOVO: `registrar` deduplica por `gympassId|data`, então
+ * repetir a importação não cria linha nova nem desfaz vínculo feito na tela.
+ * Roda no boot e sob demanda pelo endpoint `/wellhub/checkins/importar-historico`.
+ */
+async function importarHistorico() {
+  if (!fonteHistorico.ligado) {
+    return { ok: false, motivo: 'Defina GITHUB_TOKEN e GITHUB_REPO para ler o histórico.' };
+  }
+  const remoto = await fonteHistorico.baixar();
+  const lista = remoto && Array.isArray(remoto.checkins) ? remoto.checkins : [];
+  if (!lista.length) return { ok: true, noArquivo: 0, novos: 0, repetidos: 0, semVinculo: 0 };
+
+  const r = registrarLote(lista, 'planilha');
+  const orfaos = dados.checkins.filter((x) => !x.matriculaId);
+  const resultado = {
+    ok: true,
+    noArquivo: lista.length,
+    novos: r.novos,
+    repetidos: r.repetidos,
+    semVinculo: r.semVinculo,
+    orfaosNaBase: orfaos.length,
+    // Uma linha por pessoa, não por check-in: são 20 nomes para resolver na
+    // tela, não 200 registros para ler no log.
+    pessoasSemVinculo: [...new Map(orfaos.map((x) => [String(x.gympassId), x.nome])).entries()]
+      .map(([gympassId, nome]) => ({ gympassId, nome }))
+      .sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR')),
+  };
+  log('histórico:', JSON.stringify({ ...resultado, pessoasSemVinculo: resultado.pessoasSemVinculo.length }));
+  return resultado;
+}
+
 /* ------------------------------- consultas ------------------------------- */
 
 function listar({ de, ate, matriculaId, gympassId, semVinculo, limite = 500 } = {}) {
@@ -572,17 +647,24 @@ carregar();
 // Depois da semeadura, porque num volume vazio o histórico chega do backup e a
 // varredura precisa dele em mãos. Num volume já povoado o `semear` sai na hora
 // e o `then` roda em seguida do mesmo jeito.
-semear().then(() => {
-  try {
-    if (dados.checkins.length) aplicarNomesDoPortal();
-  } catch (e) {
-    console.error('[checkins] varredura de nomes falhou:', e.message);
-  }
-});
+semear()
+  // Antes da varredura de nomes: o backfill traz o nome do portal de quem só
+  // treinou na primeira quinzena, e a varredura precisa dele em mãos.
+  .then(() => importarHistorico().catch((e) => {
+    console.error('[checkins] backfill do histórico falhou:', e.message);
+  }))
+  .then(() => {
+    try {
+      if (dados.checkins.length) aplicarNomesDoPortal();
+    } catch (e) {
+      console.error('[checkins] varredura de nomes falhou:', e.message);
+    }
+  });
 setInterval(() => limparAntigos(), 24 * 3600000).unref();
 
 module.exports = {
   registrar, registrarLote, porId, vincular, desvincular, revincularOrfaos,
+  importarHistorico,
   listar, datasDaMatricula, mapaPorMatricula, ultimoDaMatricula, aplicarNomesDoPortal,
   resumo, normalizarNome, dataLocal, hojeLocal, backup,
 };
