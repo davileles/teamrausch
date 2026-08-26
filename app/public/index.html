@@ -377,9 +377,12 @@
     align-items:start}
   #mat-grade .horarios .ficha{margin-bottom:0;min-width:0}
   #fq-lista{overflow-x:auto}
-  #mat-soltos .soltos,#fq-orfaos{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
+  #mat-soltos .soltos{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
     gap:8px;align-items:start}
-  #mat-soltos .soltos .solto,#fq-orfaos .orfao{margin-bottom:0;min-width:0}
+  #mat-soltos .soltos .solto{margin-bottom:0;min-width:0}
+  /* Órfãos e fichas sem conta: tabelas, e no celular rolam na horizontal. */
+  #fq-orfaos,#fq-sem-conta{overflow-x:auto}
+  #fq-orfaos .freq-tabela select{min-width:150px}
   .sem-tel{color:var(--amarelo-2);margin:0}
   .nome-antigo{margin:10px 0 0;padding-left:10px;border-left:3px solid var(--linha-2)}
   /* ---- acesso ao app, dentro da ficha do aluno ---- */
@@ -451,12 +454,11 @@
   .freq-cartao.critico b{color:var(--vermelho)}
   .freq-cartao.atrasado b{color:var(--amarelo)}
   .freq-cartao.em-dia b{color:var(--liberado)}
-  .orfao{background:var(--fundo-2);border:1px solid var(--linha);
-    border-left:3px solid var(--amarelo);padding:12px;margin-bottom:8px}
-  .orfao .linha{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;
-    align-items:center;margin-top:8px}
-  .orfao select,.orfao input{min-width:0}
-  .orfao .separa{border-top:1px solid var(--linha);margin-top:10px;padding-top:2px}
+  /* Linha de pendência (pessoa sem aluno, ficha sem conta): faixa amarela na
+     primeira célula, mesma gramática da tabela de frequência. */
+  .freq-tabela tr.orfao td:first-child,
+  .freq-tabela tr.sem-conta td:first-child{border-left-color:var(--amarelo)}
+  .freq-tabela tr.orfao select{padding:5px 8px;font-size:12px}
   .freq-acoes{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
   .freq-acoes button{flex:1;min-width:130px}
   .alerta-rev{border-left:3px solid var(--amarelo);padding-left:10px;margin:12px 0 0}
@@ -2115,39 +2117,57 @@ function agruparOrfaos(lista){
 }
 
 /**
- * Uma pessoa que não casou com nenhum aluno. Enquanto ficar aqui nenhum dos
- * check-ins dela conta — daí aparecer antes da lista, e não escondido no rodapé.
+ * Uma linha da tabela de pessoas do portal sem aluno na base.
  *
- * O botão vincula o check-in mais recente; o servidor liga os demais do mesmo
- * Wellhub ID junto e grava o ID na ficha, então uma pessoa sai da tela por vez.
+ * Era um cartão por pessoa, com nome editável e duas caixinhas. Lido um a um
+ * funciona; conferir dezesseis de uma vez, não — o que se quer olhar é a coluna
+ * de quantidade e decidir a ordem de ataque. As opções finas (nome diferente do
+ * portal, conta de terceiro) continuam existindo, agora perguntadas na hora de
+ * usar em vez de ocupar espaço em toda linha.
+ *
+ * O botão manda o check-in mais recente; o servidor liga os demais do mesmo
+ * Wellhub ID junto, então uma pessoa sai da tabela por vez.
  */
-function itemOrfao(c, alunos){
+function linhaOrfa(c, alunos){
   const periodo = c.quantos > 1
-    ? `${c.quantos} check-ins · ${dataCurta(c.primeira)} a ${dataCurta(c.ultima)}`
+    ? `${dataCurta(c.primeira)} a ${dataCurta(c.ultima)}`
     : `${dataCurta(c.data)} às ${esc(c.hora||'--:--')}`;
-  return `<div class="orfao" data-id="${esc(c.id)}">
-    <b>${esc(c.nome || 'Sem nome no portal')}</b>
-    <p class="ajuda" style="margin:4px 0 0">${periodo}
-      · Wellhub ID ${esc(c.gympassId || '—')}${c.produto ? ' · '+esc(c.produto) : ''}</p>
-    <div class="linha">
-      <select class="orf-quem">
-        <option value="">Vincular a…</option>
-        ${alunos.map(m=>`<option value="${esc(m.id)}">${esc(m.nome)}</option>`).join('')}
-      </select>
+  return `<tr class="orfao" data-id="${esc(c.id)}" data-nome="${esc(c.nome||'')}">
+    <td class="nome">${esc(c.nome || 'Sem nome no portal')}</td>
+    <td class="num">${c.quantos}</td>
+    <td class="opc"><span class="fraco">${periodo}</span></td>
+    <td class="opc"><span class="fraco">${esc(c.gympassId || '—')}</span></td>
+    <td><select class="orf-quem">
+      <option value="">Vincular a…</option>
+      ${alunos.map(m=>`<option value="${esc(m.id)}">${esc(m.nome)}</option>`).join('')}
+    </select></td>
+    <td><div class="acoes">
       <button class="leve orf-ok">Vincular</button>
-    </div>
-    <label class="marcar"><input type="checkbox" class="orf-titular">
-      A conta é de outra pessoa — manter o nome do aluno e guardar
-      <b>${esc(c.nome || 'este nome')}</b> como titular</label>
-    <div class="linha separa">
-      <input class="orf-nome" value="${esc(c.nome || '')}" placeholder="Nome do aluno novo">
-      <button class="leve orf-criar">Criar cadastro</button>
-    </div>
-    <label class="marcar"><input type="checkbox" class="orf-exp" checked>
-      Entra em aula experimental</label>
-    <p class="ajuda" style="margin:6px 0 0">Ninguém na lista? O cadastro novo entra como Wellhub,
-      já com este ID gravado. A grade de horários se define depois, na ficha do aluno.</p>
-  </div>`;
+      <button class="leve orf-criar">Criar</button>
+    </div></td>
+  </tr>`;
+}
+
+/**
+ * Fichas que dizem ser Wellhub mas não têm conta ligada.
+ *
+ * É o outro lado do mesmo buraco: a tabela de órfãos mostra quem treinou sem
+ * ficha, esta mostra quem tem ficha e não aparece no portal. Um aluno destes
+ * conta como devendo o mês inteiro sem ter feito nada de errado — pode ser
+ * vínculo faltando, ou pode ser que ele realmente não venha, e a diferença só
+ * se resolve olhando as duas listas lado a lado.
+ */
+function linhaSemConta(m){
+  const dias = ['dom','seg','ter','qua','qui','sex','sáb'];
+  const grade = [...new Set((m.grade||[]).map(s=>s.dia))].sort().map(d=>dias[d]).join(', ');
+  return `<tr class="sem-conta" data-id="${esc(m.id)}">
+    <td class="nome">${esc(m.nome)}${m.experimental
+      ? ' <span class="fraco">✳︎</span>' : ''}</td>
+    <td class="num">${m.diasSemana||0}×</td>
+    <td class="opc"><span class="fraco">${grade || '—'}</span></td>
+    <td class="num">${m.checkinsNaFicha||0}</td>
+    <td><div class="acoes"><button class="leve sc-abrir">Abrir ficha</button></div></td>
+  </tr>`;
 }
 
 async function carregarFrequencia(){
@@ -2163,6 +2183,11 @@ async function carregarFrequencia(){
     ]);
 
     const pessoasOrfas = agruparOrfaos(orfaos.checkins);
+    // O outro lado do buraco: ficha Wellhub sem conta ligada. Sai da mesma
+    // chamada que popula o seletor de alunos, sem pedir nada a mais ao servidor.
+    const semConta = base.matriculas
+      .filter(m=>m.ativo && m.vinculo === 'wellhub' && !m.gympassId)
+      .sort((a,b)=> a.nome.localeCompare(b.nome,'pt-BR'));
     const devendo = f.alunos.filter(a=>a.situacao==='critico'||a.situacao==='atrasado');
     const mostrar = matEstado.freqSo === 'devendo' ? devendo
       : matEstado.freqSo === 'experimentais' ? f.alunos.filter(a=>a.experimental)
@@ -2217,12 +2242,42 @@ async function carregarFrequencia(){
 
       ${pessoasOrfas.length ? `<h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;
         text-transform:uppercase;color:var(--amarelo);margin:0 0 8px">
-        ${pessoasOrfas.length} pessoa(s) sem aluno${orfaos.checkins.length > pessoasOrfas.length
+        ${pessoasOrfas.length} pessoa(s) do Wellhub sem aluno${orfaos.checkins.length > pessoasOrfas.length
           ? ` · ${orfaos.checkins.length} check-ins` : ''}</h3>
-        <p class="ajuda">Enquanto não forem vinculados, estes treinos não contam para ninguém.
-          Vincular uma vez resolve todos os check-ins da pessoa e grava o Wellhub ID na ficha.</p>
-        <div id="fq-orfaos">${pessoasOrfas.map(c=>itemOrfao(c, base.matriculas)).join('')}</div>
-        <button class="leve" id="fq-revincular" style="margin:0 0 20px">Tentar vincular sozinho</button>`
+        <p class="ajuda">Treinaram, mas não contam para ninguém. Vincular uma vez resolve todos
+          os check-ins da pessoa e grava o Wellhub ID na ficha.</p>
+        <div id="fq-orfaos"><table class="freq-tabela">
+          <thead><tr>
+            <th>Pessoa no portal</th>
+            <th class="num">Check-ins</th>
+            <th class="opc">Período</th>
+            <th class="opc">Wellhub ID</th>
+            <th>Aluno na base</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${pessoasOrfas.map(c=>linhaOrfa(c, base.matriculas)).join('')}</tbody>
+        </table></div>
+        <button class="leve" id="fq-revincular" style="margin:10px 0 20px">Tentar vincular sozinho</button>`
+      : ''}
+
+      ${semConta.length ? `<h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;
+        text-transform:uppercase;color:var(--amarelo);margin:0 0 8px">
+        ${semConta.length} aluno(s) Wellhub sem conta vinculada</h3>
+        <p class="ajuda">A ficha existe e diz ser Wellhub, mas nenhuma conta do portal está
+          ligada a ela. Ou falta o vínculo, ou a pessoa não treinou — a lista acima ajuda a
+          decidir qual dos dois.</p>
+        <div id="fq-sem-conta"><table class="freq-tabela">
+          <thead><tr>
+            <th>Aluno</th>
+            <th class="num">/sem</th>
+            <th class="opc">Grade</th>
+            <th class="num">Check-ins</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${semConta.map(linhaSemConta).join('')}</tbody>
+        </table></div>
+        <p class="ajuda" style="margin:10px 0 20px">Para ligar, abra a ficha e use o bloco
+          <b>Cadastro no Wellhub</b>.</p>`
       : ''}
 
       <h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
@@ -2335,41 +2390,61 @@ async function carregarFrequencia(){
     });
 
     alvo.querySelectorAll('.orfao').forEach(el=>{
+      const nomePortal = el.dataset.nome || '';
+
       el.querySelector('.orf-ok').addEventListener('click', async ()=>{
-        const quem = el.querySelector('.orf-quem').value;
+        const sel = el.querySelector('.orf-quem');
+        const quem = sel.value;
         if (!quem) return avisar('Escolha o aluno.','erro');
+        // Conta em nome de terceiro deixou de ser caixinha na linha e virou
+        // pergunta: é caso raro, e uma coluna a mais em toda linha para ele
+        // custaria mais do que resolve.
+        const alvoNome = sel.options[sel.selectedIndex].textContent.trim();
+        const comoTitular = nomePortal && alvoNome &&
+          nomePortal.toLowerCase() !== alvoNome.toLowerCase() &&
+          confirm(`O portal chama esta pessoa de "${nomePortal}", e o aluno é "${alvoNome}".\n\n`
+            + 'OK = a conta é de outra pessoa: guardo esse nome como titular e mantenho '
+            + `"${alvoNome}" na ficha.\nCancelar = é a mesma pessoa, adoto o nome do portal.`);
         try{
-          const comoTitular = el.querySelector('.orf-titular').checked;
           const r = await api('/matriculas/checkins/'+el.dataset.id+'/vincular',
             {method:'POST', body: JSON.stringify({matriculaId: quem, comoTitular})});
-          const extra = r.arrastados ? ` (+${r.arrastados} do mesmo ID)` : '';
+          const total = 1 + (r.arrastados || 0);
+          const quantos = total > 1 ? `${total} check-ins vinculados` : 'Check-in vinculado';
           avisar(r.titular
-            ? `Vinculado${extra} a "${r.nome}". Conta do Wellhub registrada em nome de "${r.titular}".`
+            ? `${quantos} a "${r.nome}". Conta do Wellhub registrada em nome de "${r.titular}".`
             : (r.renomeado
-              ? `Vinculado${extra}. Ficha renomeada para "${r.nome}".`
-              : `Check-in vinculado${extra}.`), 'ok');
+              ? `${quantos}. Ficha renomeada para "${r.nome}".`
+              : `${quantos} a "${r.nome}".`), 'ok');
           await carregarFrequencia();
         }catch(err){ avisar(err.message,'erro'); }
       });
 
       const criar = el.querySelector('.orf-criar');
       criar.addEventListener('click', async ()=>{
-        const nome = el.querySelector('.orf-nome').value.trim();
-        if (!nome) return avisar('Informe o nome do aluno novo.','erro');
+        // O nome vem do portal e quase sempre serve como está; o prompt existe
+        // para os casos de cadastro com nome de titular ou digitação estranha.
+        const nome = (prompt('Nome do aluno novo:', nomePortal) || '').trim();
+        if (!nome) return;
+        const experimental = confirm(`Criar "${nome}" como aula experimental?\n\n`
+          + 'OK = experimental (não entra na cobrança até você definir a grade).\n'
+          + 'Cancelar = aluno normal.');
         criar.disabled = true; criar.textContent = 'Criando…';
         try{
-          const experimental = el.querySelector('.orf-exp').checked;
           const r = await api('/matriculas/checkins/'+el.dataset.id+'/criar-aluno',
             {method:'POST', body: JSON.stringify({nome, experimental})});
-          const extra = r.arrastados ? ` (+${r.arrastados} do mesmo ID)` : '';
-          avisar(`Ficha de "${r.nome}" criada e check-in vinculado${extra}. `
+          const total = 1 + (r.arrastados || 0);
+          avisar(`Ficha de "${r.nome}" criada com ${total} check-in(s) vinculado(s). `
             + 'Defina a grade na aba Alunos.', 'ok');
           await carregarFrequencia();
         }catch(err){
           avisar(err.message,'erro');
-          criar.disabled = false; criar.textContent = 'Criar cadastro';
+          criar.disabled = false; criar.textContent = 'Criar';
         }
       });
+    });
+
+    alvo.querySelectorAll('.sem-conta').forEach(el=>{
+      el.querySelector('.sc-abrir').addEventListener('click', ()=> abrirFichaDe(el.dataset.id));
     });
 
     alvo.querySelectorAll('.freq-item').forEach(el=>{
