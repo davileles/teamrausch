@@ -1452,7 +1452,7 @@ function fichaMatricula(m){
   const novo = !m.id;
   const mens = (m.vinculo || 'mensalista') === 'mensalista';
   return `<div class="ficha mat-form" data-id="${esc(m.id||'')}"
-    data-telefone="${esc(m.telefone||'')}">
+    data-telefone="${esc(m.telefone||'')}" data-conta-de="${esc(m.contaDe||'')}">
     <div class="cabeca"><b>${novo ? 'Novo aluno' : esc(m.nome)}</b>
       <span class="tags">${novo ? '' : (m.ativo ? 'ativo' : 'inativo')}</span></div>
     <div class="campos">
@@ -1500,8 +1500,19 @@ function fichaMatricula(m){
       ${m.gympassId ? `<div class="rodape">
         <button type="button" class="leve mf-wh-tirar">Desvincular e soltar check-ins</button>
       </div>` : ''}
+      ${(m.dependentes||[]).length ? `<p class="estado" style="margin:10px 0 0">
+        Conta compartilhada com <b>${m.dependentes.map(d=>esc(d.nome)).join(', ')}</b> —
+        a cota do mês é dividida entre vocês pela grade de cada um.</p>` : ''}
+      <!-- Uma pessoa faz o check-in e o pacote cobre duas. Sem declarar isso, a
+           segunda ficha aparece devendo o mês inteiro. -->
+      ${m.gympassId ? '' : `<div class="linha" style="margin-top:10px">
+        <select class="mf-conta-de"><option value="">Carregando titulares…</option></select>
+        <button type="button" class="leve mf-conta-ok">Compartilhar</button>
+      </div>`}
       <p class="ajuda" style="margin:8px 0 0">Vincular traz todos os check-ins daquela pessoa
-        para esta ficha, inclusive os que estiverem em outra por engano.</p>
+        para esta ficha, inclusive os que estiverem em outra por engano.${m.gympassId ? ''
+        : ' Se este aluno não tem conta própria e treina no Wellhub de outra pessoa,'
+          + ' use o campo de compartilhar em vez de vincular.'}</p>
     </div>
     <div class="campos mf-cobranca" ${mens?'':'hidden'}>
       <select class="mf-ciclo">${['mensal','trimestral','semestral','anual'].map(x=>
@@ -1622,6 +1633,34 @@ async function ligarVinculoWellhub(el, id){
   }catch(err){
     quem.innerHTML = `<option value="">Não consegui carregar: ${esc(err.message)}</option>`;
     return;
+  }
+
+  const contaSel = bloco.querySelector('.mf-conta-de');
+  if (contaSel){
+    // Só quem tem Wellhub próprio pode ser titular; a divisão da cota precisa de
+    // uma assinatura real por trás.
+    try{
+      const base = await api('/matriculas?situacao=ativos');
+      const titulares = base.matriculas
+        .filter(x=>x.id !== id && x.gympassId && !x.contaDe)
+        .sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR'));
+      const atualConta = el.closest('.mat-form')?.dataset.contaDe || '';
+      contaSel.innerHTML = '<option value="">Não compartilha conta</option>' +
+        titulares.map(x=>`<option value="${esc(x.id)}"${x.id===atualConta?' selected':''}
+          >Treina na conta de ${esc(x.nome)}</option>`).join('');
+    }catch(err){
+      contaSel.innerHTML = `<option value="">Não consegui carregar: ${esc(err.message)}</option>`;
+    }
+    bloco.querySelector('.mf-conta-ok').addEventListener('click', async ()=>{
+      try{
+        const r = await api('/matriculas/'+id+'/conta-compartilhada',
+          {method:'POST', body: JSON.stringify({titularId: contaSel.value})});
+        avisar(r.titular
+          ? `Passa a treinar na conta de "${r.titular}". A cota do mês é dividida pela grade.`
+          : 'Compartilhamento desfeito.', 'ok');
+        matEstado.aberta = null; await redesenhar();
+      }catch(err){ avisar(err.message,'erro'); }
+    });
   }
 
   ok.addEventListener('click', async ()=>{
