@@ -281,15 +281,16 @@ function definirGympassId(id, gympassId) {
 }
 
 /**
- * Caixa do nome vindo do portal.
+ * Caixa do nome: primeira letra de cada palavra em maiúscula.
  *
- * O Wellhub costuma mandar tudo em maiúsculas. Copiar literal deixaria a base
- * gritando — e, pior, a cobrança automática sairia como "Oi, MARIA!", porque
- * ela usa o primeiro nome do cadastro. Então: nome que chega todo em uma caixa
- * só é arrumado; nome que chega com caixa mista já veio escrito por gente e é
- * preservado como está.
+ * Vale para TODO nome que entra na base, venha do portal, da tela ou da
+ * planilha. O Wellhub manda tudo em maiúsculas, a planilha tinha de tudo, e a
+ * digitação com a pressa do dia a dia sai como sai — sem uma regra só, a lista
+ * fica com "ANA SOFIA" ao lado de "ana sofia" e a cobrança automática sai como
+ * "Oi, MARIA!", porque ela usa o primeiro nome do cadastro.
  *
- * As partículas ficam minúsculas ('Maria da Silva', não 'Maria Da Silva').
+ * As partículas ficam minúsculas ('Maria da Silva', não 'Maria Da Silva'), que é
+ * como se escreve nome em português.
  * WELLHUB_NOME_LITERAL=true desliga tudo isto e grava exatamente o que veio.
  */
 const PARTICULAS = ['da', 'de', 'do', 'das', 'dos', 'e', 'del', 'di', 'du',
@@ -299,10 +300,6 @@ function arrumarCaixa(nome) {
   const bruto = String(nome || '').trim().replace(/\s+/g, ' ');
   if (!bruto) return '';
   if (String(process.env.WELLHUB_NOME_LITERAL || 'false') === 'true') return bruto;
-
-  const soMaiusculas = bruto === bruto.toLocaleUpperCase('pt-BR');
-  const soMinusculas = bruto === bruto.toLocaleLowerCase('pt-BR');
-  if (!soMaiusculas && !soMinusculas) return bruto;   // veio bem escrito
 
   return bruto.split(' ').map((palavra, i) => {
     const p = palavra.toLocaleLowerCase('pt-BR');
@@ -402,7 +399,7 @@ function comMesmoNome(nome, exceto) {
 }
 
 function criar(campos = {}) {
-  const nome = String(campos.nome || '').trim();
+  const nome = arrumarCaixa(campos.nome);
   if (!nome) return { ok: false, motivo: 'Informe o nome do aluno.' };
   if (comMesmoNome(nome)) return { ok: false, motivo: 'Já existe um aluno com esse nome.' };
 
@@ -503,7 +500,7 @@ function atualizar(id, campos = {}) {
   if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
 
   if (campos.nome !== undefined) {
-    const nome = String(campos.nome).trim();
+    const nome = arrumarCaixa(campos.nome);
     if (!nome) return { ok: false, motivo: 'Informe o nome do aluno.' };
     if (comMesmoNome(nome, id)) return { ok: false, motivo: 'Já existe um aluno com esse nome.' };
     m.nome = nome;
@@ -735,7 +732,7 @@ function importar(lista, { substituir = false } = {}) {
   const recusadas = [];
 
   for (const bruta of lista) {
-    const nome = String(bruta.nome || '').trim();
+    const nome = arrumarCaixa(bruta.nome);
     if (!nome) { recusadas.push({ nome: bruta.nome, motivo: 'sem nome' }); continue; }
 
     const g = limparGrade(bruta.grade || []);
@@ -777,6 +774,55 @@ function importar(lista, { substituir = false } = {}) {
   return { ok: true, importadas: novas.length, recusadas };
 }
 
+/**
+ * Passa a régua da caixa em toda a base, de uma vez.
+ *
+ * `arrumarCaixa` cuida do que entra daqui para a frente; esta varredura arruma o
+ * que já estava gravado — os nomes que vieram da planilha e os que o portal
+ * escreveu em caixa alta antes desta regra existir. Roda no boot, e é barata
+ * porque só grava quando alguma coisa muda: da segunda vez em diante não faz
+ * nada.
+ *
+ * Cobre também a ficha de login do app, senão a mesma pessoa apareceria escrita
+ * de um jeito nesta tela e de outro no app dela.
+ */
+function normalizarNomes() {
+  const trocas = [];
+
+  for (const m of dados.matriculas) {
+    for (const campo of ['nome', 'titularWellhub', 'nomeOriginal']) {
+      if (!m[campo]) continue;
+      const novo = arrumarCaixa(m[campo]);
+      if (novo && novo !== m[campo]) {
+        if (campo === 'nome') trocas.push({ id: m.id, de: m[campo], para: novo });
+        m[campo] = novo;
+        m.atualizadoEm = new Date().toISOString();
+      }
+    }
+  }
+  if (trocas.length) gravar();
+
+  // `require` aqui dentro, e não no topo: o cadastro de login é outra base, e
+  // carregá-la junto com esta na inicialização amarraria os dois módulos sem
+  // necessidade.
+  let login = 0;
+  try {
+    const alunosLogin = require('./agenda-store');
+    for (const a of alunosLogin.listarAlunos()) {
+      if (!a.nome) continue;
+      const novo = arrumarCaixa(a.nome);
+      if (novo && novo !== a.nome) { alunosLogin.salvarAluno(a.telefone, { nome: novo }); login += 1; }
+    }
+  } catch (erro) {
+    console.error('[matriculas] não consegui normalizar os nomes do login:', erro.message);
+  }
+
+  if (trocas.length || login) {
+    console.log(`[matriculas] nomes normalizados: ${trocas.length} matrícula(s), ${login} ficha(s) de login.`);
+  }
+  return { ok: true, trocas, login };
+}
+
 /* -------------------------------- resumo --------------------------------- */
 
 function resumo() {
@@ -802,7 +848,9 @@ carregar();
 normalizarHorarios();
 semear()
   .then(() => complementarTelefones())
-  .catch((erro) => console.error('[matriculas] falha ao complementar telefones:', erro.message));
+  // Depois do semeio: normalizar antes dele arrumaria uma base ainda vazia.
+  .then(() => normalizarNomes())
+  .catch((erro) => console.error('[matriculas] falha ao preparar a base:', erro.message));
 setInterval(() => limparAntigas(), 24 * 3600000).unref();
 
 module.exports = {
@@ -810,6 +858,6 @@ module.exports = {
   renomearDoWellhub, arrumarCaixa,
   criar, atualizar, inativar, remover,
   excecoes, registrarExcecao, apagarExcecao,
-  importar, resumo, backup, normalizarHorarios, horaCheia, complementarTelefones,
+  importar, resumo, backup, normalizarHorarios, normalizarNomes, horaCheia, complementarTelefones,
   VINCULOS, CICLOS,
 };
