@@ -1348,6 +1348,11 @@ function matEstadoInicial(){
     focarFicha:false };
 }
 let matEstado = matEstadoInicial();
+/* Fora da função de propósito: `carregarMatriculas` roda de novo a cada
+   redesenho, e um timer declarado lá dentro nasceria zerado — o `clearTimeout`
+   nunca alcançaria o agendamento da tecla anterior, e cada letra digitada
+   dispararia a sua própria busca. */
+let matBuscaTimer = null;
 
 /** Primeira letra do nome, sem acento, para o índice A–Z; o que não for letra vira '#'. */
 function inicialDe(nome){
@@ -1610,7 +1615,7 @@ function ligarFicha(el, id){
 async function carregarMatriculas(){
   const alvo = document.getElementById('aba-matriculas');
   const q = new URLSearchParams({ situacao: matEstado.situacao });
-  if (matEstado.busca) q.set('busca', matEstado.busca);
+  if (matEstado.busca.trim()) q.set('busca', matEstado.busca.trim());
   if (matEstado.vinculo) q.set('vinculo', matEstado.vinculo);
   if (matEstado.revisar) q.set('revisar','1');
   if (matEstado.experimental) q.set('experimental','1');
@@ -1618,6 +1623,14 @@ async function carregarMatriculas(){
 
   try{
     const { resumo, matriculas } = await api('/matriculas?'+q);
+
+    // O redesenho troca a aba inteira, campo de busca junto. Enquanto a resposta
+    // vinha, a pessoa continuou digitando: sem guardar o texto vivo do campo, o
+    // HTML novo entra com o valor de quando a busca começou e as últimas letras
+    // somem da tela — o "bug de digitar" desta aba.
+    const vivo = document.getElementById('mat-busca');
+    const digitando = vivo && document.activeElement === vivo
+      ? { texto: vivo.value, cursor: vivo.selectionStart } : null;
 
     alvo.innerHTML = `<h2>Matrículas</h2>
       <div class="subabas" id="sub-mat">
@@ -1698,17 +1711,19 @@ async function carregarMatriculas(){
     });
 
     const busca = alvo.querySelector('#mat-busca');
-    let timer = null;
     busca.addEventListener('input', ()=>{
-      clearTimeout(timer);
-      timer = setTimeout(()=>{
-        matEstado.busca = busca.value.trim();
+      clearTimeout(matBuscaTimer);
+      matBuscaTimer = setTimeout(()=>{
+        // Este campo pode já ter sido trocado por um redesenho disparado de
+        // outro lugar. Seguir com ele gravaria em `matEstado` o texto congelado
+        // de um elemento que não está mais na tela.
+        if (busca !== document.getElementById('mat-busca')) return;
+        // Sem `.trim()`: o valor gravado é o que a pessoa vê no campo. Aparar
+        // aqui devolveria um texto menor do que o digitado e o cursor pularia
+        // para trás no meio da palavra.
+        matEstado.busca = busca.value;
         matEstado.aberta = null;
-        const fim = busca.selectionStart;
-        redesenhar().then(()=>{
-          const novo = document.getElementById('mat-busca');
-          if (novo){ novo.focus(); novo.setSelectionRange(fim, fim); }
-        });
+        redesenhar();
       }, 320);
     });
 
@@ -1716,8 +1731,8 @@ async function carregarMatriculas(){
     // o caminho mais curto de "digitei o nome" até "estou editando".
     busca.addEventListener('keydown', async e=>{
       if (e.key !== 'Enter') return;
-      e.preventDefault(); clearTimeout(timer);
-      matEstado.busca = busca.value.trim(); matEstado.aberta = null;
+      e.preventDefault(); clearTimeout(matBuscaTimer);
+      matEstado.busca = busca.value; matEstado.aberta = null;
       await redesenhar();
       const cartoes = document.querySelectorAll('#mat-lista .mat-item');
       if (cartoes.length === 1){ matEstado.aberta = cartoes[0].dataset.id; redesenhar(); return; }
@@ -1738,6 +1753,18 @@ async function carregarMatriculas(){
     alvo.querySelector('#mat-novo').addEventListener('click', ()=>{
       matEstado.aberta = 'novo'; redesenhar();
     });
+
+    // Devolve ao campo novo o texto e o cursor de quem estava digitando. Se o
+    // que ficou no campo já não é o que esta lista respondeu, dispara outra
+    // busca pelo mesmo caminho do debounce, em vez de deixar tela e filtro
+    // desencontrados.
+    if (digitando){
+      busca.value = digitando.texto;
+      busca.focus();
+      const pos = Math.min(digitando.cursor ?? digitando.texto.length, digitando.texto.length);
+      busca.setSelectionRange(pos, pos);
+      if (digitando.texto !== matEstado.busca) busca.dispatchEvent(new Event('input'));
+    }
 
     // O cartão inteiro abre a ficha — no toque, no clique e pelo teclado.
     alvo.querySelectorAll('.mat-item').forEach(item=>{
