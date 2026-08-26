@@ -2003,6 +2003,32 @@ const SITUACAO = {
   experimental:{ rotulo:'aula experimental', marca:'✳︎' },
 };
 
+/**
+ * Baixa uma planilha CSV montada no navegador.
+ *
+ * Não passa por endpoint de download porque a API só responde com o token no
+ * cabeçalho Authorization, e um link comum não carrega cabeçalho — o arquivo
+ * voltaria como 401. Montar aqui também evita um formato novo no servidor.
+ *
+ * Separador ";" e BOM UTF-8: é o que faz o Excel em português abrir o arquivo
+ * já com as colunas separadas e os acentos certos, sem passar pelo assistente
+ * de importação.
+ */
+function baixarCsv(nome, cabecalho, linhas){
+  const campo = (v)=>{
+    const t = v === null || v === undefined ? '' : String(v);
+    return /[";\n]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t;
+  };
+  const texto = [cabecalho, ...linhas].map(l=>l.map(campo).join(';')).join('\r\n');
+  const url = URL.createObjectURL(
+    new Blob(['\uFEFF'+texto], {type:'text/csv;charset=utf-8;'}));
+  const a = document.createElement('a');
+  a.href = url; a.download = nome;
+  document.body.appendChild(a); a.click(); a.remove();
+  // Sem revogar, o blob fica preso na memória da aba até recarregar a página.
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
 function dataCurta(iso){
   if (!iso) return null;
   const [a,m,d] = iso.split('-');
@@ -2174,6 +2200,8 @@ async function carregarFrequencia(){
         <button class="leve" id="fq-sincronizar">Buscar check-ins agora</button>
         <button class="leve" id="fq-aviso">Ver aviso do dia</button>
         <button class="leve" id="fq-nomes">Adotar nomes do Wellhub</button>
+        <button class="leve" id="fq-exportar">Exportar check-ins</button>
+        <button class="leve" id="fq-exportar-resumo">Exportar resumo</button>
       </div>
 
       <div class="chips-mat" style="margin-bottom:14px">
@@ -2253,6 +2281,47 @@ async function carregarFrequencia(){
           : `Nenhuma mudança — as ${r.avaliados} fichas já usam o nome do portal.${recusa}`, 'ok');
         await carregarFrequencia();
       }catch(err){ avisar(err.message,'erro'); }
+    });
+
+    /* Conferência contra o relatório do portal: uma linha por check-in, com o
+       aluno em que ele caiu. Órfão entra também, com a coluna do aluno vazia —
+       é justamente a linha que precisa ser conferida. */
+    alvo.querySelector('#fq-exportar').addEventListener('click', async ()=>{
+      const b = alvo.querySelector('#fq-exportar');
+      b.disabled = true; b.textContent = 'Montando…';
+      try{
+        const mes = j.ate.slice(0,7);
+        const r = await api(`/matriculas/checkins?de=${mes}-01&ate=${j.ate}&limite=5000`);
+        const linhas = r.checkins
+          .slice()
+          .sort((x,y)=> String(x.data).localeCompare(String(y.data))
+            || String(x.hora).localeCompare(String(y.hora)))
+          .map(c=>[c.data, c.hora||'', c.gympassId||'', c.nome||'',
+            c.nomeMatricula||'', c.matriculaId ? 'vinculado' : 'SEM ALUNO',
+            c.vinculadoPor||'', c.produto||'', c.origem||'']);
+        baixarCsv(`checkins-wellhub-${mes}.csv`,
+          ['Data','Hora','Wellhub ID','Nome no portal','Aluno na base','Situação',
+           'Casou por','Produto','Origem'], linhas);
+        avisar(`${linhas.length} check-in(s) exportado(s).`,'ok');
+      }catch(err){ avisar(err.message,'erro'); }
+      b.disabled = false; b.textContent = 'Exportar check-ins';
+    });
+
+    /* Fechamento do mês, uma linha por aluno: é a planilha que se confere
+       contra o repasse do Wellhub. */
+    alvo.querySelector('#fq-exportar-resumo').addEventListener('click', ()=>{
+      const linhas = f.alunos.map(a=>[
+        a.nome, a.vinculo||'', a.porSemana,
+        a.mes ? a.mes.porSemanaCobravel : '', a.mes ? a.mes.meta : '',
+        a.mes ? a.mes.realizado : a.realizado, a.mes ? a.mes.faltam : '',
+        (SITUACAO[a.situacao]||{rotulo:a.situacao}).rotulo,
+        a.ultimoCheckin||'', a.diasSemTreinar ?? '', a.gympassId||'', a.telefone||'',
+      ]);
+      baixarCsv(`frequencia-${j.ate.slice(0,7)}.csv`,
+        ['Aluno','Vínculo','Grade x/sem','Cobráveis x/sem','Meta do mês','Feitos',
+         'Faltam','Situação','Último check-in','Dias sem treinar','Wellhub ID','Telefone'],
+        linhas);
+      avisar(`${linhas.length} aluno(s) exportado(s).`,'ok');
     });
 
     const revincular = alvo.querySelector('#fq-revincular');
