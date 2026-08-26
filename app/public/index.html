@@ -425,13 +425,15 @@
   .freq-tabela .falta{font:400 15px Anton,sans-serif;letter-spacing:.05em}
   .freq-tabela tr.critico .falta{color:var(--vermelho)}
   .freq-tabela tr.atrasado .falta{color:var(--amarelo)}
-  .freq-tabela tr.em-dia .falta,.freq-tabela .quitado{color:var(--liberado)}
+  .freq-tabela tr.em-dia .falta,.freq-tabela tr.quitado .falta,
+  .freq-tabela .quitado{color:var(--liberado)}
   /* A faixa colorida fica na primeira célula: em tabela com border-collapse a
      borda do <tr> não aparece de forma confiável entre navegadores. */
   .freq-tabela tbody td:first-child{border-left:4px solid var(--linha-2)}
   .freq-tabela tr.critico td:first-child{border-left-color:var(--vermelho)}
   .freq-tabela tr.atrasado td:first-child{border-left-color:var(--amarelo)}
-  .freq-tabela tr.em-dia td:first-child{border-left-color:var(--liberado)}
+  .freq-tabela tr.em-dia td:first-child,
+  .freq-tabela tr.quitado td:first-child{border-left-color:var(--liberado)}
   .freq-tabela .acoes{display:flex;gap:6px;justify-content:flex-end}
   .freq-tabela .acoes button{padding:5px 9px;font-size:12px;white-space:nowrap}
   .freq-tabela .fraco{color:var(--fraco)}
@@ -1995,6 +1997,7 @@ const SITUACAO = {
   'critico':  { rotulo:'crítico',   marca:'🔴' },
   'atrasado': { rotulo:'atrasado',  marca:'🟡' },
   'em-dia':   { rotulo:'em dia',    marca:'🟢' },
+  'quitado':  { rotulo:'pacote fechado', marca:'✅' },
   'sem-aula': { rotulo:'sem aula prevista', marca:'·' },
   'sem-grade':{ rotulo:'sem horário fixo',  marca:'·' },
   experimental:{ rotulo:'aula experimental', marca:'✳︎' },
@@ -2160,6 +2163,7 @@ async function carregarFrequencia(){
         ${cartaoFreq(f.resumo.criticos, 'críticos', 'critico')}
         ${cartaoFreq(f.resumo.atrasados, 'atrasados', 'atrasado')}
         ${cartaoFreq(f.resumo.emDia, 'em dia', 'em-dia')}
+        ${f.resumo.quitados ? cartaoFreq(f.resumo.quitados, 'pacote fechado', 'em-dia') : ''}
         ${cartaoFreq(f.resumo.faltamMes, 'faltam no mês', f.resumo.faltamMes ? 'atrasado' : 'em-dia')}
         ${cartaoFreq(`${f.resumo.realizadoMes}/${f.resumo.metaMes}`, 'pacote do mês')}
         ${cartaoFreq(f.checkins.ultimos7, 'check-ins 7d')}
