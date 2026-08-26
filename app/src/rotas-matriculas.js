@@ -269,9 +269,15 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     } catch (e) { res.status(500).json({ erro: e.message }); }
   });
 
-  /** Liga um check-in órfão a um aluno — e o Wellhub ID junto, para o futuro. */
+  /**
+   * Liga um check-in órfão a um aluno — e o Wellhub ID junto, para o futuro.
+   *
+   * `comoTitular: true` marca a conta como sendo de outra pessoa: o nome do
+   * check-in vira o titular da ficha e o nome do aluno não é sobrescrito.
+   */
   rotas.post('/checkins/:id/vincular', (req, res) => {
-    const r = checkins.vincular(req.params.id, String(req.body.matriculaId || ''));
+    const r = checkins.vincular(req.params.id, String(req.body.matriculaId || ''),
+      { comoTitular: Boolean(req.body.comoTitular) });
     if (!r.ok) return res.status(400).json({ erro: r.motivo });
     res.json(r);
   });
