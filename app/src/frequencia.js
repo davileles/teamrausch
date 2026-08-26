@@ -165,9 +165,7 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
   // dias, não aparições.
   const feitas = [...new Set(datasFeitas.filter((d) => d >= de && d <= ate))].sort();
 
-  const esperado = previstas.length;
   const realizado = feitas.length;
-  const saldo = realizado - esperado;
 
   // Acumulado do ciclo inteiro. Quando a janela já cobre o mês todo (começo de
   // mês), é o mesmo número — e não custa recalcular.
@@ -176,6 +174,18 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
     : aulasPrevistas(matricula, excecoes, { de: primeiroDoMes, ate });
   const feitasMes = [...new Set(
     datasFeitas.filter((d) => d >= primeiroDoMes && d <= ate))].sort();
+
+  const metaMes = metaDoMes(matricula);
+  const faltamNoMes = Math.max(metaMes - feitasMes.length, 0);
+
+  // O QUE SE PODE COBRAR NUNCA PASSA DO QUE FALTA NO MÊS
+  //   Quem treina de segunda a sexta tem cinco aulas previstas na semana, mas o
+  //   Wellhub só repassa doze no mês. Batidos os doze, ele continua vindo e o
+  //   check-in dele para de existir — pelo cálculo antigo isso virava saldo -3 e
+  //   a pessoa mais assídua do estúdio aparecia como crítica. Limitar o esperado
+  //   ao que ainda falta faz a cobrança bater com a realidade do repasse.
+  const esperado = metaMes ? Math.min(previstas.length, faltamNoMes) : previstas.length;
+  const saldo = realizado - esperado;
 
   const todas = [...new Set(datasFeitas)].sort();
   const ultimo = todas.length ? todas[todas.length - 1] : null;
@@ -207,19 +217,22 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
       // quantos ainda cabem até o dia 31. `esperado`/`saldo` acima olham a
       // grade projetada e servem para cobrar no meio do caminho; `meta` e
       // `faltam` são o número do fim do mês.
-      meta: metaDoMes(matricula),
-      faltam: Math.max(metaDoMes(matricula) - feitasMes.length, 0),
+      meta: metaMes,
+      faltam: faltamNoMes,
       // Quantos check-ins por semana valem no financeiro, já com o teto
       // aplicado. A tela usa isto para não parecer que a grade do aluno mudou.
       porSemanaCobravel: Math.min(grade.diasPorSemana(matricula), TETO_SEMANAL),
       acimaDoTeto: grade.diasPorSemana(matricula) > TETO_SEMANAL,
+      // Aulas previstas na janela que já não geram check-in porque o pacote
+      // acabou. Existem, o aluno vem, mas o repasse não cobre.
+      forasDoPacote: metaMes ? Math.max(previstas.length - faltamNoMes, 0) : 0,
     },
     porSemana: grade.diasPorSemana(matricula),
     semGrade: !(matricula.grade || []).length,
     esperado,
     realizado,
     saldo,
-    situacao: classificar(saldo, esperado, matricula),
+    situacao: classificar(saldo, esperado, matricula, { metaMes, faltamNoMes }),
     previstas,
     datas: feitas,
     ultimoCheckin: ultimo,
@@ -232,12 +245,16 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
  * sinalizado aqui. `atrasado` é uma aula de diferença; `critico`, duas ou mais,
  * que numa semana de duas aulas significa que a pessoa sumiu.
  */
-function classificar(saldo, esperado, matricula) {
+function classificar(saldo, esperado, matricula, mes = {}) {
   // Experimental vem antes de tudo: quem está em teste não tem grade ainda e
   // seria classificado como 'sem-grade', que na tela parece cadastro pela
   // metade. Também não pode virar devedor — não há combinado para cobrar.
   if (matricula.experimental) return 'experimental';
   if (!(matricula.grade || []).length) return 'sem-grade';
+  // Pacote fechado: os doze do mês saíram e não há mais check-in a cobrar.
+  // Fica antes do saldo de propósito — é o estado final do ciclo, e cobrar
+  // alguém que já entregou tudo é o erro mais caro que esta tela pode cometer.
+  if (mes.metaMes && mes.faltamNoMes === 0) return 'quitado';
   if (!esperado) return 'sem-aula';       // janela sem nenhuma aula prevista
   if (saldo >= 0) return 'em-dia';
   return saldo <= -2 ? 'critico' : 'atrasado';
@@ -250,7 +267,7 @@ function diferencaEmDias(de, ate) {
 }
 
 const ORDEM = { critico: 0, atrasado: 1, experimental: 2, 'sem-aula': 3,
-  'em-dia': 4, 'sem-grade': 5 };
+  'em-dia': 4, quitado: 5, 'sem-grade': 6 };
 
 /**
  * Painel completo. `mapaDatas` é o Map matriculaId → datas de `checkins-store`.
@@ -294,6 +311,7 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
       faltamMes: lista.reduce((s, a) => s + a.mes.faltam, 0),
       devendoNoMes: lista.filter((a) => a.mes.faltam > 0 && a.mes.meta > 0).length,
       emDia: conta('em-dia'),
+      quitados: conta('quitado'),
       atrasados: conta('atrasado'),
       criticos: conta('critico'),
       semGrade: conta('sem-grade'),
