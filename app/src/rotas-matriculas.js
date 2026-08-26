@@ -105,6 +105,9 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     return {
       ...m,
       diasSemana: grade.diasPorSemana(m),
+      // Quem treina na conta desta ficha — a tela usa para avisar antes de
+      // desvincular o Wellhub e deixar os dependentes sem cota.
+      dependentes: store.dependentesDe(m.id).map((d) => ({ id: d.id, nome: d.nome })),
       // A ficha mostra quantos check-ins caem nela hoje: é o retorno visual de
       // que o vínculo com o Wellhub pegou.
       checkinsNaFicha: checkins.quantosDaMatricula(m.id),
@@ -374,9 +377,16 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       ...ficha(m),
       proximas: grade.proximasDaMatricula(
         m, store.excecoes({ matriculaId: m.id }), { de: ate, dias: 21 }),
-      frequencia: frequencia.avaliar(
-        m, checkins.datasDaMatricula(m.id),
-        store.excecoes({ matriculaId: m.id, de, ate }), { dias, ate }),
+      frequencia: (() => {
+        // Conta compartilhada: a ficha precisa mostrar a fatia dela, e não a
+        // lista inteira do titular nem uma meta que a conta não entrega.
+        const fatia = frequencia
+          .dividirContas(store.listar(), checkins.mapaPorMatricula()).get(m.id);
+        return frequencia.avaliar(
+          m, fatia ? fatia.datas : checkins.datasDaMatricula(m.id),
+          store.excecoes({ matriculaId: m.id, de, ate }),
+          fatia ? { dias, ate, metaMes: fatia.meta, conta: fatia.conta } : { dias, ate });
+      })(),
       checkins: checkins.listar({ matriculaId: m.id, limite: 60 }),
     });
   });
@@ -451,10 +461,22 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     });
   });
 
+  /** Liga esta ficha à conta de outro aluno — ou desfaz, com `titularId` vazio. */
+  rotas.post('/:id/conta-compartilhada', (req, res) => {
+    const r = store.definirContaDe(req.params.id, req.body.titularId || '');
+    if (!r.ok) return res.status(400).json({ erro: r.motivo });
+    res.json({ ok: true, matricula: ficha(r.matricula), titular: r.titular ? r.titular.nome : null });
+  });
+
   /** Desfaz o vínculo: o ID sai da ficha e os check-ins voltam a ser órfãos. */
   rotas.delete('/:id/wellhub', (req, res) => {
     const m = store.porId(req.params.id);
     if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+    const presos = store.dependentesDe(m.id);
+    if (presos.length) {
+      return res.status(400).json({ erro: 'Esta conta é compartilhada com '
+        + `${presos.map((x) => x.nome).join(', ')}. Desfaça o compartilhamento antes.` });
+    }
     const gympassId = m.gympassId || null;
     // `soltar=0` tira só o ID da ficha e deixa o histórico onde está — útil
     // quando o aluno trocou de conta no Wellhub e o passado continua sendo dele.
