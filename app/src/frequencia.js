@@ -46,6 +46,8 @@ const grade = require('./grade');
 const FUSO = process.env.TZ_ESTUDIO || 'America/Sao_Paulo';
 /** Folga depois do horário da aula antes de considerá-la cobrável (minutos). */
 const TOLERANCIA_MIN = Number(process.env.FREQ_TOLERANCIA_MIN || 90);
+/** Semanas cobradas num mês, do jeito que o pacote é vendido. */
+const SEMANAS_NO_MES = Number(process.env.FREQ_SEMANAS_MES || 4);
 
 function hojeLocal() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -63,6 +65,29 @@ function agoraEmMinutos() {
 /** Primeiro dia do mês da data — o piso de qualquer janela. */
 function inicioDoMes(data) {
   return String(data).slice(0, 8) + '01';
+}
+
+/** Último dia do mês da data — o prazo do pacote. */
+function fimDoMes(data) {
+  const [ano, mes] = String(data).split('-').map(Number);
+  const ultimo = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  return `${String(ano)}-${String(mes).padStart(2, '0')}-${String(ultimo)}`;
+}
+
+/**
+ * Meta do mês: o combinado semanal multiplicado por quatro.
+ *
+ * O pacote é vendido assim — 1x por semana são 4 no mês, 2x são 8, 3x são 12 —
+ * e não por dia de calendário. Contar as ocorrências reais de cada dia da
+ * semana daria 13 para quem treina segunda, quarta e sexta em agosto (que tem
+ * cinco segundas), cobrando um treino que o aluno não contratou.
+ *
+ * Vem da grade, e não de um número guardado na ficha: `diasPorSemana` conta
+ * dias distintos, então quem tem dois horários na mesma terça continua sendo
+ * 1x por semana.
+ */
+function metaDoMes(matricula) {
+  return grade.diasPorSemana(matricula) * SEMANAS_NO_MES;
 }
 
 function emMinutos(hora) {
@@ -165,9 +190,16 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
     mes: {
       de: primeiroDoMes,
       ate,
+      fecha: fimDoMes(ate),
       esperado: previstasMes.length,
       realizado: feitasMes.length,
       saldo: feitasMes.length - previstasMes.length,
+      // O que conta no fechamento: quantos treinos o pacote pede no mês e
+      // quantos ainda cabem até o dia 31. `esperado`/`saldo` acima olham a
+      // grade projetada e servem para cobrar no meio do caminho; `meta` e
+      // `faltam` são o número do fim do mês.
+      meta: metaDoMes(matricula),
+      faltam: Math.max(metaDoMes(matricula) - feitasMes.length, 0),
     },
     porSemana: grade.diasPorSemana(matricula),
     semGrade: !(matricula.grade || []).length,
@@ -242,6 +274,12 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
     },
     resumo: {
       avaliados: lista.length,
+      // Fechamento do mês: soma do que cada aluno ainda deve para bater o
+      // pacote. É o número que responde "quantos treinos faltam até o dia 31".
+      metaMes: lista.reduce((s, a) => s + a.mes.meta, 0),
+      realizadoMes: lista.reduce((s, a) => s + a.mes.realizado, 0),
+      faltamMes: lista.reduce((s, a) => s + a.mes.faltam, 0),
+      devendoNoMes: lista.filter((a) => a.mes.faltam > 0 && a.mes.meta > 0).length,
       emDia: conta('em-dia'),
       atrasados: conta('atrasado'),
       criticos: conta('critico'),
@@ -260,6 +298,6 @@ function devedores(painelPronto) {
 }
 
 module.exports = {
-  avaliar, painel, devedores, aulasPrevistas,
-  hojeLocal, agoraEmMinutos, inicioDoMes, TOLERANCIA_MIN,
+  avaliar, painel, devedores, aulasPrevistas, metaDoMes,
+  hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes, TOLERANCIA_MIN, SEMANAS_NO_MES,
 };
