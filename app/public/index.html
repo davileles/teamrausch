@@ -2280,10 +2280,12 @@ async function carregarFrequencia(){
           <b>Cadastro no Wellhub</b>.</p>`
       : ''}
 
-      <h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
-        margin:0 0 10px">${matEstado.freqSo==='devendo' ? 'Precisam repor'
+      <!-- Título só quando há linha embaixo dele: cabeçalho sobre tabela vazia
+           faz parecer que algo não carregou. -->
+      ${mostrar.length ? `<h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;
+        text-transform:uppercase;margin:0 0 10px">${matEstado.freqSo==='devendo' ? 'Precisam repor'
         : matEstado.freqSo==='experimentais' ? 'Em aula experimental'
-        : 'Todos os alunos Wellhub'}</h3>
+        : 'Todos os alunos Wellhub'}</h3>` : ''}
       <div id="fq-lista">${mostrar.length
         ? `<table class="freq-tabela">
             <thead><tr>
