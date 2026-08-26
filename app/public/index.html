@@ -376,10 +376,7 @@
   #mat-grade .horarios{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;
     align-items:start}
   #mat-grade .horarios .ficha{margin-bottom:0;min-width:0}
-  #fq-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px;
-    align-items:start}
-  #fq-lista .freq-item{margin-bottom:0;min-width:0}
-  #fq-lista > .vazio{grid-column:1 / -1}
+  #fq-lista{overflow-x:auto}
   #mat-soltos .soltos,#fq-orfaos{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
     gap:8px;align-items:start}
   #mat-soltos .soltos .solto,#fq-orfaos .orfao{margin-bottom:0;min-width:0}
@@ -401,20 +398,37 @@
   .solto .rodape{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
   .solto .rodape button{flex:1;min-width:110px}
   .nome-antigo b{color:var(--texto);font-weight:600}
-  /* ---- frequência: combinado x realizado ---- */
-  .freq-item{background:var(--superficie);border:1px solid var(--linha-2);
-    border-left:4px solid var(--linha-2);padding:14px 16px;margin-bottom:8px}
-  .freq-item.critico{border-left-color:var(--vermelho)}
-  .freq-item.atrasado{border-left-color:var(--amarelo)}
-  .freq-item.em-dia{border-left-color:var(--liberado)}
-  .freq-item .cabeca{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
-  .freq-item .cabeca b{font:400 15px Anton,sans-serif;letter-spacing:.05em;text-transform:uppercase}
-  .freq-conta{font:400 15px Anton,sans-serif;letter-spacing:.06em;white-space:nowrap}
-  .freq-item.critico .freq-conta{color:var(--vermelho)}
-  .freq-item.atrasado .freq-conta{color:var(--amarelo)}
-  .freq-item.em-dia .freq-conta{color:var(--liberado)}
-  .freq-item p.ajuda{margin:5px 0 0}
-  .freq-item .rodape{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  /* ---- frequência: uma linha por aluno, para varrer a lista de cima a baixo ---- */
+  .freq-tabela{width:100%;border-collapse:collapse;
+    font:500 13px/1.35 'Work Sans',sans-serif}
+  .freq-tabela th{font:400 11px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--fraco);text-align:left;padding:7px 8px;white-space:nowrap;
+    border-bottom:1px solid var(--linha-2);position:sticky;top:0;background:var(--fundo)}
+  .freq-tabela td{padding:9px 8px;border-bottom:1px solid var(--linha);vertical-align:middle}
+  .freq-tabela tbody tr:hover td{background:var(--fundo-2)}
+  .freq-tabela .nome{font:400 14px Anton,sans-serif;letter-spacing:.04em;
+    text-transform:uppercase;min-width:150px}
+  /* Números alinhados à direita e com largura fixa por dígito: a coluna vira uma
+     régua, e a linha que destoa salta sem precisar ler. */
+  .freq-tabela .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .freq-tabela .falta{font:400 15px Anton,sans-serif;letter-spacing:.05em}
+  .freq-tabela tr.critico .falta{color:var(--vermelho)}
+  .freq-tabela tr.atrasado .falta{color:var(--amarelo)}
+  .freq-tabela tr.em-dia .falta,.freq-tabela .quitado{color:var(--liberado)}
+  /* A faixa colorida fica na primeira célula: em tabela com border-collapse a
+     borda do <tr> não aparece de forma confiável entre navegadores. */
+  .freq-tabela tbody td:first-child{border-left:4px solid var(--linha-2)}
+  .freq-tabela tr.critico td:first-child{border-left-color:var(--vermelho)}
+  .freq-tabela tr.atrasado td:first-child{border-left-color:var(--amarelo)}
+  .freq-tabela tr.em-dia td:first-child{border-left-color:var(--liberado)}
+  .freq-tabela .acoes{display:flex;gap:6px;justify-content:flex-end}
+  .freq-tabela .acoes button{padding:5px 9px;font-size:12px;white-space:nowrap}
+  .freq-tabela .fraco{color:var(--fraco)}
+  @media(max-width:760px){
+    /* Some o que dá para deduzir: no celular o que importa é quem deve e quanto. */
+    .freq-tabela .opc{display:none}
+    .freq-tabela th,.freq-tabela td{padding:8px 6px}
+  }
   .freq-cartoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));
     gap:8px;margin:12px 0 16px}
   .freq-cartao{background:var(--fundo-2);border:1px solid var(--linha);padding:10px;text-align:center}
@@ -1891,48 +1905,52 @@ function cartaoFreq(valor, rotulo, classe){
   return `<div class="freq-cartao ${classe||''}"><b>${valor}</b><span>${rotulo}</span></div>`;
 }
 
-function itemFrequencia(a){
+/**
+ * Uma linha da tabela de frequência.
+ *
+ * Cartão por aluno virava uma parede de 66 blocos que só se lia um a um. Em
+ * linha, cada coluna é uma régua vertical: dá para descer a coluna "faltam" e
+ * achar quem precisa de cobrança sem ler nome nenhum.
+ *
+ * As classes `freq-item`, `fq-exp`, `fq-cobrar` e `fq-abrir` continuam as
+ * mesmas: os handlers da tela pendem delas e não precisam saber que agora é
+ * `<tr>` em vez de `<div>`.
+ */
+function linhaFrequencia(a){
   const s = SITUACAO[a.situacao] || { rotulo:a.situacao, marca:'·' };
-  const detalhes = [];
-  if (a.ultimoCheckin){
-    detalhes.push(`último em ${dataCurta(a.ultimoCheckin)}` +
-      (a.diasSemTreinar === 0 ? ' (hoje)' :
-       a.diasSemTreinar === 1 ? ' (ontem)' : ` (há ${a.diasSemTreinar} dias)`));
-  } else {
-    detalhes.push('nenhum check-in registrado');
-  }
-  // Grade de 5x com teto de 3: dizer só "5×/sem" faria a meta de 12 parecer
-  // erro de conta. O excedente existe, mas o Wellhub não repassa.
-  detalhes.push(a.mes && a.mes.acimaDoTeto
-    ? `${a.porSemana}×/sem · ${a.mes.porSemanaCobravel}× pelo Wellhub`
-    : `${a.porSemana}×/sem combinado`);
-  if (a.mes && a.mes.meta){
-    detalhes.push(a.mes.faltam
-      ? `faltam ${a.mes.faltam} até ${dataCurta(a.mes.fecha)}`
-      : 'pacote do mês fechado');
-  }
-  if (!a.gympassId) detalhes.push('sem Wellhub ID vinculado');
+  const meta = a.mes && a.mes.meta ? a.mes.meta : 0;
+  const feitos = a.mes ? a.mes.realizado : a.realizado;
+  const faltam = a.mes ? a.mes.faltam : Math.max(a.esperado - a.realizado, 0);
+
+  const ultimo = a.ultimoCheckin
+    ? `${dataCurta(a.ultimoCheckin)}<span class="fraco">${
+        a.diasSemTreinar === 0 ? ' hoje' : a.diasSemTreinar === 1 ? ' ontem'
+        : ` · ${a.diasSemTreinar}d`}</span>`
+    : '<span class="fraco">nunca</span>';
+
+  // Grade de 5x com teto de 3: mostrar só o combinado faria a meta de 12
+  // parecer erro de conta.
+  const semana = a.mes && a.mes.acimaDoTeto
+    ? `${a.porSemana}<span class="fraco">→${a.mes.porSemanaCobravel}</span>`
+    : `${a.porSemana}`;
 
   const devendo = a.situacao === 'critico' || a.situacao === 'atrasado';
-  // A caixinha fica em todo aluno, não só no experimental: é por ela que se
-  // marca quem chegou hoje e, principalmente, que se desmarca quem já fechou
-  // horário — sem precisar abrir a ficha.
-  return `<div class="freq-item ${esc(a.situacao)}" data-id="${esc(a.matriculaId)}">
-    <div class="cabeca">
-      <b>${esc(a.nome)}</b>
-      <span class="freq-conta">${a.mes && a.mes.meta
-        ? `${a.mes.realizado}/${a.mes.meta}` : `${a.realizado}/${a.esperado}`}</span>
-    </div>
-    <p class="ajuda">${s.marca} ${s.rotulo} · ${detalhes.map(esc).join(' · ')}</p>
-    <label class="marcar"><input type="checkbox" class="fq-exp" ${a.experimental?'checked':''}>
-      Em aula experimental</label>
-    ${devendo ? `<div class="rodape">
-      ${a.telefone
-        ? '<button class="leve fq-cobrar">Cobrar no WhatsApp</button>'
-        : '<button class="leve" disabled>Sem telefone cadastrado</button>'}
-      <button class="leve fq-abrir">Abrir ficha</button>
-    </div>` : ''}
-  </div>`;
+  return `<tr class="freq-item ${esc(a.situacao)}" data-id="${esc(a.matriculaId)}">
+    <td class="nome">${esc(a.nome)}${a.gympassId ? ''
+      : ' <span class="fraco" title="Sem Wellhub ID vinculado">⚠</span>'}</td>
+    <td class="num opc">${semana}×</td>
+    <td class="num">${meta ? `${feitos}/${meta}` : `<span class="fraco">${feitos}/—</span>`}</td>
+    <td class="num falta">${meta ? (faltam || '<span class="quitado">ok</span>') : '—'}</td>
+    <td class="num opc">${ultimo}</td>
+    <td class="opc"><span class="fraco">${s.marca} ${esc(s.rotulo)}</span></td>
+    <td class="opc" style="text-align:center">
+      <input type="checkbox" class="fq-exp" ${a.experimental?'checked':''}
+        title="Em aula experimental"></td>
+    <td><div class="acoes">
+      ${devendo && a.telefone ? '<button class="leve fq-cobrar">Cobrar</button>' : ''}
+      <button class="leve fq-abrir">Ficha</button>
+    </div></td>
+  </tr>`;
 }
 
 /**
@@ -2075,7 +2093,19 @@ async function carregarFrequencia(){
         : matEstado.freqSo==='experimentais' ? 'Em aula experimental'
         : 'Todos os alunos Wellhub'}</h3>
       <div id="fq-lista">${mostrar.length
-        ? mostrar.map(itemFrequencia).join('')
+        ? `<table class="freq-tabela">
+            <thead><tr>
+              <th>Aluno</th>
+              <th class="num opc">/sem</th>
+              <th class="num">Mês</th>
+              <th class="num">Faltam</th>
+              <th class="num opc">Último</th>
+              <th class="opc">Situação</th>
+              <th class="opc" style="text-align:center">Exp</th>
+              <th></th>
+            </tr></thead>
+            <tbody>${mostrar.map(linhaFrequencia).join('')}</tbody>
+          </table>`
         : `<div class="vazio">${matEstado.freqSo==='experimentais'
             ? 'Ninguém marcado como experimental.'
             : 'Ninguém devendo treino nesta janela.'}</div>`}</div>`;
@@ -2176,11 +2206,11 @@ async function carregarFrequencia(){
           cobrar.textContent = 'Cobrado ✓';
         }catch(err){
           avisar(err.message,'erro');
-          cobrar.disabled = false; cobrar.textContent = 'Cobrar no WhatsApp';
+          cobrar.disabled = false; cobrar.textContent = 'Cobrar';
         }
       });
       const exp = el.querySelector('.fq-exp');
-      exp.addEventListener('change', async ()=>{
+      if (exp) exp.addEventListener('change', async ()=>{
         exp.disabled = true;
         try{
           await api('/matriculas/'+el.dataset.id,
