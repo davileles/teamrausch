@@ -459,6 +459,54 @@ function definirTitular(id, nomeDoTitular, { travar = true } = {}) {
   return { ok: true, matricula: m };
 }
 
+/**
+ * Liga esta ficha à conta Wellhub de outro aluno — ou desfaz, com valor vazio.
+ *
+ * O caso real: uma pessoa faz o check-in e o pacote cobre duas. O portal só
+ * conhece o titular, então sem isto a segunda ficha aparece devendo o mês
+ * inteiro, e o titular aparece com uma meta que a conta dele não pode entregar
+ * sozinha.
+ *
+ * Um nível só: o titular precisa ter Wellhub ID próprio e não pode, ele mesmo,
+ * compartilhar a conta de um terceiro. Corrente de fichas apontando umas para
+ * as outras não tem dono claro, e a divisão da cota deixaria de fechar.
+ */
+function definirContaDe(id, titularId) {
+  const m = porId(id);
+  if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+
+  const alvo = String(titularId || '').trim();
+  if (!alvo) { delete m.contaDe; m.atualizadoEm = new Date().toISOString(); gravar(); return { ok: true, matricula: m }; }
+  if (alvo === id) return { ok: false, motivo: 'A ficha não pode compartilhar a própria conta.' };
+
+  const titular = porId(alvo);
+  if (!titular) return { ok: false, motivo: 'Titular não encontrado.' };
+  if (!titular.gympassId) {
+    return { ok: false, motivo: `${titular.nome} ainda não tem Wellhub ID vinculado.` };
+  }
+  if (titular.contaDe) {
+    return { ok: false, motivo: `${titular.nome} já usa a conta de outra pessoa.` };
+  }
+  // Quem já é titular de alguém não pode virar dependente: as duas pontas da
+  // corrente ficariam sem cota definida.
+  if (dados.matriculas.some((x) => x.contaDe === id)) {
+    return { ok: false, motivo: 'Esta ficha já é titular de uma conta compartilhada.' };
+  }
+  if (m.gympassId) {
+    return { ok: false, motivo: 'Esta ficha tem Wellhub próprio. Desvincule antes de compartilhar.' };
+  }
+
+  m.contaDe = alvo;
+  m.atualizadoEm = new Date().toISOString();
+  gravar();
+  return { ok: true, matricula: m, titular };
+}
+
+/** Fichas que treinam na conta desta — vazio quando ela não é titular. */
+function dependentesDe(id) {
+  return dados.matriculas.filter((m) => m.ativo && m.contaDe === id);
+}
+
 function comMesmoNome(nome, exceto) {
   const alvo = String(nome).trim().toLocaleLowerCase('pt-BR');
   return dados.matriculas.find((m) =>
@@ -587,6 +635,13 @@ function atualizar(id, campos = {}) {
   // comportamento normal (o portal volta a poder corrigir o nome do aluno).
   if (campos.titularWellhub !== undefined) {
     definirTitular(id, campos.titularWellhub);
+  }
+  // Conta compartilhada: esta ficha treina com o Wellhub de outro aluno. Guarda
+  // só o id do titular; a divisão da cota é calculada na hora pela frequência,
+  // e não gravada, para acompanhar mudança de grade sem manutenção.
+  if (campos.contaDe !== undefined) {
+    const r = definirContaDe(id, campos.contaDe);
+    if (!r.ok) return r;
   }
   if (campos.nomeTravado !== undefined) {
     if (campos.nomeTravado) m.nomeTravado = true;
@@ -924,7 +979,7 @@ setInterval(() => limparAntigas(), 24 * 3600000).unref();
 module.exports = {
   listar, porId, porTelefone, porGympassId, definirGympassId, definirTitular,
   renomearDoWellhub, arrumarCaixa,
-  criar, atualizar, inativar, remover,
+  criar, atualizar, inativar, remover, definirContaDe, dependentesDe,
   excecoes, registrarExcecao, apagarExcecao,
   importar, resumo, backup, normalizarHorarios, normalizarNomes, horaCheia,
   complementarTelefones, complementarWellhubIds,
