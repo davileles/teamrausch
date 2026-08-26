@@ -128,6 +128,20 @@ function devidoAteAgora(matricula, ate) {
   return Math.min(cotas * porSemana, meta);
 }
 
+/**
+ * Dias que ainda restam no mês, contando hoje.
+ *
+ * É o teto de check-ins que ainda cabem: `checkins-store` deduplica por dia, e
+ * dois treinos na mesma data valem um. Quem deve três com dois dias pela frente
+ * não fecha o pacote nem vindo todo dia — e é melhor saber disso hoje, quando
+ * ainda dá para conversar sobre o mês que vem, do que no dia 1º.
+ */
+function diasRestantes(ate) {
+  const fim = Number(fimDoMes(ate).slice(8, 10));
+  const hoje = Number(String(ate).slice(8, 10));
+  return Math.max(fim - hoje + 1, 0);
+}
+
 /** Onde vence a próxima cota e quanto ela exige. Null quando o mês já fechou. */
 function proximoMarco(matricula, ate) {
   const meta = metaDoMes(matricula);
@@ -225,6 +239,14 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
   const devido = devidoAteAgora(matricula, ate);
   const saldoRitmo = feitasMes.length - devido;
 
+  // Viabilidade do fechamento: o marco da semana pode estar em dia e o mês já
+  // estar perdido na aritmética. Faltando três com dois dias pela frente, não
+  // existe cobrança que resolva — o que existe é uma conversa a ter agora.
+  const restantes = diasRestantes(ate);
+  const risco = !metaMes || !faltamNoMes ? null
+    : faltamNoMes > restantes ? 'impossivel'
+      : faltamNoMes === restantes ? 'no-limite' : null;
+
   // O QUE SE PODE COBRAR NUNCA PASSA DO QUE FALTA NO MÊS
   //   Quem treina de segunda a sexta tem cinco aulas previstas na semana, mas o
   //   Wellhub só repassa doze no mês. Batidos os doze, ele continua vindo e o
@@ -279,6 +301,10 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
       saldoRitmo,
       atrasoNoRitmo: Math.max(devido - feitasMes.length, 0),
       proximoMarco: proximoMarco(matricula, ate),
+      // `no-limite`: só fecha vindo todos os dias que sobraram.
+      // `impossivel`: não fecha mais, faça o que fizer.
+      diasRestantes: restantes,
+      risco,
     },
     porSemana: grade.diasPorSemana(matricula),
     semGrade: !(matricula.grade || []).length,
@@ -286,7 +312,7 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
     realizado,
     saldo,
     situacao: classificar(saldo, esperado, matricula,
-      { metaMes, faltamNoMes, saldoRitmo }),
+      { metaMes, faltamNoMes, saldoRitmo, risco }),
     previstas,
     datas: feitas,
     ultimoCheckin: ultimo,
@@ -316,6 +342,10 @@ function classificar(saldo, esperado, matricula, mes = {}) {
   //   aluno pode ter vindo ontem e ainda estar duas cotas atrás, com mais
   //   reposições pendentes do que dias úteis restantes.
   if (mes.metaMes) {
+    // A aritmética do fim do mês vence o marco da semana: adianta pouco estar
+    // dentro da cota do dia 21 se o que falta já não cabe nos dias que sobraram.
+    if (mes.risco === 'impossivel') return 'critico';
+    if (mes.risco === 'no-limite' && mes.saldoRitmo >= 0) return 'atrasado';
     if (mes.saldoRitmo >= 0) return 'em-dia';
     return mes.saldoRitmo <= -2 ? 'critico' : 'atrasado';
   }
@@ -374,6 +404,9 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
       realizadoMes: lista.reduce((s, a) => s + a.mes.realizado, 0),
       faltamMes: lista.reduce((s, a) => s + a.mes.faltam, 0),
       devendoNoMes: lista.filter((a) => a.mes.faltam > 0 && a.mes.meta > 0).length,
+      // Quem já não fecha o pacote: é a conta que o fim do mês vai cobrar.
+      naoFecham: lista.filter((a) => a.mes.risco === 'impossivel').length,
+      noLimite: lista.filter((a) => a.mes.risco === 'no-limite').length,
       emDia: conta('em-dia'),
       quitados: conta('quitado'),
       atrasados: conta('atrasado'),
@@ -394,6 +427,7 @@ function devedores(painelPronto) {
 
 module.exports = {
   avaliar, painel, devedores, aulasPrevistas, metaDoMes, devidoAteAgora, proximoMarco,
+  diasRestantes,
   hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes,
   TOLERANCIA_MIN, SEMANAS_NO_MES, TETO_SEMANAL,
 };
