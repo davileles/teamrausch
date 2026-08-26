@@ -14,9 +14,20 @@
      pessoa está digitando. Verde e vermelho na resposta são sinal de porta,
      não marca: quem está entrando lê de longe, sem ler texto.            */
   :root{
+    color-scheme:dark;
     --preto:#08090B;--superficie:#1C2026;--linha:#474E57;--linha-2:#5C636D;
     --texto:#F5F5F3;--apagado:#A6ABB2;--fraco:#949AA2;
     --vermelho:#E01F26;--amarelo:#F5C518;--liberado:#1B6B4A;
+    --tecla-apagar:#141619;--linha-3:var(--linha-2);
+  }
+  /* Tema claro: o totem fica com fundo de papel e teclas brancas. Vermelho e
+     amarelo escurecem para continuarem legíveis a alguns passos de distância. */
+  :root[data-tema=claro]{
+    color-scheme:light;
+    --preto:#F2F3F5;--superficie:#FFFFFF;--linha:#C3C9D1;--linha-2:#A7AEB8;
+    --texto:#15181C;--apagado:#414750;--fraco:#5C636C;
+    --vermelho:#C8161C;--amarelo:#9A6E00;--liberado:#15694A;
+    --tecla-apagar:#E9EBEF;
   }
   *{box-sizing:border-box;margin:0;padding:0;user-select:none}
   body{background:var(--preto);color:var(--texto);font-family:'Work Sans',system-ui,sans-serif;
@@ -37,7 +48,7 @@
   .teclas button{height:82px;background:var(--superficie);border:1px solid var(--linha);
     font:400 34px Anton,sans-serif;color:var(--texto);cursor:pointer}
   .teclas button:active{background:var(--texto);color:var(--preto);border-color:var(--texto)}
-  .teclas button[data-acao=apagar]{background:#141619;font-size:28px;color:var(--apagado)}
+  .teclas button[data-acao=apagar]{background:var(--tecla-apagar);font-size:28px;color:var(--apagado)}
   .teclas button.ok{background:var(--vermelho);border-color:var(--vermelho);color:#fff;
     font-size:20px;letter-spacing:.08em;text-transform:uppercase}
   .rodape{font:400 13.5px/1.5 'Work Sans',sans-serif;color:var(--fraco);text-align:center;margin-top:24px}
@@ -57,10 +68,49 @@
     .visor{min-height:84px;font-size:32px}
     .teclas button{height:68px;font-size:28px}
   }
+
+  /* Alternador de tema: o ícone mostra para onde se vai, não onde se está. */
+  .tema{background:transparent;border:1px solid var(--linha-3);color:var(--apagado);
+    border-radius:var(--raio,2px);cursor:pointer;padding:0;width:40px;height:40px;
+    display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+    transition:border-color .15s,color .15s,background .15s}
+  .tema:hover{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
+  .tema svg{display:block}
+  .tema .i-lua{display:none}
+  :root[data-tema=claro] .tema .i-sol{display:none}
+  :root[data-tema=claro] .tema .i-lua{display:block}
+  .tema{position:fixed;top:18px;right:18px;z-index:5;width:44px;height:44px;
+    border-color:var(--linha);opacity:.55}
+  .tema:hover{opacity:1}
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
+<script>
+/* Tema claro/escuro — escolha do usuário, guardada só neste aparelho.
+   Roda antes do corpo desenhar para não haver piscada de tema errado. */
+(function(){
+  var CHAVE='tr_tema', CLARO='#F2F3F5', ESCURO='#0E0F11';
+  function pintar(t){
+    var claro = t==='claro';
+    document.documentElement.setAttribute('data-tema', claro?'claro':'escuro');
+    var m=document.querySelector('meta[name="theme-color"]');
+    if(m) m.setAttribute('content', claro?CLARO:ESCURO);
+  }
+  var salvo=null; try{ salvo=localStorage.getItem(CHAVE); }catch(e){}
+  pintar(salvo||'escuro');
+  window.alternarTema=function(){
+    var novo=document.documentElement.getAttribute('data-tema')==='claro'?'escuro':'claro';
+    pintar(novo); try{ localStorage.setItem(CHAVE,novo); }catch(e){}
+  };
+  document.addEventListener('click',function(ev){
+    var alvo=ev.target&&ev.target.closest?ev.target.closest('.tema'):null;
+    if(alvo){ ev.preventDefault(); window.alternarTema(); }
+  });
+})();
+</script>
 </head>
 <body>
+  <button class="tema" type="button" aria-label="Alternar tema claro ou escuro" title="Alternar tema claro/escuro"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="i-sol"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.1M12 19.3v2.1M4.5 4.5l1.5 1.5M18 18l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.5 19.5l1.5-1.5M18 6l1.5-1.5"/></g><path class="i-lua" d="M20.2 14.6A8.5 8.5 0 0 1 9.4 3.8 8.7 8.7 0 1 0 20.2 14.6Z"/></svg></button>
   <div class="painel">
     <img src="/logo.png" alt="Team Rausch Studio" class="logo">
     <div class="rotulo">Entrada</div>
