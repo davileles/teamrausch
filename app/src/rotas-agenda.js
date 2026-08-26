@@ -89,6 +89,27 @@ const aniversario = require('./aniversario');
 const normalizarAniversario = aniversario.normalizar;
 const mostrarAniversario = aniversario.mostrar;
 
+/* --------------------- primeiro acesso do telefone ------------------------ */
+
+/**
+ * Primeiro acesso = este telefone nunca entrou no app, mesmo que a ficha já
+ * exista aqui.
+ *
+ * `ultimoAcesso` só é escrito no login, então a ausência dele é a marca segura
+ * de quem veio da importação e nunca abriu o app. Essa gente costuma ter nome
+ * pela metade ("Ana", "Ana P.") e nenhum aniversário; pedir os dois campos na
+ * primeira entrada é o que fecha esses buracos sozinho, sem alguém ter que
+ * caçar aluno por aluno na planilha.
+ */
+function primeiroAcesso(cadastrado) {
+  return !cadastrado || !cadastrado.ultimoAcesso;
+}
+
+/** Nome completo = pelo menos duas palavras de duas letras ou mais. */
+function nomeCompleto(texto) {
+  return String(texto || '').trim().split(/\s+/).filter((p) => p.length >= 2).length >= 2;
+}
+
 /* ----------------------------- sessão ------------------------------------ */
 
 function identificar(req, _res, next) {
@@ -143,8 +164,8 @@ rotas.post('/auth/codigo', async (req, res) => {
       canal: 'senha',
       precisaDeSenha: true,
       telefone: mostrarTelefone(telefone),
-      precisaDeNome: !cadastrado || !cadastrado.nome,
-      precisaDeAniversario: !cadastrado || !cadastrado.aniversario,
+      precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
+      precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
     });
   }
 
@@ -155,8 +176,8 @@ rotas.post('/auth/codigo', async (req, res) => {
       canal: 'aberto',
       semCodigo: true,
       telefone: mostrarTelefone(telefone),
-      precisaDeNome: !cadastrado || !cadastrado.nome,
-      precisaDeAniversario: !cadastrado || !cadastrado.aniversario,
+      precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
+      precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
     });
   }
 
@@ -170,8 +191,8 @@ rotas.post('/auth/codigo', async (req, res) => {
     enviado: true,
     canal: envio.canal,
     telefone: mostrarTelefone(telefone),
-    precisaDeNome: !cadastrado || !cadastrado.nome,
-    precisaDeAniversario: !cadastrado || !cadastrado.aniversario,
+    precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
+    precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
   });
 });
 
@@ -201,10 +222,16 @@ rotas.post('/auth/entrar', (req, res) => {
 
   const nome = String(req.body.nome || '').trim();
   const existente = store.aluno(telefone);
+  const primeiraVez = primeiroAcesso(existente);
 
-  // Primeiro acesso deste telefone: nome e aniversário são obrigatórios.
-  if (!existente || !existente.nome) {
-    if (!nome) return res.status(400).json({ erro: 'Informe como você quer ser chamado.' });
+  // Primeiro acesso deste telefone: nome completo e aniversário são obrigatórios,
+  // mesmo quando a ficha já existe. O que veio da importação entra como rascunho
+  // — quem confirma é o dono do número, na primeira vez que entra.
+  if (primeiraVez || !existente.nome) {
+    if (!nome) return res.status(400).json({ erro: 'Informe seu nome completo.' });
+    if (!nomeCompleto(nome)) {
+      return res.status(400).json({ erro: 'Informe o nome completo: nome e sobrenome.' });
+    }
   }
 
   let aniversario = (existente && existente.aniversario) || null;
@@ -213,6 +240,9 @@ rotas.post('/auth/entrar', (req, res) => {
     if (!aniversario) {
       return res.status(400).json({ erro: 'Aniversário inválido. Use dia e mês, como 07/03.' });
     }
+  } else if (primeiraVez) {
+    // Data importada não confirmada não conta: cai no erro abaixo e a tela pede.
+    aniversario = null;
   }
   if (!aniversario) {
     return res.status(400).json({ erro: 'Informe seu aniversário (dia e mês).' });
@@ -223,6 +253,23 @@ rotas.post('/auth/entrar', (req, res) => {
     aniversario,
     ultimoAcesso: new Date().toISOString(),
   });
+
+  // O que o aluno acabou de confirmar volta para a matrícula, que é a base que
+  // veio incompleta da planilha. Só preenche buraco: nome de uma palavra só e
+  // aniversário vazio. Nome já completo na matrícula fica como está — lá o
+  // estúdio pode ter ajustado a grafia de propósito.
+  if (primeiraVez) {
+    const m = matriculas.porTelefone(telefone);
+    if (m) {
+      const campos = {};
+      if (nome && !nomeCompleto(m.nome)) campos.nome = nome;
+      if (!m.aniversario) campos.aniversario = aniversario;
+      if (Object.keys(campos).length) {
+        const r = matriculas.atualizar(m.id, campos);
+        if (!r.ok) console.warn(`[acesso] não deu para completar a matrícula ${m.id}: ${r.motivo}`);
+      }
+    }
+  }
 
   const token = store.abrirSessao(telefone, Number(c.acesso.diasDeSessao || 7));
   res.json({
