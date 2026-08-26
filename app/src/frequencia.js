@@ -382,6 +382,14 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
     a.nome.localeCompare(b.nome, 'pt-BR'));
 
   const conta = (s) => lista.filter((x) => x.situacao === s).length;
+
+  // O PACOTE DO MÊS SÓ SOMA QUEM TEM PACOTE
+  //   Experimental não tem grade combinada, logo não tem meta — e somar os
+  //   check-ins dele no realizado inflava o numerador contra um denominador que
+  //   ele não ajudou a formar. Ele é excedente: entra na conta no mês em que
+  //   virar aluno de fato, com uma grade e uma meta próprias.
+  const doPacote = lista.filter((a) => !a.experimental && a.mes.meta > 0);
+  const somar = (f) => doPacote.reduce((s, a) => s + f(a), 0);
   // Sem nenhum aluno avaliado ainda assim precisamos devolver a janela real,
   // senão a tela mostraria "últimos 7 dias" num dia 2 do mês.
   const ateRef = opcoes.ate || hojeLocal();
@@ -400,13 +408,18 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
       avaliados: lista.length,
       // Fechamento do mês: soma do que cada aluno ainda deve para bater o
       // pacote. É o número que responde "quantos treinos faltam até o dia 31".
-      metaMes: lista.reduce((s, a) => s + a.mes.meta, 0),
-      realizadoMes: lista.reduce((s, a) => s + a.mes.realizado, 0),
-      faltamMes: lista.reduce((s, a) => s + a.mes.faltam, 0),
-      devendoNoMes: lista.filter((a) => a.mes.faltam > 0 && a.mes.meta > 0).length,
+      comPacote: doPacote.length,
+      metaMes: somar((a) => a.mes.meta),
+      realizadoMes: somar((a) => a.mes.realizado),
+      faltamMes: somar((a) => a.mes.faltam),
+      devendoNoMes: doPacote.filter((a) => a.mes.faltam > 0).length,
       // Quem já não fecha o pacote: é a conta que o fim do mês vai cobrar.
-      naoFecham: lista.filter((a) => a.mes.risco === 'impossivel').length,
-      noLimite: lista.filter((a) => a.mes.risco === 'no-limite').length,
+      naoFecham: doPacote.filter((a) => a.mes.risco === 'impossivel').length,
+      noLimite: doPacote.filter((a) => a.mes.risco === 'no-limite').length,
+      // Fora do pacote, contado à parte: vira receita prevista quando o aluno
+      // sair do experimental e ganhar grade.
+      checkinsExperimentais: lista
+        .filter((a) => a.experimental).reduce((s, a) => s + a.mes.realizado, 0),
       emDia: conta('em-dia'),
       quitados: conta('quitado'),
       atrasados: conta('atrasado'),
