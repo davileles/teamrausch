@@ -576,6 +576,84 @@ async function importarHistorico() {
   return resultado;
 }
 
+/* -------------------- pessoas do portal e reatribuição -------------------- */
+
+/**
+ * Uma linha por pessoa vista no portal, com a ficha em que ela está hoje.
+ *
+ * É o que a ficha do aluno precisa para oferecer uma lista em vez de um campo
+ * de digitar número: o Wellhub ID tem treze dígitos e ninguém decora, então na
+ * prática o vínculo só era feito quando um check-in órfão aparecia na aba
+ * Frequência. Quem já está em outra ficha aparece igual, com o dono atual — é
+ * assim que se conserta um vínculo errado sem sair da tela.
+ */
+function pessoas() {
+  const mapa = new Map();
+  for (const c of dados.checkins) {
+    const gid = String(c.gympassId || '');
+    if (!gid) continue;
+    const atual = mapa.get(gid) || {
+      gympassId: gid, nome: c.nome, quantos: 0,
+      primeira: c.data, ultima: c.data, matriculaId: null, nomeMatricula: null,
+    };
+    atual.quantos += 1;
+    if (c.data < atual.primeira) atual.primeira = c.data;
+    // Nome do check-in mais recente: o portal corrige cadastro, e o nome velho
+    // deixaria a lista fora de sincronia com a tela de validação.
+    if (c.data >= atual.ultima) { atual.ultima = c.data; atual.nome = c.nome; }
+    if (c.matriculaId) {
+      atual.matriculaId = c.matriculaId;
+      const m = matriculas.porId(c.matriculaId);
+      atual.nomeMatricula = m ? m.nome : c.nomeMatricula;
+    }
+    mapa.set(gid, atual);
+  }
+  return [...mapa.values()]
+    .sort((a, b) => String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+}
+
+/**
+ * Aponta TODOS os check-ins de um Wellhub ID para uma ficha — ou solta todos,
+ * quando `matriculaId` é null.
+ *
+ * Diferente de `vincular`, que parte de um check-in e arrasta os órfãos do
+ * mesmo ID: aqui o ponto de partida é a pessoa, e registros que já estavam em
+ * outra ficha vêm junto. É o caso de duas pessoas que caíram na mesma ficha —
+ * sem isto, os check-ins da errada continuariam contando para a certa.
+ *
+ * Não mexe no nome da ficha. Quem chama daqui é a tela de cadastro, onde o nome
+ * é digitado por você; adotar o do portal desfaria a correção que acabou de ser
+ * feita.
+ */
+function reatribuir(gympassId, matriculaId) {
+  const gid = String(gympassId || '').trim();
+  if (!gid) return { ok: false, motivo: 'Informe o Wellhub ID.' };
+
+  const m = matriculaId ? matriculas.porId(matriculaId) : null;
+  if (matriculaId && !m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+
+  let movidos = 0;
+  for (const c of dados.checkins) {
+    if (String(c.gympassId || '') !== gid) continue;
+    if (c.matriculaId === (m ? m.id : null)) continue;
+    c.matriculaId = m ? m.id : null;
+    c.nomeMatricula = m ? m.nome : null;
+    c.vinculadoPor = m ? 'manual' : null;
+    movidos += 1;
+  }
+  if (movidos) gravar();
+  return {
+    ok: true, movidos, gympassId: gid,
+    matriculaId: m ? m.id : null, nome: m ? m.nome : null,
+    total: dados.checkins.filter((c) => String(c.gympassId || '') === gid).length,
+  };
+}
+
+/** Quantos check-ins estão hoje nesta ficha — a tela mostra ao lado do vínculo. */
+function quantosDaMatricula(matriculaId) {
+  return dados.checkins.filter((c) => c.matriculaId === matriculaId).length;
+}
+
 /* ------------------------------- consultas ------------------------------- */
 
 function listar({ de, ate, matriculaId, gympassId, semVinculo, limite = 500 } = {}) {
@@ -664,7 +742,7 @@ setInterval(() => limparAntigos(), 24 * 3600000).unref();
 
 module.exports = {
   registrar, registrarLote, porId, vincular, desvincular, revincularOrfaos,
-  importarHistorico,
+  importarHistorico, pessoas, reatribuir, quantosDaMatricula,
   listar, datasDaMatricula, mapaPorMatricula, ultimoDaMatricula, aplicarNomesDoPortal,
   resumo, normalizarNome, dataLocal, hojeLocal, backup,
 };
