@@ -152,6 +152,21 @@ function hojeLocal() {
   }).format(new Date());
 }
 
+/**
+ * Nome do aluno lido da ficha, e não do que ficou congelado no check-in.
+ *
+ * `nomeMatricula` é gravado no momento do vínculo. Quando a ficha é renomeada
+ * depois — correção sua, nome novo do portal, a régua de caixa do boot — o
+ * histórico continuaria mostrando o nome velho ao lado do novo. Ler da ficha na
+ * hora de listar mantém a tela sempre coerente, sem varrer o histórico inteiro.
+ */
+function comNomeAtual(c) {
+  if (!c.matriculaId) return c;
+  const m = matriculas.porId(c.matriculaId);
+  if (!m || m.nome === c.nomeMatricula) return c;
+  return { ...c, nomeMatricula: m.nome };
+}
+
 /* ------------------------------- vínculo --------------------------------- */
 
 /**
@@ -490,6 +505,7 @@ function revincularOrfaos() {
 
 function listar({ de, ate, matriculaId, gympassId, semVinculo, limite = 500 } = {}) {
   return dados.checkins
+    .map(comNomeAtual)
     .filter((c) =>
       (!de || c.data >= de) &&
       (!ate || c.data <= ate) &&
