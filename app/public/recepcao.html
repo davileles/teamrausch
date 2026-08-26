@@ -15,11 +15,23 @@
      que exige atenção (fila, validade escoando). Verde só na confirmação:
      é sinal de porta aberta, lido de longe.                              */
   :root{
+    color-scheme:dark;
     --preto:#08090B;--superficie:#1C2026;--fundo-2:#141619;
     --linha:#363C44;--linha-2:#474E57;--linha-3:#5C636D;
     --texto:#F5F5F3;--apagado:#A6ABB2;--fraco:#949AA2;--fraco-2:#7B818A;
     --vermelho:#E01F26;--amarelo:#F5C518;--liberado:#1B6B4A;
+    --sombra-aviso:0 8px 30px rgba(0,0,0,.5);
     --raio:2px;
+  }
+  /* Tema claro: mesma paleta lida sobre papel. Vermelho e amarelo escurecem
+     para manterem contraste; nada além das variáveis muda. */
+  :root[data-tema=claro]{
+    color-scheme:light;
+    --preto:#F2F3F5;--superficie:#FFFFFF;--fundo-2:#E9EBEF;
+    --linha:#D6DAE0;--linha-2:#C3C9D1;--linha-3:#A7AEB8;
+    --texto:#15181C;--apagado:#414750;--fraco:#5C636C;--fraco-2:#7A8189;
+    --vermelho:#C8161C;--amarelo:#9A6E00;--liberado:#15694A;
+    --sombra-aviso:0 8px 30px rgba(21,24,28,.22);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--preto);color:var(--texto);
@@ -98,7 +110,7 @@
   .recado{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:20;
     background:var(--superficie);border:1px solid var(--linha-3);color:var(--texto);
     padding:14px 24px;font:400 15px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
-    max-width:calc(100% - 48px);box-shadow:0 8px 30px rgba(0,0,0,.5)}
+    max-width:calc(100% - 48px);box-shadow:var(--sombra-aviso)}
   .recado.ok{background:var(--liberado);border-color:var(--liberado);color:#fff}
   .recado.erro{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
 
@@ -112,8 +124,44 @@
     .corpo{padding:16px;gap:12px} .nome{font-size:21px}
     .quem{min-width:140px}
   }
+
+  /* Alternador de tema: o ícone mostra para onde se vai, não onde se está. */
+  .tema{background:transparent;border:1px solid var(--linha-3);color:var(--apagado);
+    border-radius:var(--raio,2px);cursor:pointer;padding:0;width:40px;height:40px;
+    display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;
+    transition:border-color .15s,color .15s,background .15s}
+  .tema:hover{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
+  .tema svg{display:block}
+  .tema .i-lua{display:none}
+  :root[data-tema=claro] .tema .i-sol{display:none}
+  :root[data-tema=claro] .tema .i-lua{display:block}
+  .canto{display:flex;align-items:center;gap:14px}
+
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
+<script>
+/* Tema claro/escuro — escolha do usuário, guardada só neste aparelho.
+   Roda antes do corpo desenhar para não haver piscada de tema errado. */
+(function(){
+  var CHAVE='tr_tema', CLARO='#F2F3F5', ESCURO='#0E0F11';
+  function pintar(t){
+    var claro = t==='claro';
+    document.documentElement.setAttribute('data-tema', claro?'claro':'escuro');
+    var m=document.querySelector('meta[name="theme-color"]');
+    if(m) m.setAttribute('content', claro?CLARO:ESCURO);
+  }
+  var salvo=null; try{ salvo=localStorage.getItem(CHAVE); }catch(e){}
+  pintar(salvo||'escuro');
+  window.alternarTema=function(){
+    var novo=document.documentElement.getAttribute('data-tema')==='claro'?'escuro':'claro';
+    pintar(novo); try{ localStorage.setItem(CHAVE,novo); }catch(e){}
+  };
+  document.addEventListener('click',function(ev){
+    var alvo=ev.target&&ev.target.closest?ev.target.closest('.tema'):null;
+    if(alvo){ ev.preventDefault(); window.alternarTema(); }
+  });
+})();
+</script>
 </head>
 <body>
 <div id="aviso" class="aviso" hidden>Modo simulação — nada é enviado ao Wellhub</div>
@@ -124,9 +172,12 @@
       <img src="/logo.png" alt="Team Rausch Studio">
       <h1>Check-ins<span>Recepção · Wellhub</span></h1>
     </div>
-    <div class="placar">
-      <div><b id="pl-aguardando">—</b><small>Na fila</small></div>
-      <div><b id="pl-validados">—</b><small>Hoje</small></div>
+    <div class="canto">
+      <div class="placar">
+        <div><b id="pl-aguardando">—</b><small>Na fila</small></div>
+        <div><b id="pl-validados">—</b><small>Hoje</small></div>
+      </div>
+      <button class="tema" type="button" aria-label="Alternar tema claro ou escuro" title="Alternar tema claro/escuro"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="i-sol"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.1M12 19.3v2.1M4.5 4.5l1.5 1.5M18 18l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.5 19.5l1.5-1.5M18 6l1.5-1.5"/></g><path class="i-lua" d="M20.2 14.6A8.5 8.5 0 0 1 9.4 3.8 8.7 8.7 0 1 0 20.2 14.6Z"/></svg></button>
     </div>
   </div>
 </header>
