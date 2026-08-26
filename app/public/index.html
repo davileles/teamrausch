@@ -2178,17 +2178,36 @@ function linhaFrequencia(a){
 
   // Grade de 5x com teto de 3: mostrar só o combinado faria a meta de 12
   // parecer erro de conta.
-  const semana = a.mes && a.mes.acimaDoTeto
-    ? `${a.porSemana}<span class="fraco">→${a.mes.porSemanaCobravel}</span>`
-    : `${a.porSemana}`;
+  // Conta dividida: a grade continua sendo a dele, mas o que vale é a cota.
+  const semana = a.mes && a.mes.conta
+    ? `${a.porSemana}<span class="fraco">→${a.mes.meta}/mês</span>`
+    : (a.mes && a.mes.acimaDoTeto
+      ? `${a.porSemana}<span class="fraco">→${a.mes.porSemanaCobravel}</span>`
+      : `${a.porSemana}`);
 
   const devendo = a.situacao === 'critico' || a.situacao === 'atrasado';
+  const conta = a.mes && a.mes.conta ? a.mes.conta : null;
   return `<tr class="freq-item ${esc(a.situacao)}" data-id="${esc(a.matriculaId)}">
-    <td class="nome">${esc(a.nome)}${a.gympassId ? ''
-      : ' <span class="fraco" title="Sem Wellhub ID vinculado">⚠</span>'}</td>
+    <td class="nome">${esc(a.nome)}${conta
+      ? ` <span class="fraco" title="${esc(conta.ehTitular
+          ? `Conta dividida com ${conta.participantes.filter(n=>n!==a.nome).join(', ')} · cota ${conta.cota}`
+          : `Treina na conta de ${conta.titular} · cota ${conta.cota}`)}">🔗</span>`
+      : (a.gympassId ? '' : ' <span class="fraco" title="Sem Wellhub ID vinculado">⚠</span>')}</td>
     <td class="num opc">${semana}×</td>
     <td class="num">${meta ? `${feitos}/${meta}` : `<span class="fraco">${feitos}/—</span>`}</td>
-    <td class="num falta">${meta ? (faltam || '<span class="quitado">ok</span>') : '—'}</td>
+    <td class="num opc" title="${a.mes && a.mes.proximoMarco
+      ? `Próxima cota: ${a.mes.proximoMarco.exigido} até ${dataCurta(a.mes.proximoMarco.data)}`
+      : 'Última cota do mês'}">${meta
+        ? `${feitos}/${a.mes.devido}${a.mes.atrasoNoRitmo
+            ? ` <span class="falta">−${a.mes.atrasoNoRitmo}</span>` : ''}`
+        : '—'}</td>
+    <td class="num falta" title="${a.mes && a.mes.risco === 'impossivel'
+      ? `Não fecha mais: ${faltam} check-in(s) para ${a.mes.diasRestantes} dia(s)`
+      : a.mes && a.mes.risco === 'no-limite'
+        ? `Só fecha vindo todos os ${a.mes.diasRestantes} dia(s) que restam` : ''}"
+      >${meta ? (faltam ? `${faltam}${a.mes.risco === 'impossivel' ? ' ⛔'
+        : a.mes.risco === 'no-limite' ? ' ⏳' : ''}`
+        : '<span class="quitado">ok</span>') : '—'}</td>
     <td class="num opc">${ultimo}</td>
     <td class="opc"><span class="fraco">${s.marca} ${esc(s.rotulo)}</span></td>
     <td class="opc" style="text-align:center">
@@ -2297,8 +2316,11 @@ async function carregarFrequencia(){
     const pessoasOrfas = agruparOrfaos(orfaos.checkins);
     // O outro lado do buraco: ficha Wellhub sem conta ligada. Sai da mesma
     // chamada que popula o seletor de alunos, sem pedir nada a mais ao servidor.
+    // `contaDe` também é vínculo: a ficha treina na assinatura de outro aluno e
+    // por isso nunca vai ter Wellhub ID próprio. Sem esta exceção ela ficaria
+    // para sempre na lista de pendências, pedindo algo que já foi resolvido.
     const semConta = base.matriculas
-      .filter(m=>m.ativo && m.vinculo === 'wellhub' && !m.gympassId)
+      .filter(m=>m.ativo && m.vinculo === 'wellhub' && !m.gympassId && !m.contaDe)
       .sort((a,b)=> a.nome.localeCompare(b.nome,'pt-BR'));
     const devendo = f.alunos.filter(a=>a.situacao==='critico'||a.situacao==='atrasado');
     const mostrar = matEstado.freqSo === 'devendo' ? devendo
@@ -2317,18 +2339,26 @@ async function carregarFrequencia(){
 
     alvo.innerHTML = `
       <p class="ajuda">${cabecalho}
-        O número grande de cada aluno é o pacote do mês: check-ins feitos sobre a meta,
-        que é o combinado semanal vezes quatro, limitado a 12 — o Wellhub não repassa
-        mais do que isso. As situações (crítico, atrasado, em dia) olham a janela curta,
-        para cobrar no meio do caminho em vez de no fechamento.</p>
+        <b>Mês</b> é o pacote: check-ins feitos sobre a meta, que é o combinado semanal
+        vezes quatro, limitado a 12 — o Wellhub não repassa mais do que isso. Experimental
+        fica fora dessa soma: sem grade combinada não há meta, e o treino dele é excedente
+        até a ficha virar aluno de fato.
+        <b>No prazo</b> compara com o que já venceu: quem faz 3× por semana precisa ter 3
+        no dia 7, 6 no dia 14, 9 no dia 21 e os 12 no fechamento. É daí que sai a situação —
+        dá para ter treinado ontem e ainda estar atrasado no mês. ⏳ marca quem só fecha
+        vindo todos os dias que restam; ⛔, quem já não fecha de jeito nenhum.</p>
 
       <div class="freq-cartoes">
         ${cartaoFreq(f.resumo.criticos, 'críticos', 'critico')}
         ${cartaoFreq(f.resumo.atrasados, 'atrasados', 'atrasado')}
         ${cartaoFreq(f.resumo.emDia, 'em dia', 'em-dia')}
         ${f.resumo.quitados ? cartaoFreq(f.resumo.quitados, 'pacote fechado', 'em-dia') : ''}
+        ${f.resumo.naoFecham ? cartaoFreq(f.resumo.naoFecham, 'não fecham mais', 'critico') : ''}
         ${cartaoFreq(f.resumo.faltamMes, 'faltam no mês', f.resumo.faltamMes ? 'atrasado' : 'em-dia')}
-        ${cartaoFreq(`${f.resumo.realizadoMes}/${f.resumo.metaMes}`, 'pacote do mês')}
+        ${cartaoFreq(`${f.resumo.realizadoMes}/${f.resumo.metaMes}`,
+          `pacote · ${f.resumo.comPacote} alunos`)}
+        ${f.resumo.checkinsExperimentais
+          ? cartaoFreq(f.resumo.checkinsExperimentais, 'fora do pacote') : ''}
         ${cartaoFreq(f.checkins.ultimos7, 'check-ins 7d')}
         ${f.resumo.experimentais ? cartaoFreq(f.resumo.experimentais, 'experimentais') : ''}
       </div>
@@ -2404,6 +2434,7 @@ async function carregarFrequencia(){
               <th>Aluno</th>
               <th class="num opc">/sem</th>
               <th class="num">Mês</th>
+              <th class="num opc" title="Check-ins feitos sobre o exigido até hoje">No prazo</th>
               <th class="num">Faltam</th>
               <th class="num opc">Último</th>
               <th class="opc">Situação</th>
@@ -2482,13 +2513,21 @@ async function carregarFrequencia(){
       const linhas = f.alunos.map(a=>[
         a.nome, a.vinculo||'', a.porSemana,
         a.mes ? a.mes.porSemanaCobravel : '', a.mes ? a.mes.meta : '',
-        a.mes ? a.mes.realizado : a.realizado, a.mes ? a.mes.faltam : '',
+        a.mes ? a.mes.realizado : a.realizado,
+        a.mes ? a.mes.devido : '', a.mes ? a.mes.atrasoNoRitmo : '',
+        a.mes ? a.mes.faltam : '', a.mes ? a.mes.diasRestantes : '',
+        a.mes && a.mes.conta
+          ? (a.mes.conta.ehTitular ? `titular · divide com ${a.mes.conta.participantes
+              .filter(n=>n!==a.nome).join(', ')}` : `na conta de ${a.mes.conta.titular}`) : '',
+        a.mes && a.mes.risco === 'impossivel' ? 'não fecha mais'
+          : a.mes && a.mes.risco === 'no-limite' ? 'no limite' : '',
         (SITUACAO[a.situacao]||{rotulo:a.situacao}).rotulo,
         a.ultimoCheckin||'', a.diasSemTreinar ?? '', a.gympassId||'', a.telefone||'',
       ]);
       baixarCsv(`frequencia-${j.ate.slice(0,7)}.csv`,
         ['Aluno','Vínculo','Grade x/sem','Cobráveis x/sem','Meta do mês','Feitos',
-         'Faltam','Situação','Último check-in','Dias sem treinar','Wellhub ID','Telefone'],
+         'Exigido até hoje','Atraso no ritmo','Faltam','Dias restantes','Conta compartilhada',
+         'Risco','Situação','Último check-in','Dias sem treinar','Wellhub ID','Telefone'],
         linhas);
       avisar(`${linhas.length} aluno(s) exportado(s).`,'ok');
     });
