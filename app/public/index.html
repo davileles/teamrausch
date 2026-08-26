@@ -1927,13 +1927,46 @@ function itemFrequencia(a){
 }
 
 /**
- * Check-in que não casou com nenhum aluno. Enquanto ficar aqui ele não conta
- * para ninguém — daí aparecer antes da lista, e não escondido no rodapé.
+ * Junta os órfãos por pessoa. Um aluno que treinou o mês inteiro sem vínculo
+ * gera treze check-ins soltos, e treze cartões iguais na tela para uma decisão
+ * só. `vincular` no servidor já arrasta os outros registros do mesmo Wellhub
+ * ID, então a tela pede um cartão por pessoa — não por check-in.
+ *
+ * A chave é o Wellhub ID. Sem ID (caso raro, portal sem identificar) cada
+ * registro fica sozinho, porque aí não há o que garanta que é a mesma pessoa.
+ */
+function agruparOrfaos(lista){
+  const grupos = new Map();
+  for (const c of lista){
+    const chave = c.gympassId ? 'id:'+c.gympassId : 'avulso:'+c.id;
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(c);
+  }
+  return [...grupos.values()]
+    .map((cs)=>{
+      const ordenados = cs.slice().sort((a,b)=> String(b.data).localeCompare(String(a.data)));
+      return { ...ordenados[0], quantos: cs.length,
+        primeira: ordenados[ordenados.length-1].data, ultima: ordenados[0].data };
+    })
+    // Quem tem mais check-ins parados primeiro: é o vínculo que mais muda a conta.
+    .sort((a,b)=> b.quantos - a.quantos ||
+      String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+}
+
+/**
+ * Uma pessoa que não casou com nenhum aluno. Enquanto ficar aqui nenhum dos
+ * check-ins dela conta — daí aparecer antes da lista, e não escondido no rodapé.
+ *
+ * O botão vincula o check-in mais recente; o servidor liga os demais do mesmo
+ * Wellhub ID junto e grava o ID na ficha, então uma pessoa sai da tela por vez.
  */
 function itemOrfao(c, alunos){
+  const periodo = c.quantos > 1
+    ? `${c.quantos} check-ins · ${dataCurta(c.primeira)} a ${dataCurta(c.ultima)}`
+    : `${dataCurta(c.data)} às ${esc(c.hora||'--:--')}`;
   return `<div class="orfao" data-id="${esc(c.id)}">
     <b>${esc(c.nome || 'Sem nome no portal')}</b>
-    <p class="ajuda" style="margin:4px 0 0">${dataCurta(c.data)} às ${esc(c.hora||'--:--')}
+    <p class="ajuda" style="margin:4px 0 0">${periodo}
       · Wellhub ID ${esc(c.gympassId || '—')}${c.produto ? ' · '+esc(c.produto) : ''}</p>
     <div class="linha">
       <select class="orf-quem">
@@ -1962,10 +1995,13 @@ async function carregarFrequencia(){
   try{
     const [f, orfaos, base] = await Promise.all([
       api('/matriculas/frequencia?dias='+matEstado.freqDias),
-      api('/matriculas/checkins?semVinculo=1&limite=40'),
+      // Limite alto de propósito: a tela agrupa por pessoa, e cortar em 40
+      // registros esconderia gente inteira atrás dos check-ins de outra.
+      api('/matriculas/checkins?semVinculo=1&limite=500'),
       api('/matriculas?situacao=ativos'),
     ]);
 
+    const pessoasOrfas = agruparOrfaos(orfaos.checkins);
     const devendo = f.alunos.filter(a=>a.situacao==='critico'||a.situacao==='atrasado');
     const mostrar = matEstado.freqSo === 'devendo' ? devendo
       : matEstado.freqSo === 'experimentais' ? f.alunos.filter(a=>a.experimental)
@@ -2011,12 +2047,13 @@ async function carregarFrequencia(){
         </div>
       </div>
 
-      ${orfaos.checkins.length ? `<h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;
+      ${pessoasOrfas.length ? `<h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;
         text-transform:uppercase;color:var(--amarelo);margin:0 0 8px">
-        ${orfaos.checkins.length} check-in(s) sem aluno</h3>
+        ${pessoasOrfas.length} pessoa(s) sem aluno${orfaos.checkins.length > pessoasOrfas.length
+          ? ` · ${orfaos.checkins.length} check-ins` : ''}</h3>
         <p class="ajuda">Enquanto não forem vinculados, estes treinos não contam para ninguém.
-          Vincular também grava o Wellhub ID na ficha, então acontece uma vez só.</p>
-        <div id="fq-orfaos">${orfaos.checkins.map(c=>itemOrfao(c, base.matriculas)).join('')}</div>
+          Vincular uma vez resolve todos os check-ins da pessoa e grava o Wellhub ID na ficha.</p>
+        <div id="fq-orfaos">${pessoasOrfas.map(c=>itemOrfao(c, base.matriculas)).join('')}</div>
         <button class="leve" id="fq-revincular" style="margin:0 0 20px">Tentar vincular sozinho</button>`
       : ''}
 
