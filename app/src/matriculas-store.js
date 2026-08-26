@@ -31,12 +31,15 @@ const CAMINHO_BACKUP = process.env.GITHUB_PATH_MATRICULAS || 'teamrausch/matricu
 // serve para carregar telefones em lote (veio da aba Contatos da planilha) sem
 // digitar um por um na ficha e sem expor os números no repositório público.
 const CAMINHO_TELEFONES = process.env.GITHUB_PATH_TELEFONES || 'teamrausch/telefones.json';
+const CAMINHO_WELLHUB_IDS = process.env.GITHUB_PATH_WELLHUB_IDS
+  || 'teamrausch/wellhub-ids.json';
 
 const VINCULOS = ['wellhub', 'mensalista'];
 const CICLOS = ['mensal', 'trimestral', 'semestral', 'anual'];
 
 const backup = backupGithub.criar(CAMINHO_BACKUP, 'Matrículas do estúdio');
 const fonteTelefones = backupGithub.criar(CAMINHO_TELEFONES, 'Telefones (leitura)');
+const fonteWellhubIds = backupGithub.criar(CAMINHO_WELLHUB_IDS, 'Wellhub IDs (leitura)');
 
 let dados = { matriculas: [], excecoes: [] };
 let pendente = null;
@@ -151,6 +154,70 @@ async function complementarTelefones() {
   if (resultado.aplicados) gravar();
   console.log('[matriculas] telefones:', JSON.stringify(resultado));
   return resultado;
+}
+
+/**
+ * Grava Wellhub IDs identificados na mão, a partir de
+ * `teamrausch/wellhub-ids.json` no repo privado
+ * (`{ vinculos: [{ id, nome, gympassId }] }`).
+ *
+ * Existe pelo mesmo motivo do arquivo de telefones: o volume é a fonte de
+ * verdade, então editar `matriculas.json` no repositório não chega ao app — o
+ * backup só semeia base vazia, e o próximo `gravar()` apagaria a edição. É o
+ * caminho para ligar alunos que nunca apareceram no portal e por isso não têm
+ * check-in órfão para vincular pela tela.
+ *
+ * SÓ PREENCHE O QUE ESTÁ VAZIO
+ *   Ficha que já tem ID é pulada, e ID que já pertence a outra ficha também —
+ *   um arquivo desatualizado não pode desfazer vínculo feito na tela. Rodar de
+ *   novo é seguro; roda no boot e pelo endpoint `/matriculas/wellhub/aplicar`.
+ *
+ * `nome` no arquivo é conferência, não busca: se não bater com a ficha, o
+ * vínculo é recusado. O id é curto e um dígito trocado apontaria para o aluno
+ * errado sem nenhum sinal.
+ */
+async function complementarWellhubIds() {
+  if (!fonteWellhubIds.ligado) {
+    return { ok: false, motivo: 'Defina GITHUB_TOKEN e GITHUB_REPO para ler o arquivo.' };
+  }
+  const remoto = await fonteWellhubIds.baixar();
+  const lista = remoto && Array.isArray(remoto.vinculos) ? remoto.vinculos : [];
+  const r = { ok: true, noArquivo: lista.length, aplicados: [], jaTinham: [], recusados: [] };
+
+  for (const item of lista) {
+    const alvo = String((item && item.id) || '');
+    const gympassId = String((item && item.gympassId) || '').trim();
+    const m = porId(alvo);
+    if (!m) { r.recusados.push({ id: alvo, motivo: 'ficha não encontrada' }); continue; }
+    if (!gympassId) { r.recusados.push({ id: alvo, motivo: 'sem Wellhub ID' }); continue; }
+
+    const igual = (a, b) => String(a || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR')
+      === String(b || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR');
+    if (item.nome && !igual(item.nome, m.nome)) {
+      r.recusados.push({ id: alvo, motivo: `nome não confere: arquivo "${item.nome}", ficha "${m.nome}"` });
+      continue;
+    }
+    if (m.gympassId) {
+      r.jaTinham.push({ id: alvo, nome: m.nome, gympassId: m.gympassId });
+      continue;
+    }
+    const dono = porGympassId(gympassId);
+    if (dono && dono.id !== m.id) {
+      r.recusados.push({ id: alvo, motivo: `Wellhub ID já é de ${dono.nome}` });
+      continue;
+    }
+    const feito = definirGympassId(m.id, gympassId);
+    if (feito.ok) r.aplicados.push({ id: alvo, nome: m.nome, gympassId });
+    else r.recusados.push({ id: alvo, motivo: feito.motivo });
+  }
+
+  console.log('[matriculas] wellhub ids:', JSON.stringify({
+    aplicados: r.aplicados.length, jaTinham: r.jaTinham.length, recusados: r.recusados.length,
+  }));
+  for (const x of r.recusados) console.log(`[matriculas] wellhub id recusado — ${x.id}: ${x.motivo}`);
+  return r;
 }
 
 /* ------------------------------ validação -------------------------------- */
@@ -848,6 +915,7 @@ carregar();
 normalizarHorarios();
 semear()
   .then(() => complementarTelefones())
+  .then(() => complementarWellhubIds())
   // Depois do semeio: normalizar antes dele arrumaria uma base ainda vazia.
   .then(() => normalizarNomes())
   .catch((erro) => console.error('[matriculas] falha ao preparar a base:', erro.message));
@@ -858,6 +926,7 @@ module.exports = {
   renomearDoWellhub, arrumarCaixa,
   criar, atualizar, inativar, remover,
   excecoes, registrarExcecao, apagarExcecao,
-  importar, resumo, backup, normalizarHorarios, normalizarNomes, horaCheia, complementarTelefones,
+  importar, resumo, backup, normalizarHorarios, normalizarNomes, horaCheia,
+  complementarTelefones, complementarWellhubIds,
   VINCULOS, CICLOS,
 };
