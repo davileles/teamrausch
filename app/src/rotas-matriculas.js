@@ -105,6 +105,9 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     return {
       ...m,
       diasSemana: grade.diasPorSemana(m),
+      // A ficha mostra quantos check-ins caem nela hoje: é o retorno visual de
+      // que o vínculo com o Wellhub pegou.
+      checkinsNaFicha: checkins.quantosDaMatricula(m.id),
       precisaRevisar: Boolean((m.revisar || []).length),
       aniversarioFormatado: aniversario.mostrar(m.aniversario),
       temLogin: Boolean(a),
@@ -341,6 +344,14 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   });
 
   /** Aplica em todas as fichas o nome que o Wellhub usa hoje. */
+  /**
+   * Pessoas vistas no portal, com a ficha em que estão hoje. É o que popula a
+   * lista de vínculo dentro do cadastro do aluno.
+   */
+  rotas.get('/checkins/pessoas', (_req, res) => {
+    res.json({ pessoas: checkins.pessoas() });
+  });
+
   rotas.post('/checkins/aplicar-nomes', (_req, res) => {
     res.json(checkins.aplicarNomesDoPortal());
   });
@@ -403,6 +414,60 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
      Um aluno sem telefone simplesmente não tem este bloco. */
 
   /** Suspende ou reativa o acesso ao app. */
+  /* --------------------- vínculo Wellhub pela ficha ----------------------- *
+   * Ligar a base ao portal a partir do cadastro, e não só a partir de um
+   * check-in órfão. Vale para o aluno que existe nos dois lados desde sempre e
+   * nunca casou por nome, e para desfazer vínculo errado: o ID sai da ficha
+   * antiga e todos os check-ins dele vêm junto, sem passar pela aba Frequência.
+   * ---------------------------------------------------------------------- */
+
+  /** Liga um Wellhub ID a esta ficha e traz todos os check-ins dele junto. */
+  rotas.post('/:id/wellhub', (req, res) => {
+    const m = store.porId(req.params.id);
+    if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+
+    const gympassId = String(req.body.gympassId || '').trim();
+    if (!gympassId) return res.status(400).json({ erro: 'Informe o Wellhub ID.' });
+
+    // Tirar o ID de quem estava com ele antes: sem isto `definirGympassId`
+    // recusa, e a ficha errada continuaria recebendo os check-ins seguintes.
+    const dono = store.porGympassId(gympassId);
+    const tomadoDe = dono && dono.id !== m.id ? dono.nome : null;
+    if (dono && dono.id !== m.id) store.definirGympassId(dono.id, null);
+
+    const r = store.definirGympassId(m.id, gympassId);
+    if (!r.ok) return res.status(400).json({ erro: r.motivo });
+
+    const movidos = checkins.reatribuir(gympassId, m.id);
+    // Conta de outra pessoa continua valendo: o nome do portal fica travado
+    // como titular, e não vira o nome do aluno.
+    if (req.body.comoTitular && req.body.nomePortal) {
+      store.definirTitular(m.id, String(req.body.nomePortal));
+    }
+    res.json({
+      ok: true, matricula: ficha(store.porId(m.id)),
+      gympassId, tomadoDe, movidos: movidos.movidos, total: movidos.total,
+      checkinsNaFicha: checkins.quantosDaMatricula(m.id),
+    });
+  });
+
+  /** Desfaz o vínculo: o ID sai da ficha e os check-ins voltam a ser órfãos. */
+  rotas.delete('/:id/wellhub', (req, res) => {
+    const m = store.porId(req.params.id);
+    if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+    const gympassId = m.gympassId || null;
+    // `soltar=0` tira só o ID da ficha e deixa o histórico onde está — útil
+    // quando o aluno trocou de conta no Wellhub e o passado continua sendo dele.
+    const soltar = req.query.soltar !== '0';
+    const r = gympassId && soltar ? checkins.reatribuir(gympassId, null) : { movidos: 0 };
+    store.definirGympassId(m.id, null);
+    res.json({
+      ok: true, matricula: ficha(store.porId(m.id)),
+      gympassId, soltos: r.movidos,
+      checkinsNaFicha: checkins.quantosDaMatricula(m.id),
+    });
+  });
+
   rotas.post('/:id/acesso', (req, res) => {
     const m = store.porId(req.params.id);
     if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
