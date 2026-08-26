@@ -1444,7 +1444,14 @@ function fichaMatricula(m){
     <div class="campos mf-bloco-wellhub" ${mens?'hidden':''}>
       <input class="mf-wellhub" inputmode="numeric" value="${esc(m.gympassId||'')}"
         placeholder="Wellhub ID (preenchido no 1º check-in)">
+      <!-- Plano no nome de outra pessoa: o portal manda o nome do titular, e é
+           por ele que o check-in encontra esta ficha. Preencher aqui também
+           trava o nome do aluno contra a renomeação automática. -->
+      <input class="mf-titular" value="${esc(m.titularWellhub||'')}" maxlength="80"
+        placeholder="Titular da conta (se não for o aluno)">
     </div>
+    ${m.titularWellhub ? `<p class="ajuda" style="margin:6px 0 0">🔒 Conta do Wellhub em nome de
+      <b>${esc(m.titularWellhub)}</b> — o nome desta ficha não é alterado pelo portal.</p>` : ''}
     <div class="campos mf-cobranca" ${mens?'':'hidden'}>
       <select class="mf-ciclo">${['mensal','trimestral','semestral','anual'].map(x=>
         `<option value="${x}"${(m.ciclo||'mensal')===x?' selected':''}>${x[0].toUpperCase()+x.slice(1)}</option>`).join('')}</select>
@@ -1510,6 +1517,7 @@ function lerFicha(el){
     telefone: el.querySelector('.mf-tel').value,
     aniversario: el.querySelector('.mf-nasc').value,
     gympassId: el.querySelector('.mf-wellhub').value,
+    titularWellhub: el.querySelector('.mf-titular')?.value ?? undefined,
     vinculo: el.querySelector('.mf-vinculo').value,
     experimental: el.querySelector('.mf-exp').checked,
     observacao: el.querySelector('.mf-obs').value,
@@ -1907,6 +1915,9 @@ function itemOrfao(c, alunos){
       </select>
       <button class="leve orf-ok">Vincular</button>
     </div>
+    <label class="marcar"><input type="checkbox" class="orf-titular">
+      A conta é de outra pessoa — manter o nome do aluno e guardar
+      <b>${esc(c.nome || 'este nome')}</b> como titular</label>
     <div class="linha separa">
       <input class="orf-nome" value="${esc(c.nome || '')}" placeholder="Nome do aluno novo">
       <button class="leve orf-criar">Criar cadastro</button>
@@ -2043,12 +2054,15 @@ async function carregarFrequencia(){
         const quem = el.querySelector('.orf-quem').value;
         if (!quem) return avisar('Escolha o aluno.','erro');
         try{
+          const comoTitular = el.querySelector('.orf-titular').checked;
           const r = await api('/matriculas/checkins/'+el.dataset.id+'/vincular',
-            {method:'POST', body: JSON.stringify({matriculaId: quem})});
+            {method:'POST', body: JSON.stringify({matriculaId: quem, comoTitular})});
           const extra = r.arrastados ? ` (+${r.arrastados} do mesmo ID)` : '';
-          avisar(r.renomeado
-            ? `Vinculado${extra}. Ficha renomeada para "${r.nome}".`
-            : `Check-in vinculado${extra}.`, 'ok');
+          avisar(r.titular
+            ? `Vinculado${extra} a "${r.nome}". Conta do Wellhub registrada em nome de "${r.titular}".`
+            : (r.renomeado
+              ? `Vinculado${extra}. Ficha renomeada para "${r.nome}".`
+              : `Check-in vinculado${extra}.`), 'ok');
           await carregarFrequencia();
         }catch(err){ avisar(err.message,'erro'); }
       });
