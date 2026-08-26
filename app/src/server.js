@@ -220,6 +220,21 @@ app.get('/wellhub/teste-aviso', async (req, res) => {
   }
 });
 
+/* Reimporta `teamrausch/checkins-historico.json` (repo privado) para dentro do
+   histórico de check-ins. Roda sozinho no boot; isto é para rodar de novo depois
+   de atualizar o arquivo com um relatório novo do portal, sem esperar deploy.
+   Seguro repetir: a chave `gympassId|data` deduplica. Protegido por PANEL_TOKEN. */
+app.all('/wellhub/checkins/importar-historico', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  try {
+    res.json(await checkinsStore.importarHistorico());
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
 /* Reaplica os telefones de `teamrausch/telefones.json` (repo privado) nas
    matrículas que ainda estão sem telefone. Nunca sobrescreve o que já foi
    preenchido na ficha. Roda sozinho no boot; isto é para rodar de novo depois
