@@ -83,6 +83,10 @@ const PADRAO = {
     checkinConfirmado: true,    // false = não avisa quando um check-in é confirmado
     emails: [],                 // ['fulano@estudio.com', 'recepcao@estudio.com']
     telefones: [],              // E.164: ['5531988887777', '5511977776666']
+    // Grupos do WhatsApp que recebem os mesmos avisos — o "grupo do operador"
+    // do estúdio. JIDs completos: ['120363411741796601@g.us']. Um grupo evita
+    // ter de manter a lista de telefones a cada troca de recepção.
+    grupos: [],
   },
   administradores: [],          // telefones em E.164: ['5531988887777']
 };
