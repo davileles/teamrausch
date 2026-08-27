@@ -2281,6 +2281,20 @@ function agruparOrfaos(lista){
  * O botão manda o check-in mais recente; o servidor liga os demais do mesmo
  * Wellhub ID junto, então uma pessoa sai da tabela por vez.
  */
+/**
+ * Uma pessoa do portal que treinou sem ficha na base.
+ *
+ * A CAIXINHA "EXP" NASCE MARCADA
+ *   Quem cai nesta lista quase sempre é aula experimental: apareceu, treinou,
+ *   ainda não combinou horário nenhum. Criada como aluno normal, a ficha nasce
+ *   com grade vazia e entra na conta do pacote como quem está devendo o mês
+ *   inteiro sem ter combinado nada. Marcada, ela nasce fora da cobrança e sai
+ *   de lá sozinha quando você define a grade na aba Alunos.
+ *
+ *   Vale só para "Criar". "Vincular a…" joga os check-ins numa ficha que já
+ *   existe, e essa ficha já tem a própria marcação — mexer nela a partir daqui
+ *   desfaria uma decisão tomada na tela do aluno.
+ */
 function linhaOrfa(c, alunos){
   const periodo = c.quantos > 1
     ? `${dataCurta(c.primeira)} a ${dataCurta(c.ultima)}`
@@ -2294,6 +2308,9 @@ function linhaOrfa(c, alunos){
       <option value="">Vincular a…</option>
       ${alunos.map(m=>`<option value="${esc(m.id)}">${esc(m.nome)}</option>`).join('')}
     </select></td>
+    <td class="opc" style="text-align:center">
+      <input type="checkbox" class="orf-exp" checked
+        title="Criar como aula experimental — vale só para o botão Criar."></td>
     <td><div class="acoes">
       <button class="leve orf-ok">Vincular</button>
       <button class="leve orf-criar">Criar</button>
@@ -2417,6 +2434,8 @@ async function carregarFrequencia(){
             <th class="opc">Período</th>
             <th class="opc">Wellhub ID</th>
             <th>Aluno na base</th>
+            <th class="opc" style="text-align:center"
+              title="Criar como aula experimental">Exp</th>
             <th></th>
           </tr></thead>
           <tbody>${pessoasOrfas.map(c=>linhaOrfa(c, base.matriculas)).join('')}</tbody>
@@ -2600,16 +2619,21 @@ async function carregarFrequencia(){
         // para os casos de cadastro com nome de titular ou digitação estranha.
         const nome = (prompt('Nome do aluno novo:', nomePortal) || '').trim();
         if (!nome) return;
-        const experimental = confirm(`Criar "${nome}" como aula experimental?\n\n`
-          + 'OK = experimental (não entra na cobrança até você definir a grade).\n'
-          + 'Cancelar = aluno normal.');
+        // Antes isto era um segundo `confirm` empilhado no prompt do nome: dois
+        // diálogos nativos seguidos para uma escolha que agora cabe numa caixinha
+        // na própria linha, visível antes de clicar em Criar.
+        const caixa = el.querySelector('.orf-exp');
+        const experimental = !caixa || caixa.checked;
         criar.disabled = true; criar.textContent = 'Criando…';
         try{
           const r = await api('/matriculas/checkins/'+el.dataset.id+'/criar-aluno',
             {method:'POST', body: JSON.stringify({nome, experimental})});
           const total = 1 + (r.arrastados || 0);
-          avisar(`Ficha de "${r.nome}" criada com ${total} check-in(s) vinculado(s). `
-            + 'Defina a grade na aba Alunos.', 'ok');
+          avisar(`Ficha de "${r.nome}" criada${experimental ? ' como experimental' : ''} `
+            + `com ${total} check-in(s) vinculado(s). `
+            + (experimental
+              ? 'Fica fora da cobrança até você definir a grade na aba Alunos.'
+              : 'Defina a grade na aba Alunos.'), 'ok');
           await carregarFrequencia();
         }catch(err){
           avisar(err.message,'erro');
