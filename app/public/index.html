@@ -2236,8 +2236,8 @@ function linhaFrequencia(a){
     <td class="num opc">${semana}×</td>
     <td class="num">${meta ? `${feitos}/${meta}` : `<span class="fraco">${feitos}/—</span>`}</td>
     <td class="num opc" title="${a.mes && a.mes.proximoMarco
-      ? `Próxima cota: ${a.mes.proximoMarco.exigido} até ${dataCurta(a.mes.proximoMarco.data)}`
-      : 'Última cota do mês'}">${meta
+      ? `A régua sobe para ${a.mes.proximoMarco.exigido} em ${dataCurta(a.mes.proximoMarco.data)}`
+      : 'Último dia do mês'}">${meta
         ? `${feitos}/${a.mes.devido}${a.mes.atrasoNoRitmo
             ? ` <span class="falta">−${a.mes.atrasoNoRitmo}</span>` : ''}`
         : '—'}</td>
@@ -2404,8 +2404,9 @@ async function carregarFrequencia(){
         Do 13º em diante vai para <b>sem repasse</b>: aconteceu e não rende nada. Experimental
         fica fora dessa soma: sem grade combinada não há meta, e o treino dele é excedente
         até a ficha virar aluno de fato.
-        <b>No prazo</b> compara com o que já venceu: quem faz 3× por semana precisa ter 3
-        no dia 7, 6 no dia 14, 9 no dia 21 e os 12 no fechamento. É daí que sai a situação —
+        <b>No prazo</b> compara com o que já venceu: a meta do mês repartida pelos dias do
+        mês, subindo um pouco a cada dia. Quem faz 3× por semana deve 12 no fechamento, e no
+        dia 20 de um mês de 31 já deveria ter 7. É daí que sai a situação —
         dá para ter treinado ontem e ainda estar atrasado no mês. ⏳ marca quem só fecha
         vindo todos os dias que restam; ⛔, quem já não fecha de jeito nenhum.</p>
 
@@ -2739,10 +2740,14 @@ function mesVizinho(mes, passo){
  *   vertical é exatamente quantos treinos faltam.
  *
  * DUAS RÉGUAS, E ELAS MEDEM COISAS DIFERENTES
- *   A tracejada é a meta do pacote, que sobe em degraus nos dias 7, 14, 21 e no
- *   fechamento — o combinado é semanal, então a cobrança também é. É o que vira
- *   dinheiro. A cinza contínua é a agenda: cada aula combinada projetada no
- *   calendário. É quanta gente o estúdio esperava na porta.
+ *   A tracejada é a meta do pacote: o combinado do mês repartido pelos dias do
+ *   mês, uma reta do zero ao total. É o que vira dinheiro. A cinza contínua é a
+ *   agenda: cada aula combinada projetada no calendário, com os altos e baixos
+ *   da semana. É quanta gente o estúdio esperava na porta.
+ *
+ *   A reta era uma escada de degraus semanais, e o degrau escondia o meio do
+ *   caminho: no dia 27 ela ainda marcava o que vencera no dia 21, seis dias de
+ *   treino atrás do calendário.
  *
  *   Elas não batem de propósito. Quem treina segunda, quarta e sexta tem 13
  *   aulas num mês de cinco segundas e só 12 entram no repasse; quem treina de
@@ -2765,7 +2770,7 @@ function graficoMes(p){
   const n = p.dias.length;
   const fim = p.dias[n-1];
 
-  const maior = Math.max(4, fim.metaAcum, fim.previstoAcum,
+  const maior = Math.max(4, fim.metaAcum, fim.metaExata ?? 0, fim.previstoAcum,
     fim.feitoAcum, fim.experimentalAcum, fim.foraAcum);
   const passo = maior<=40 ? 10 : maior<=120 ? 25 : maior<=400 ? 100 : 200;
   const teto = Math.ceil(maior/passo)*passo;
@@ -2780,16 +2785,14 @@ function graficoMes(p){
   const linha = (campo, ate) => p.dias.slice(0, (ate ?? n-1)+1)
     .map((d,i)=>`${x(i).toFixed(1)},${y(d[campo]).toFixed(1)}`).join(' ');
 
-  // A meta sobe em degrau: entre dois marcos ela não muda, e uma rampa daria a
-  // impressão de que a cobrança cresce todo dia um pouquinho.
-  const escada = () => {
-    const pts = [];
-    p.dias.forEach((d,i)=>{
-      if (i) pts.push(`${x(i).toFixed(1)},${y(p.dias[i-1].metaAcum).toFixed(1)}`);
-      pts.push(`${x(i).toFixed(1)},${y(d.metaAcum).toFixed(1)}`);
-    });
-    return pts.join(' ');
-  };
+  // A meta é uma reta: o combinado do mês repartido pelos dias do mês. Era uma
+  // escada enquanto a cobrança vencia nos dias 7, 14 e 21 — e no dia 27 aquela
+  // escada ainda mostrava o degrau do dia 21, seis dias de treino atrás do
+  // calendário. Desenha pela fração exata (`metaExata`) e não pelo inteiro
+  // cobrável: as metas do estúdio são poucas e repetidas, então o arredondado
+  // volta a saltar de dezenas em dezenas.
+  const escada = () => p.dias
+    .map((d,i)=>`${x(i).toFixed(1)},${y(d.metaExata ?? d.metaAcum).toFixed(1)}`).join(' ');
 
   let svg = '';
   for (let v=0; v<=teto; v+=passo){
@@ -3034,8 +3037,10 @@ async function carregarMes(){
 
       <p class="ajuda">A tracejada é o <b>pacote</b> (${p.metaMes} no mês): o combinado semanal
         de cada aluno vezes quatro, limitado a 12, porque o Wellhub não repassa mais do que
-        isso — são ${p.alunosComPacote} alunos. Sobe em degrau porque a cobrança é semanal:
-        quem faz 3× precisa ter 3 no dia 7, 6 no dia 14, 9 no dia 21 e os 12 no fechamento.
+        isso — são ${p.alunosComPacote} alunos. Sobe todo dia um pouco, porque é o total do
+        mês repartido pelos ${Number(p.ate.slice(8))} dias: no dia
+        ${noCorrente ? Number(p.hoje.slice(8)) : 15}, quem combinou 12 já deveria ter
+        ${Math.floor(12 * (noCorrente ? Number(p.hoje.slice(8)) : 15) / Number(p.ate.slice(8)))}.
         É a mesma régua que decide quem aparece atrasado na aba Frequência, então o gráfico e
         aquela lista nunca discordam.<br>
         A cinza contínua é a <b>agenda</b> (${t.previsto} no mês): cada aula combinada
