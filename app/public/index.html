@@ -2770,7 +2770,7 @@ function graficoMes(p){
   const n = p.dias.length;
   const fim = p.dias[n-1];
 
-  const maior = Math.max(4, fim.metaAcum, fim.metaExata ?? 0, fim.previstoAcum,
+  const maior = Math.max(4, fim.metaAcum, fim.previstoAcum,
     fim.feitoAcum, fim.experimentalAcum, fim.foraAcum);
   const passo = maior<=40 ? 10 : maior<=120 ? 25 : maior<=400 ? 100 : 200;
   const teto = Math.ceil(maior/passo)*passo;
@@ -2792,7 +2792,7 @@ function graficoMes(p){
   // cobrável: as metas do estúdio são poucas e repetidas, então o arredondado
   // volta a saltar de dezenas em dezenas.
   const escada = () => p.dias
-    .map((d,i)=>`${x(i).toFixed(1)},${y(d.metaExata ?? d.metaAcum).toFixed(1)}`).join(' ');
+    .map((d,i)=>`${x(i).toFixed(1)},${y(d.metaAcum).toFixed(1)}`).join(' ');
 
   let svg = '';
   for (let v=0; v<=teto; v+=passo){
@@ -2902,6 +2902,10 @@ async function carregarMes(){
 
       <h4 class="grupo-mes">${noCorrente ? `Até hoje, dia ${Number(p.hoje.slice(8))}` : 'No mês'}
         <small>O ritmo: se o mês parasse agora, estaria adiantado ou atrasado?</small></h4>
+      <p class="ajuda">A meta do dia é a do estúdio inteiro — o pacote de cada aluno
+        repartido pelos ${Number(p.ate.slice(8))} dias, somado com as frações e arredondado
+        uma vez só. Por aluno a régua arredonda para baixo (ninguém deve meio treino), então
+        a soma das metas individuais dá um pouco menos que este número.</p>
       <div class="freq-cartoes">
         ${cartaoFreq(t.metaAteHoje, 'o pacote já pedia')}
         ${cartaoFreq(t.feito, 'feitos, do pacote', atraso > 0 ? 'atrasado' : 'em-dia')}
