@@ -598,38 +598,70 @@ function devedores(painelPronto) {
 /* --------------------------- panorama do mês ----------------------------- */
 
 /**
+ * Grade que vale para medir VOLUME numa data passada.
+ *
+ * `gradeVigente` devolve vazio antes de `vigenteDe`, e faz certo: a tela de um
+ * dia passado não pode mostrar o aluno num horário que ainda não era o dele.
+ * Só que `vigenteDe` é o dia em que a grade foi montada na ficha, não o dia em
+ * que o aluno começou a treinar — numa base recém-cadastrada ele é o mês
+ * inteiro. Aplicado a esta conta, o resultado era um previsto de 235 aulas
+ * contra uma meta de 696 no mesmo mês: dois terços dos alunos apareciam sem
+ * aula nenhuma nos dias anteriores ao cadastro da grade.
+ *
+ * Aqui a pergunta é outra — "quanto volume o mês deveria ter" — e sem uma
+ * grade anterior arquivada não existe horário concorrente a respeitar. Então a
+ * grade de hoje vale para trás, com um piso: antes de a ficha existir não há
+ * volume nenhum a esperar.
+ */
+function gradeParaVolume(matricula, data) {
+  const g = grade.gradeVigente(matricula, data);
+  if (g.length) return g;
+  const nasceu = String(matricula.criadoEm || '').slice(0, 10);
+  if (nasceu && data < nasceu) return [];
+  return matricula.grade || [];
+}
+
+/**
  * O mês visto por data, e não por aluno.
  *
- * A tela de frequência responde "quem está devendo". Esta responde "que dia o
- * estúdio esvaziou". São perguntas diferentes: um feriado, uma semana de chuva
- * ou o portal fora do ar aparecem aqui como um vale de um dia só, enquanto a
- * lista por aluno dilui o mesmo buraco em sessenta linhas de -1.
+ * A aba Frequência responde "quem está devendo". Esta responde "em que dia o
+ * previsto e o realizado descolaram" — um feriado, uma semana de chuva ou o
+ * portal fora do ar aparecem como um degrau na curva, enquanto a lista por
+ * aluno dilui o mesmo buraco em sessenta linhas de -1.
  *
- * PREVISTO É A GRADE PROJETADA, NÃO A META DO PACOTE
- *   A meta (combinado semanal x 4, teto 12) é um número do mês inteiro e não se
- *   reparte em dias. Quem treina segunda, quarta e sexta tem 13 aulas num mês
- *   com cinco segundas e só 12 entram no repasse — espalhar essa perda pelo
- *   calendário exigiria eleger qual segunda-feira não conta, e não existe
- *   resposta certa para isso. Então o previsto de cada dia é a aula que estava
- *   combinada para aquele dia, com as desmarcações descontadas e as extras
- *   somadas, e o excedente do pacote continua sendo assunto da tela por aluno.
+ * SÃO DUAS RÉGUAS, E ELAS MEDEM COISAS DIFERENTES
+ *   `meta` é o pacote: combinado semanal x 4, teto 12, porque o Wellhub não
+ *   repassa mais do que isso. É o número do fechamento, o que vira dinheiro.
+ *   `previsto` é a agenda: a grade projetada sobre o calendário, com as
+ *   desmarcações descontadas e as extras somadas. É o número da porta, quanta
+ *   gente o estúdio esperava naquele dia.
+ *
+ *   Elas não batem de propósito. Quem treina segunda, quarta e sexta tem 13
+ *   aulas num mês de cinco segundas e só 12 entram no repasse — a agenda é
+ *   maior que o pacote. Quem treina de segunda a sexta tem 21 aulas e os
+ *   mesmos 12 de teto. Cobrar pela agenda seria cobrar treino que não gera
+ *   receita; medir a porta pelo pacote seria fingir que o aluno some depois do
+ *   décimo segundo check-in.
+ *
+ * `metaAcum` É ESCADA, NÃO RAMPA
+ *   O combinado é semanal: quem faz 3x precisa ter 3 no dia 7, 6 no dia 14, 9
+ *   no dia 21 e os 12 no fechamento. É a mesma régua que decide quem está
+ *   atrasado na aba Frequência, então a curva do gráfico e a situação da lista
+ *   nunca discordam.
  *
  * UM ALUNO VALE UM CHECK-IN POR DIA
  *   Quem tem dois horários na mesma terça aparece duas vezes na grade e uma vez
  *   só aqui: o Wellhub repassa por dia, e `checkins-store` deduplica igual.
- *   Contar as duas aulas deixaria o previsto acima de um realizado que nunca
- *   teve como alcançá-lo.
  *
  * EXPERIMENTAL FICA NA PRÓPRIA SÉRIE
- *   Sem grade combinada não há previsto para comparar. Somado ao dos alunos, o
- *   treino dele empurraria o realizado acima do previsto num dia em que
- *   ninguém do pacote veio a mais — a leitura do gráfico ficaria invertida.
+ *   Sem grade combinada não há previsto nem meta para comparar. Somado aos
+ *   alunos, o treino dele empurraria o realizado acima do previsto num dia em
+ *   que ninguém do pacote veio a mais.
  *
  * O DIA DE HOJE MOSTRA O DIA INTEIRO
  *   `aulasPrevistas` corta as aulas cujo horário ainda não passou, porque lá o
  *   número vira cobrança. Aqui não: uma coluna de hoje que cresce ao longo do
- *   dia faria o gráfico mudar de forma a cada visita. Quem lê recebe a marca de
- *   "hoje" na coluna e sabe que a noite ainda não aconteceu.
+ *   dia faria o gráfico mudar de forma a cada visita.
  */
 function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = {}) {
   const hoje = hojeLocal();
@@ -642,6 +674,9 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
   // experimental ainda não combinou grade nenhuma.
   const comPacote = matriculas.filter((m) =>
     (m.vinculo || 'mensalista') === 'wellhub' && !m.experimental);
+  const naGrade = comPacote.filter((m) => m.ativo);
+  const idsNaGrade = new Set(naGrade.map((m) => m.id));
+  const metas = new Map(comPacote.map((m) => [m.id, metaDoMes(m)]));
 
   const dias = [];
   const indice = new Map();
@@ -661,12 +696,32 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
     indice.set(d, linha);
   }
 
-  // Previsto: a mesma projeção que desenha a tela "Grade do dia", contada por
-  // pessoa e não por aula.
+  // Previsto do dia: a grade projetada, contada por pessoa e não por aula.
   for (const linha of dias) {
     const doDia = excecoes.filter((e) => e.data === linha.data);
-    linha.previsto = new Set(
-      grade.agendaDoDia(comPacote, linha.data, doDia).map((a) => a.matriculaId)).size;
+    const cancelou = (id, hora) => doDia.some((e) =>
+      e.tipo === 'cancelou' && e.matriculaId === id && (!e.hora || e.hora === hora));
+
+    const pessoas = new Set();
+    for (const m of naGrade) {
+      for (const s of gradeParaVolume(m, linha.data)) {
+        if (s.dia !== linha.diaDaSemana || cancelou(m.id, s.hora)) continue;
+        pessoas.add(m.id);
+        break;
+      }
+    }
+    for (const e of doDia) {
+      if (e.tipo !== 'extra' || !e.hora) continue;
+      if (!idsNaGrade.has(e.matriculaId)) continue;
+      if (cancelou(e.matriculaId, e.hora)) continue;
+      pessoas.add(e.matriculaId);
+    }
+    linha.previsto = pessoas.size;
+
+    // Meta acumulada até esta data — a mesma escada de marcos que a aba
+    // Frequência usa para dizer quem está atrasado.
+    linha.metaAcum = comPacote.reduce((s, m) =>
+      s + devidoAteAgora(m, linha.data, metas.get(m.id)), 0);
   }
 
   // Realizado: deduplicado por pessoa e dia, do mesmo jeito que o repasse. Sem
@@ -688,27 +743,38 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
     else linha.feito += 1;
   }
 
-  const soma = (campo) => dias.reduce((s, l) => s + l[campo], 0);
+  // Acumulados: a leitura do mês é de soma corrida, não de coluna solta. Sai
+  // daqui e não da tela para o CSV exportar exatamente o que o gráfico desenha.
+  let aPrevisto = 0; let aFeito = 0; let aExp = 0; let aSem = 0;
+  for (const l of dias) {
+    aPrevisto += l.previsto; aFeito += l.feito;
+    aExp += l.experimental; aSem += l.semVinculo;
+    l.previstoAcum = aPrevisto;
+    l.feitoAcum = aFeito;
+    l.experimentalAcum = aExp;
+    l.semVinculoAcum = aSem;
+  }
+
+  const ateHoje = dias.filter((l) => !l.futuro);
+  const ultimoFechado = ateHoje.length ? ateHoje[ateHoje.length - 1] : null;
 
   return {
     mes: de.slice(0, 7),
     de,
     ate: fim,
     hoje,
-    // Meta somada de quem tem pacote: o que o mês rende no fechamento, para o
-    // realizado ter contra o que ser lido além do previsto da grade.
-    metaMes: comPacote.reduce((s, m) => s + metaDoMes(m), 0),
+    metaMes: comPacote.reduce((s, m) => s + metas.get(m.id), 0),
     alunosComPacote: comPacote.length,
     dias,
     totais: {
-      previsto: soma('previsto'),
-      // O previsto que já venceu. Comparar o feito com o previsto do mês
-      // inteiro no dia 5 diria que o estúdio está 90% vazio.
-      previstoAteHoje: dias.filter((l) => !l.futuro)
-        .reduce((s, l) => s + l.previsto, 0),
-      feito: soma('feito'),
-      experimental: soma('experimental'),
-      semVinculo: soma('semVinculo'),
+      previsto: aPrevisto,
+      // O previsto que já venceu. Comparar o feito com o mês inteiro no dia 5
+      // diria que o estúdio está 90% vazio.
+      previstoAteHoje: ateHoje.reduce((s, l) => s + l.previsto, 0),
+      metaAteHoje: ultimoFechado ? ultimoFechado.metaAcum : 0,
+      feito: aFeito,
+      experimental: aExp,
+      semVinculo: aSem,
     },
   };
 }

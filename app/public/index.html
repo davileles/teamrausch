@@ -489,12 +489,13 @@
      não cabem em 380px de largura sem virar risco, então o quadro rola na
      horizontal em vez de encolher a ponto de não se ler o número do dia. */
   .grafico-mes{overflow-x:auto;margin:4px 0 10px;padding-bottom:4px}
-  .grafico-mes svg{display:block;width:100%;min-width:660px;height:auto}
-  .grafico-mes line{stroke-width:1}
+  .grafico-mes svg{display:block;width:100%;min-width:520px;height:auto}
   .g-eixo{font:600 9px 'Work Sans',sans-serif;fill:var(--fraco-2)}
   .g-dia{font:600 9px 'Work Sans',sans-serif;fill:var(--fraco)}
-  .g-dia.fds{fill:var(--fraco-2)}
   .g-dia.hoje{fill:var(--amarelo)}
+  .g-linha{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+  .g-linha.ref{stroke-width:1.5}
+  .g-hoje{stroke:var(--amarelo);stroke-width:1;stroke-dasharray:3 3;opacity:.6}
   .legenda-mes{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 14px;
     font:500 11px 'Work Sans',sans-serif;color:var(--fraco)}
   .legenda-mes i{display:inline-block;width:10px;height:10px;margin-right:5px;vertical-align:-1px}
@@ -2700,103 +2701,131 @@ function mesVizinho(mes, passo){
 }
 
 /**
- * As barras do mês, em SVG escrito à mão.
+ * O mês como curva acumulada, em SVG escrito à mão.
+ *
+ * POR QUE ACUMULADO E NÃO BARRA POR DIA
+ *   Barra por dia responde "quanta gente veio na terça". A pergunta que se faz
+ *   olhando o mês é outra — "a esta altura, quanto eu já deveria ter" — e essa
+ *   só se responde somando os dias anteriores de cabeça, um por um, o que
+ *   ninguém faz. Acumulado, a resposta é a altura da linha no dia: onde a
+ *   amarela está abaixo da tracejada, o mês está atrasado, e a distância
+ *   vertical é exatamente quantos treinos faltam.
+ *
+ * QUATRO LINHAS, DUAS DELAS SÃO RÉGUA
+ *   Tracejada é a meta do pacote, que sobe em degraus nos dias 7, 14, 21 e no
+ *   fechamento — o combinado é semanal, então a cobrança também é. A cinza
+ *   contínua é a agenda: a grade projetada no calendário. As duas não batem de
+ *   propósito, e a diferença entre elas é o treino que o aluno faz e o Wellhub
+ *   não repassa.
+ *
+ * AS LINHAS DO REALIZADO PARAM EM HOJE
+ *   Estendê-las até o dia 31 as deixaria horizontais no resto do mês, como se
+ *   o estúdio tivesse fechado. O que ainda não aconteceu não vira linha.
  *
  * SEM BIBLIOTECA DE GRÁFICO
- *   Um gráfico de barras é um retângulo por número. Trazer Chart.js para isso
- *   custaria 60 kB e uma dependência de CDN numa página que hoje não tem
- *   nenhuma — e o app precisa abrir na recepção com internet ruim.
- *
- * PREVISTO ATRÁS, REALIZADO NA FRENTE
- *   Lado a lado seriam três barras por dia e trinta e uma colunas: cada barra
- *   ficaria com dois pixels. Sobrepostas, a leitura é imediata — a barra
- *   estreita passou da larga, ou não chegou nela.
- *
- * ALUNOS E EXPERIMENTAIS EMPILHADOS
- *   Empilhar mantém o topo da barra como o total que entrou no estúdio, e a
- *   divisão por cor responde de onde veio. Duas barras separadas exigiriam
- *   somar de cabeça para responder a mesma pergunta.
+ *   Duas polylines e um eixo. Trazer Chart.js custaria 60 kB e uma dependência
+ *   de CDN numa página que hoje não tem nenhuma — e o app precisa abrir na
+ *   recepção com internet ruim.
  */
 function graficoMes(p){
-  const ESQ=32, DIR=6, TOPO=10, BASE=26, COL=22;
-  const larg = ESQ + DIR + p.dias.length*COL;
-  const alt  = 236;
-  const areaA = alt - TOPO - BASE;
+  const ESQ=38, DIR=12, TOPO=14, BASE=26;
+  const larg = 700, alt = 268;
+  const areaL = larg - ESQ - DIR, areaA = alt - TOPO - BASE;
+  const n = p.dias.length;
+  const fim = p.dias[n-1];
 
-  // O teto do eixo sobe até um múltiplo redondo: linha de grade em 7 ou 13 não
-  // ajuda ninguém a estimar altura.
-  const maior = Math.max(4, ...p.dias.map(d=>
-    Math.max(d.previsto, d.feito + d.experimental + d.semVinculo)));
-  const passo = maior<=8 ? 2 : maior<=20 ? 5 : 10;
+  const maior = Math.max(4, fim.metaAcum, fim.previstoAcum,
+    fim.feitoAcum + fim.experimentalAcum);
+  const passo = maior<=40 ? 10 : maior<=120 ? 25 : maior<=400 ? 100 : 200;
   const teto = Math.ceil(maior/passo)*passo;
+
+  const x = i => ESQ + (n===1 ? areaL/2 : (i/(n-1))*areaL);
   const y = v => TOPO + areaA - (v/teto)*areaA;
-  const h = v => (v/teto)*areaA;
 
-  const LP = 14, LR = 7;   // largura da barra prevista e da realizada
+  // Índice do último dia que já aconteceu; -1 quando o mês inteiro é futuro.
+  let ultimo = -1;
+  p.dias.forEach((d,i)=>{ if (!d.futuro) ultimo = i; });
+
+  const linha = (campo, ate) => p.dias.slice(0, (ate ?? n-1)+1)
+    .map((d,i)=>`${x(i).toFixed(1)},${y(d[campo]).toFixed(1)}`).join(' ');
+
+  // A meta sobe em degrau: entre dois marcos ela não muda, e uma rampa daria a
+  // impressão de que a cobrança cresce todo dia um pouquinho.
+  const escada = () => {
+    const pts = [];
+    p.dias.forEach((d,i)=>{
+      if (i) pts.push(`${x(i).toFixed(1)},${y(p.dias[i-1].metaAcum).toFixed(1)}`);
+      pts.push(`${x(i).toFixed(1)},${y(d.metaAcum).toFixed(1)}`);
+    });
+    return pts.join(' ');
+  };
+
   let svg = '';
-
-  // Sábado e domingo com fundo próprio: sem isso, um vale de fim de semana
-  // parece falta de aluno.
-  p.dias.forEach((d,i)=>{
-    if (d.diaDaSemana!==0 && d.diaDaSemana!==6) return;
-    svg += `<rect x="${ESQ+i*COL}" y="${TOPO}" width="${COL}" height="${areaA}" fill="var(--fundo-2)"/>`;
-  });
-
   for (let v=0; v<=teto; v+=passo){
     svg += `<line x1="${ESQ}" y1="${y(v)}" x2="${larg-DIR}" y2="${y(v)}"`
-      + ` stroke="var(--linha)"${v ? ' stroke-dasharray="2 4"' : ''}/>`
-      + `<text x="${ESQ-5}" y="${y(v)+3.5}" text-anchor="end" class="g-eixo">${v}</text>`;
+      + ` stroke="var(--linha)" stroke-width="1"${v ? ' stroke-dasharray="2 4"' : ''}/>`
+      + `<text x="${ESQ-6}" y="${y(v)+3.5}" text-anchor="end" class="g-eixo">${v}</text>`;
   }
 
+  // Rótulos rareados: 31 números colados viram uma tarja cinza. O dia de hoje
+  // entra sempre e empurra o múltiplo de cinco vizinho para fora — dois números
+  // a 40px um do outro se sobrepõem na largura do celular.
+  const diaHoje = ultimo >= 0 ? p.dias[ultimo].dia : -99;
   p.dias.forEach((d,i)=>{
-    const cx = ESQ + i*COL + COL/2;
+    const marco = d.dia===1 || d.dia%5===0;
+    if (!marco && !d.ehHoje) return;
+    if (marco && !d.ehHoje && Math.abs(d.dia - diaHoje) < 3) return;
+    svg += `<text x="${x(i).toFixed(1)}" y="${alt-BASE+15}" text-anchor="middle"`
+      + ` class="g-dia${d.ehHoje?' hoje':''}">${d.dia}</text>`;
+  });
+
+  if (ultimo >= 0 && ultimo < n-1){
+    svg += `<line class="g-hoje" x1="${x(ultimo).toFixed(1)}" y1="${TOPO}"`
+      + ` x2="${x(ultimo).toFixed(1)}" y2="${TOPO+areaA}"/>`;
+  }
+
+  // A régua do pacote é a que se lê primeiro, então vai mais clara; a grade é
+  // contexto e fica apagada. Com os dois cinzas parecidos, a tracejada sumia.
+  svg += `<polyline class="g-linha ref" points="${escada()}"`
+    + ` stroke="var(--apagado)" stroke-dasharray="5 4"/>`;
+  svg += `<polyline class="g-linha ref" points="${linha('previstoAcum')}"`
+    + ` stroke="var(--linha-3)"/>`;
+  if (ultimo >= 0){
+    if (fim.experimentalAcum) svg += `<polyline class="g-linha"`
+      + ` points="${linha('experimentalAcum', ultimo)}" stroke="var(--liberado)"/>`;
+    if (fim.semVinculoAcum) svg += `<polyline class="g-linha ref"`
+      + ` points="${linha('semVinculoAcum', ultimo)}" stroke="var(--vermelho)"/>`;
+    svg += `<polyline class="g-linha" points="${linha('feitoAcum', ultimo)}"`
+      + ` stroke="var(--amarelo)"/>`;
+  }
+
+  // Faixa transparente por dia: é o que faz o <title> responder em qualquer
+  // ponto da coluna, e não só em cima do traço de dois pixels.
+  const fatia = areaL / n;
+  p.dias.forEach((d,i)=>{
     const dica = `${d.dia} de ${MES_NOME[Number(p.mes.slice(5))-1]} · ${DIA_LONGO[d.diaDaSemana]}`
-      + `\nPrevisto: ${d.previsto}`
-      + `\nAlunos: ${d.feito}`
-      + `\nExperimentais: ${d.experimental}`
-      + (d.semVinculo ? `\nSem aluno: ${d.semVinculo}` : '')
+      + `\nDeveria ter (pacote): ${d.metaAcum}`
+      + `\nPrevisto pela grade: ${d.previstoAcum}`
       + (d.futuro ? '\nAinda não aconteceu.'
-        : d.ehHoje ? '\nHoje — a aula da noite ainda não passou.' : '');
-
-    // O retângulo transparente cobre a coluna inteira para o <title> responder
-    // em qualquer ponto dela, e não só em cima da barra.
-    svg += `<g><title>${esc(dica)}</title>`
-      + `<rect x="${ESQ+i*COL}" y="${TOPO}" width="${COL}" height="${areaA}" fill="transparent"/>`;
-
-    if (d.previsto) svg += `<rect x="${cx-LP/2}" y="${y(d.previsto)}" width="${LP}"`
-      + ` height="${h(d.previsto)}" fill="var(--fundo-3)" stroke="var(--linha-2)"`
-      + `${d.futuro ? ' opacity=".45"' : ''}/>`;
-
-    let base = 0;
-    const empilhar = (v, cor)=>{
-      if (!v) return '';
-      const r = `<rect x="${cx-LR/2}" y="${y(base+v)}" width="${LR}" height="${h(v)}" fill="${cor}"/>`;
-      base += v;
-      return r;
-    };
-    svg += empilhar(d.feito, 'var(--amarelo)');
-    svg += empilhar(d.experimental, 'var(--liberado)');
-    svg += empilhar(d.semVinculo, 'var(--fraco-2)');
-    svg += '</g>';
-
-    svg += `<text x="${cx}" y="${alt-BASE+13}" text-anchor="middle" class="g-dia${
-      d.ehHoje ? ' hoje' : (d.diaDaSemana===0||d.diaDaSemana===6) ? ' fds' : ''}">${d.dia}</text>`;
+        : `\nAlunos: ${d.feitoAcum}`
+          + `\nExperimentais: ${d.experimentalAcum}`
+          + (d.semVinculoAcum ? `\nSem aluno: ${d.semVinculoAcum}` : '')
+          + `\n(no dia: ${d.feito} aluno(s), ${d.previsto} previsto(s))`);
+    svg += `<g><title>${esc(dica)}</title><rect x="${(ESQ+i*fatia).toFixed(1)}" y="${TOPO}"`
+      + ` width="${fatia.toFixed(1)}" height="${areaA}" fill="transparent"/></g>`;
   });
 
   return `<div class="grafico-mes"><svg viewBox="0 0 ${larg} ${alt}" role="img"
     xmlns="http://www.w3.org/2000/svg"
-    aria-label="Check-ins previstos e realizados por dia em ${esc(rotuloMes(p.mes))}"
+    aria-label="Check-ins acumulados por dia em ${esc(rotuloMes(p.mes))}"
     >${svg}</svg></div>`;
 }
 
 /**
- * O mês por data: quanto o estúdio esperava em cada dia e quanto entrou.
+ * O mês por data: quanto o estúdio já deveria ter somado e quanto somou.
  *
  * A aba Frequência já responde por aluno, e é lá que se cobra. Aqui a pergunta
- * é outra — em que dias o previsto e o realizado descolaram. Um feriado, uma
- * semana de chuva ou o portal fora do ar aparecem como um vale de uma coluna;
- * na lista por aluno o mesmo buraco vira sessenta linhas de "-1" que não se
- * somam sozinhas na cabeça de ninguém.
+ * é onde, no calendário, a curva descolou.
  */
 async function carregarMes(){
   const alvo = document.getElementById('mat-mes');
@@ -2810,7 +2839,7 @@ async function carregarMes(){
 
     const t = p.totais;
     const noCorrente = p.mes === p.hoje.slice(0,7);
-    const realizado = t.feito + t.experimental;
+    const atraso = t.metaAteHoje - t.feito;
 
     alvo.innerHTML = `
       <div class="nav-mes">
@@ -2820,46 +2849,56 @@ async function carregarMes(){
           ${noCorrente ? 'disabled' : ''}>›</button>
       </div>
 
-      <p class="ajuda">Uma coluna por dia. A barra larga atrás é o <b>previsto</b>: a grade
-        combinada projetada naquela data, já sem as aulas desmarcadas e com as extras
-        encaixadas, contando <b>uma vez por aluno</b> — o Wellhub repassa por dia, não por
-        aula, então quem tem dois horários na mesma terça vale um. A barra estreita na frente
-        é o que o portal registrou: <b>alunos</b> embaixo, <b>experimentais</b> em cima.
-        Experimental fica separado porque não tem grade combinada e por isso não gera previsto
-        nenhum — somado aos alunos, faria o realizado passar do previsto num dia em que
-        ninguém do pacote veio a mais. O dia de hoje mostra o previsto do dia inteiro,
-        inclusive a aula da noite que ainda não aconteceu.</p>
-
       <div class="freq-cartoes">
-        ${cartaoFreq(t.previsto, 'previsto no mês')}
-        ${cartaoFreq(t.previstoAteHoje, 'previsto até hoje')}
-        ${cartaoFreq(t.feito, 'alunos',
-          t.feito >= t.previstoAteHoje ? 'em-dia' : 'atrasado')}
-        ${cartaoFreq(t.experimental, 'experimentais')}
+        ${cartaoFreq(t.metaAteHoje, 'deveria ter hoje')}
+        ${cartaoFreq(t.feito, 'alunos', atraso > 0 ? 'atrasado' : 'em-dia')}
+        ${cartaoFreq(atraso > 0 ? `−${atraso}` : `+${-atraso}`, 'no ritmo',
+          atraso > 0 ? 'atrasado' : 'em-dia')}
+        ${cartaoFreq(p.metaMes, 'meta do mês')}
+        ${cartaoFreq(t.previsto, 'aulas na grade')}
+        ${t.experimental ? cartaoFreq(t.experimental, 'experimentais') : ''}
         ${t.semVinculo ? cartaoFreq(t.semVinculo, 'sem aluno', 'critico') : ''}
-        ${cartaoFreq(`${t.feito}/${p.metaMes}`, `pacote · ${p.alunosComPacote} alunos`)}
       </div>
 
       ${graficoMes(p)}
 
       <div class="legenda-mes">
-        <span><i style="background:var(--fundo-3);border:1px solid var(--linha-2)"></i>previsto</span>
+        <span><i style="background:var(--apagado)"></i>deveria ter (pacote)</span>
+        <span><i style="background:var(--linha-3)"></i>previsto pela grade</span>
         <span><i style="background:var(--amarelo)"></i>alunos</span>
-        <span><i style="background:var(--liberado)"></i>experimentais</span>
+        ${t.experimental
+          ? '<span><i style="background:var(--liberado)"></i>experimentais</span>' : ''}
         ${t.semVinculo
-          ? '<span><i style="background:var(--fraco-2)"></i>sem aluno</span>' : ''}
-        <span>fundo mais claro = fim de semana</span>
+          ? '<span><i style="background:var(--vermelho)"></i>sem aluno</span>' : ''}
       </div>
 
-      ${t.semVinculo ? `<p class="ajuda alerta-rev">${t.semVinculo} check-in(s) do mês não
-        caíram em nenhuma ficha. Eles entram no gráfico porque aconteceram, mas não contam
-        para o pacote de ninguém — a aba <b>Frequência</b> lista essas pessoas e vincula.</p>`
-        : ''}
+      <p class="ajuda">Tudo somado desde o dia 1º: a altura da linha no dia é o total do mês
+        até ali, e não o movimento daquele dia. Onde a amarela está abaixo da tracejada, a
+        distância vertical é quantos treinos o mês está devendo.</p>
 
-      ${realizado < t.previstoAteHoje ? `<p class="ajuda">Até aqui o mês tem
-        <b>${t.previstoAteHoje - realizado}</b> treino(s) a menos do que a grade previa.
-        A diferença pode ser falta, aula desmarcada sem registro ou check-in que o portal não
-        repassou — a coluna curta no gráfico diz o dia em que procurar.</p>` : ''}
+      <p class="ajuda"><b>Deveria ter (${p.metaMes} no mês)</b> é o pacote: o combinado semanal
+        de cada aluno vezes quatro, limitado a 12, porque o Wellhub não repassa mais do que
+        isso. Sobe em degrau — quem faz 3× precisa ter 3 no dia 7, 6 no dia 14, 9 no dia 21 e
+        os 12 no fechamento —, e é a mesma régua que decide quem aparece atrasado na aba
+        Frequência. São ${p.alunosComPacote} alunos com pacote.<br>
+        <b>Previsto pela grade (${t.previsto} no mês)</b> é a agenda: cada aula combinada
+        projetada no calendário, sem as desmarcadas e com as extras, contando uma vez por
+        aluno por dia. Responde quanta gente o estúdio esperava na porta.<br>
+        As duas não batem de propósito. Quem treina segunda, quarta e sexta tem 13 aulas num
+        mês de cinco segundas e só 12 entram no repasse; quem treina de segunda a sexta tem
+        21 aulas e os mesmos 12 de teto. Cobrar pela agenda seria cobrar treino que não gera
+        receita — medir a porta pelo pacote seria fingir que o aluno some depois do décimo
+        segundo check-in.</p>
+
+      ${t.experimental ? `<p class="ajuda">Experimental fica na própria linha: sem grade
+        combinada não há previsto nem meta para comparar, e somado aos alunos o treino dele
+        empurraria o realizado acima do previsto num dia em que ninguém do pacote veio a
+        mais.</p>` : ''}
+
+      ${t.semVinculo ? `<p class="ajuda alerta-rev">${t.semVinculo} check-in(s) do mês não
+        caíram em nenhuma ficha. Eles aconteceram, mas não contam para o pacote de ninguém —
+        a aba <b>Frequência</b> lista essas pessoas e cria ou vincula a ficha. Enquanto
+        estiverem soltos, a linha amarela está mais baixa do que a realidade.</p>` : ''}
 
       <button class="leve" id="mes-csv" style="margin-top:6px">Exportar dia a dia</button>`;
 
@@ -2874,9 +2913,12 @@ async function carregarMes(){
 
     alvo.querySelector('#mes-csv').addEventListener('click', ()=>{
       baixarCsv(`mes-${p.mes}.csv`,
-        ['Data','Dia da semana','Previsto','Alunos','Experimentais','Sem aluno'],
+        ['Data','Dia da semana','Previsto no dia','Alunos no dia','Experimentais no dia',
+         'Sem aluno no dia','Deveria ter (acum.)','Previsto (acum.)','Alunos (acum.)',
+         'Experimentais (acum.)','Sem aluno (acum.)'],
         p.dias.map(d=>[d.data, DIA_LONGO[d.diaDaSemana],
-          d.previsto, d.feito, d.experimental, d.semVinculo]));
+          d.previsto, d.feito, d.experimental, d.semVinculo,
+          d.metaAcum, d.previstoAcum, d.feitoAcum, d.experimentalAcum, d.semVinculoAcum]));
       avisar(`${p.dias.length} dia(s) exportado(s).`,'ok');
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
