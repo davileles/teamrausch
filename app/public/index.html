@@ -2427,10 +2427,20 @@ async function carregarFrequencia(){
       <div class="freq-cartoes">
         ${cartaoFreq(f.resumo.criticos, 'críticos', 'critico')}
         ${cartaoFreq(f.resumo.atrasados, 'atrasados', 'atrasado')}
-        ${cartaoFreq(f.resumo.emDia, 'em dia', 'em-dia')}
+        ${(()=>{
+          // O SALDO DO DIA, NO LUGAR DE "EM DIA"
+          //   "22 em dia" conta pessoas e não diz se o mês fecha: 22 assíduos
+          //   podem estar cobrindo 40 que sumiram, ou não. Este cartão compara
+          //   a cota que já venceu com o que foi feito — é a mesma régua da aba
+          //   Mês, então as duas telas dizem o mesmo do mesmo dia.
+          const saldo = f.resumo.realizadoMes - f.resumo.devidoAteHoje;
+          return cartaoFreq(saldo >= 0 ? `+${saldo}` : `−${-saldo}`,
+            `${f.resumo.realizadoMes} de ${f.resumo.devidoAteHoje} até hoje`,
+            saldo >= 0 ? 'em-dia' : 'atrasado');
+        })()}
         ${cartaoFreq(f.resumo.faltamMes, 'faltam no mês', f.resumo.faltamMes ? 'atrasado' : 'em-dia')}
         ${cartaoFreq(`${f.resumo.realizadoMes}/${f.resumo.metaMes}`,
-          `pacote · ${f.resumo.comPacote} alunos`)}
+          `pacote no mês · ${f.resumo.comPacote} alunos`)}
       </div>
       ${(()=>{
         // O RESTO VIRA FRASE, NÃO CARTÃO
@@ -2439,6 +2449,7 @@ async function carregarFrequencia(){
         //   cima os cinco que mudam a decisão do dia: quem cobrar, quanto falta.
         //   O que se lê uma vez por semana cabe numa linha de texto.
         const notas = [];
+        notas.push(`<b>${f.resumo.emDia}</b> aluno(s) em dia`);
         if (f.resumo.quitados) notas.push(`<b>${f.resumo.quitados}</b> já fecharam o pacote`);
         if (f.resumo.naoFecham) notas.push(`⛔ <b>${f.resumo.naoFecham}</b> não fecham mais`);
         if (f.resumo.excedenteMes) notas.push(`<b>${f.resumo.excedenteMes}</b> check-in(s)
