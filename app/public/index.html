@@ -993,6 +993,42 @@ function limparTela(){
 const TODAS_ABAS  = ['agendar','meus','perfil','dia','matriculas','config'];
 const ABAS_ADMIN  = ['dia','matriculas','config'];
 
+/* ------------------------ a aba fica na URL ------------------------------ *
+ * Recarregar a página devolvia a pessoa para "Agendar", perdendo o lugar em
+ * que ela estava — e quem está conferindo Frequência ou Indicadores recarrega
+ * o tempo todo para ver dado novo.
+ *
+ * O endereço vira o lugar onde a aba mora: `#matriculas/freq`. Sobrevive ao
+ * refresh sem storage nenhum, e de quebra dá um link que abre direto na aba.
+ *
+ * `replaceState` em vez de `location.hash`: trocar de aba não é navegar, e
+ * empilhar cada troca no histórico faria o botão voltar do celular percorrer
+ * as abas uma a uma antes de sair do app.
+ * ------------------------------------------------------------------------- */
+const SUBS = { matriculas: ['alunos','grade','lotacao','freq','mes'],
+               config: ['negocio','tecnica'] };
+
+function lerRota(){
+  const cru = decodeURIComponent(String(location.hash || '').replace(/^#/, ''));
+  const [aba, sub] = cru.split('/');
+  return { aba: aba || '', sub: sub || '' };
+}
+
+function subDaAba(aba){
+  if (aba === 'matriculas') return matEstado.sub;
+  if (aba === 'config') return subConfig;
+  return '';
+}
+
+function gravarRota(){
+  const sub = subDaAba(abaAtiva);
+  const alvo = '#' + abaAtiva + (sub ? '/' + sub : '');
+  if (location.hash === alvo) return;
+  // Ambientes sem history (file://, webview antiga) não podem derrubar a tela
+  // por causa de um detalhe de endereço.
+  try{ history.replaceState(null, '', alvo); }catch{}
+}
+
 /** Uma aba só vale se existir e, sendo de admin, se a pessoa for admin. */
 function abaPermitida(aba){
   if (!TODAS_ABAS.includes(aba)) return false;
@@ -1018,6 +1054,7 @@ function abrirAba(aba){
   TODAS_ABAS.forEach(a=>{
     document.getElementById('aba-'+a).hidden = a !== abaAtiva;
   });
+  gravarRota();
   return desenharAba();
 }
 
@@ -2012,7 +2049,7 @@ async function carregarMatriculas(){
 
     alvo.querySelector('#sub-mat').addEventListener('click', e=>{
       const b = e.target.closest('button[data-sub]'); if (!b) return;
-      matEstado.sub = b.dataset.sub; matEstado.aberta = null; redesenhar();
+      matEstado.sub = b.dataset.sub; matEstado.aberta = null; gravarRota(); redesenhar();
     });
 
     const busca = alvo.querySelector('#mat-busca');
@@ -3716,6 +3753,7 @@ function ligarSubabas(alvo){
   barra.addEventListener('click', e=>{
     const b = e.target.closest('button[data-sub]'); if (!b) return;
     subConfig = b.dataset.sub;
+    gravarRota();
     pintar();
   });
   pintar();
@@ -4221,7 +4259,7 @@ async function salvarConfig(){
 }
 
 /* ------------------------------ início ---------------------------------- */
-async function comecar(manterAba){
+async function comecar(manterAba, usarRota){
   try{
     const r = await api('/auth/eu');
     // Descarta o que estiver na tela antes de mostrar a conta nova.
@@ -4232,14 +4270,34 @@ async function comecar(manterAba){
     document.getElementById('nome-estudio').textContent = r.config.estudio.nome;
     document.getElementById('quem-sou').textContent = eu.nome || eu.telefone;
     document.querySelectorAll('.so-admin').forEach(b=>{ b.hidden = !eu.admin; });
-    await abrirAba(manterAba ? abaAtiva : 'agendar');
+
+    // Só o boot lê a URL. Depois de um login a rota que estiver ali é da conta
+    // anterior, e mandar a pessoa nova para a aba de quem saiu seria errado —
+    // `abrirAba` reescreve o endereço logo em seguida.
+    let destino = manterAba ? abaAtiva : 'agendar';
+    if (usarRota) {
+      const rota = lerRota();
+      // `abaPermitida` já barra aba de admin para quem não é, e `abrirAba`
+      // devolve para 'agendar' de qualquer jeito. A checagem aqui evita
+      // aplicar a sub-aba de uma aba que a pessoa não vai abrir.
+      if (rota.aba && abaPermitida(rota.aba)) {
+        destino = rota.aba;
+        // Sub-aba inventada na URL fica de fora: um valor solto esconderia
+        // todos os painéis e a aba abriria em branco.
+        if (rota.sub && (SUBS[destino] || []).includes(rota.sub)) {
+          if (destino === 'matriculas') matEstado.sub = rota.sub;
+          if (destino === 'config') subConfig = rota.sub;
+        }
+      }
+    }
+    await abrirAba(destino);
   }catch{
     document.getElementById('tela-login').hidden = false;
     document.getElementById('tela-app').hidden = true;
   }
 }
 
-if (cofre.get()) comecar(); else document.getElementById('in-telefone').focus();
+if (cofre.get()) comecar(false, true); else document.getElementById('in-telefone').focus();
 </script>
 </body>
 </html>
