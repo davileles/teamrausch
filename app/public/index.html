@@ -2915,8 +2915,26 @@ async function carregarMes(){
       <div class="freq-cartoes">
         ${cartaoFreq(p.metaMes, 'o pacote pede no mês')}
         ${cartaoFreq(faltam, 'ainda faltam', faltam ? '' : 'em-dia')}
-        ${cartaoFreq(t.previsto, 'aulas na agenda')}
       </div>
+
+      <h4 class="grupo-mes">A agenda do estúdio
+        <small>Quanta gente você espera na porta — ocupação, não repasse.</small></h4>
+      <div class="freq-cartoes">
+        ${cartaoFreq(t.previstoTodos, 'aulas na agenda')}
+        ${cartaoFreq(t.previsto, 'delas, do Wellhub')}
+        ${t.previstoOutros ? cartaoFreq(t.previstoOutros, 'de mensalistas') : ''}
+        ${cartaoFreq(p.alunosNaAgenda, 'pessoas com horário fixo')}
+      </div>
+      <p class="ajuda">Cada aula combinada projetada no calendário, sem as desmarcadas e com
+        as extras, contando uma vez por pessoa por dia. É o único bloco desta tela que inclui
+        <b>mensalista</b>: ele não passa pelo portal e não gera repasse, mas ocupa lugar na
+        sala — e para pensar em turma cheia ou escala de professor, contar só os
+        ${p.alunosNaAgendaWellhub} do Wellhub subestima a casa.
+        ${p.agendaParcial && p.agendaParcial.pessoas ? `<br><b>Atenção:</b>
+          ${p.agendaParcial.pessoas} ficha(s) só entram na conta a partir de
+          ${dataCurta(p.agendaParcial.desde)}, que é quando foram cadastradas — sem check-in
+          no portal não há como provar que já treinavam antes. A agenda real do mês é maior
+          do que a que aparece aqui.` : ''}</p>
 
       ${(t.fora || t.ignorado || t.experimental || t.semVinculo) ? `
       <h4 class="grupo-mes">Fora do pacote
@@ -3093,13 +3111,14 @@ async function carregarMes(){
 
     alvo.querySelector('#mes-csv').addEventListener('click', ()=>{
       baixarCsv(`mes-${p.mes}.csv`,
-        ['Data','Dia da semana','Previsto no dia','Alunos no dia','Além do combinado no dia',
-         'Sem repasse no dia','Experimentais no dia','Sem aluno no dia','Deveria ter (acum.)',
-         'Previsto (acum.)','Alunos (acum.)','Além do combinado (acum.)','Sem repasse (acum.)',
-         'Experimentais (acum.)','Sem aluno (acum.)','Repasse no dia','Repasse (acum.)'],
+        ['Data','Dia da semana','Previsto no dia (Wellhub)','Agenda do estúdio no dia','Check-ins do pacote no dia','Além do combinado no dia',
+         'Acima do teto no dia','Experimentais no dia','Sem ficha no dia','Meta do pacote (acum.)',
+         'Previsto Wellhub (acum.)','Agenda do estúdio (acum.)','Check-ins do pacote (acum.)',
+         'Além do combinado (acum.)','Acima do teto (acum.)',
+         'Experimentais (acum.)','Sem ficha (acum.)','Repasse no dia','Repasse (acum.)'],
         p.dias.map(d=>[d.data, DIA_LONGO[d.diaDaSemana],
-          d.previsto, d.feito, d.fora, d.ignorado, d.experimental, d.semVinculo,
-          d.metaAcum, d.previstoAcum, d.feitoAcum, d.foraAcum, d.ignoradoAcum,
+          d.previsto, d.previstoTodos, d.feito, d.fora, d.ignorado, d.experimental, d.semVinculo,
+          d.metaAcum, d.previstoAcum, d.previstoTodosAcum, d.feitoAcum, d.foraAcum, d.ignoradoAcum,
           d.experimentalAcum, d.semVinculoAcum,
           // Vírgula decimal: o CSV abre no Excel em pt-BR, e 215.74 vira duzentos
           // e quinze mil setecentos e quarenta na planilha.
