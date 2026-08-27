@@ -2933,8 +2933,8 @@ async function carregarMes(){
         ${p.agendaParcial && p.agendaParcial.pessoas ? `<br><b>Atenção:</b>
           ${p.agendaParcial.pessoas} ficha(s) só entram na conta a partir de
           ${dataCurta(p.agendaParcial.desde)}, que é quando foram cadastradas — sem check-in
-          no portal não há como provar que já treinavam antes. A agenda real do mês é maior
-          do que a que aparece aqui.` : ''}</p>
+          no portal e sem data de início na ficha, não há como provar que já treinavam antes.
+          A agenda real do mês é maior do que a que aparece aqui.` : ''}</p>
 
       ${(t.fora || t.ignorado || t.experimental || t.semVinculo) ? `
       <h4 class="grupo-mes">Fora do pacote
