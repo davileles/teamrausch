@@ -2922,6 +2922,9 @@ async function carregarMes(){
         ${f.realizado.semVinculo
           ? cartaoFreq(dinheiro(f.realizado.semVinculo), 'de sem aluno') : ''}
         ${f.perdido ? cartaoFreq(dinheiro(f.perdido), 'perdido no teto', 'atrasado') : ''}
+        ${f.trocaDeProduto.checkins
+          ? cartaoFreq(dinheiro(f.trocaDeProduto.deixadoNaMesa),
+              'funcional em vez de cross', 'atrasado') : ''}
       </div>
 
       <table class="freq-tabela" style="margin-bottom:14px">
@@ -2950,6 +2953,34 @@ async function carregarMes(){
 
       ${f.perdido ? `<p class="ajuda">${dinheiro(f.perdido)} passaram dos 12 check-ins por
         pessoa: o treino aconteceu, o estúdio entregou e o repasse não vem.</p>` : ''}
+
+      ${f.trocaDeProduto.checkins ? `
+        <h3 style="margin:18px 0 0">Quem entra pelo produto barato</h3>
+        <p class="ajuda">Funcional e crosstraining custam o mesmo para o aluno — é o mesmo
+          plano do lado dele. Para o estúdio, cada check-in de funcional rende
+          ${dinheiro(f.trocaDeProduto.diferenca)} a menos. Neste mês são
+          <b>${f.trocaDeProduto.checkins}</b> check-in(s) de
+          <b>${f.trocaDeProduto.pessoas}</b> pessoa(s), ou
+          <b>${dinheiro(f.trocaDeProduto.deixadoNaMesa)}</b> deixados na mesa sem que
+          ninguém economizasse nada.
+          ${f.mesCorrente && f.trocaDeProduto.aRecuperar
+            ? `Instruindo hoje, <b>${dinheiro(f.trocaDeProduto.aRecuperar)}</b> ainda dá para
+               recuperar nos treinos que faltam até o dia 31 — o que já passou não volta.`
+            : ''}
+          É a única perda desta tela que se resolve com uma conversa, e não com o aluno
+          treinando mais.</p>
+        <table class="freq-tabela">
+          <thead><tr><th>Aluno</th><th>Check-ins no funcional</th><th>Deixado na mesa</th></tr></thead>
+          <tbody>${f.trocaDeProduto.alunos.map(a=>`
+            <tr class="${a.semFicha ? 'orfao' : ''}">
+              <td class="nome">${esc(a.nome)}${a.semFicha
+                ? ' <span class="ajuda">(sem ficha)</span>' : ''}</td>
+              <td>${a.checkins}</td>
+              <td><b>${dinheiro(a.deixadoNaMesa)}</b></td>
+            </tr>`).join('')}</tbody>
+        </table>
+        <button class="leve" id="troca-csv" style="margin:6px 0 4px">Exportar esta lista</button>`
+        : ''}
 
       ${f.porProduto.semProduto.checkins ? `<p class="ajuda alerta-rev">
         ${f.porProduto.semProduto.checkins} check-in(s) vieram com um produto que não é
@@ -3017,6 +3048,15 @@ async function carregarMes(){
     prox.addEventListener('click', ()=>{
       if (prox.disabled) return;
       matEstado.mesRef = mesVizinho(p.mes, 1); carregarMes();
+    });
+
+    const trocaCsv = alvo.querySelector('#troca-csv');
+    if (trocaCsv) trocaCsv.addEventListener('click', ()=>{
+      baixarCsv(`funcional-${p.mes}.csv`,
+        ['Aluno','Tem ficha','Check-ins no funcional','Deixado na mesa'],
+        f.trocaDeProduto.alunos.map(a=>[a.nome, a.semFicha ? 'não' : 'sim', a.checkins,
+          a.deixadoNaMesa.toFixed(2).replace('.', ',')]));
+      avisar(`${f.trocaDeProduto.alunos.length} pessoa(s) exportada(s).`,'ok');
     });
 
     alvo.querySelector('#mes-csv').addEventListener('click', ()=>{
