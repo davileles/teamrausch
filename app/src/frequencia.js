@@ -848,7 +848,41 @@ function panoramaDoMes({
     (m.vinculo || 'mensalista') === 'wellhub' && !m.experimental);
   const naGrade = comPacote.filter((m) => m.ativo);
   const idsNaGrade = new Set(naGrade.map((m) => m.id));
-  const metas = new Map(comPacote.map((m) => [m.id, metaDoMes(m)]));
+  /* ------------------- contas compartilhadas ------------------------------ *
+   * UMA ASSINATURA RENDE DOZE, SOME QUANTA GENTE TREINAR NELA
+   *   O Wellhub paga por conta, não por pessoa. Quando duas pessoas dividem a
+   *   mesma assinatura, somar a meta cheia das duas monta um denominador que a
+   *   conta não tem como pagar — 12 + 8 = 20 num teto de 12. Era o que esta
+   *   tela fazia, e por isso ela pedia mais do que a aba Frequência, que já
+   *   reparte pela `dividirContas()` desde sempre.
+   *
+   *   As datas seguem a mesma repartição das metas. Fatiar só a meta baixaria
+   *   o teto do titular sem tirar dele os check-ins, e o que sobrasse cairia
+   *   em "extras" como se fosse treino avulso.
+   *
+   *   `mapaDatas` sai dos próprios check-ins recebidos, então esta tela reparte
+   *   com o mesmo insumo da aba Frequência e as duas chegam ao mesmo número.
+   * ------------------------------------------------------------------------ */
+  const mapaDatas = new Map();
+  for (const c of checkins) {
+    if (!c.matriculaId) continue;
+    if (!mapaDatas.has(c.matriculaId)) mapaDatas.set(c.matriculaId, new Set());
+    mapaDatas.get(c.matriculaId).add(c.data);
+  }
+  for (const [id, datas] of mapaDatas) mapaDatas.set(id, [...datas].sort());
+
+  const divisao = dividirContas(matriculas, mapaDatas);
+  // `${titularId}|${data}` → de quem é aquele dia. Fora deste mapa, a data
+  // passou do que a conta inteira rende e não é pacote de ninguém.
+  const donoPorData = new Map();
+  for (const [id, fatia] of divisao) {
+    for (const d of fatia.datas) donoPorData.set(`${fatia.conta.titularId}|${d}`, id);
+  }
+
+  const metas = new Map(comPacote.map((m) => {
+    const fatia = divisao.get(m.id);
+    return [m.id, fatia ? fatia.meta : metaDoMes(m)];
+  }));
 
   // A SALA INTEIRA, PARA A CONTA DE OCUPAÇÃO
   //   Tudo acima é sobre repasse, e nisso mensalista não entra: ele não passa
@@ -1087,9 +1121,23 @@ function panoramaDoMes({
       continue;
     }
 
-    const meta = metas.get(c.matriculaId) || 0;
-    const n = (noMes.get(c.matriculaId) || 0) + 1;
-    noMes.set(c.matriculaId, n);
+    // De quem é este check-in. Sem conta compartilhada, de quem o fez; com
+    // conta compartilhada, de quem ficou com o dia na repartição. `null` quer
+    // dizer que a conta já entregou tudo o que devia e este dia é extra dela.
+    const fatia = divisao.get(c.matriculaId);
+    const dono = fatia
+      ? donoPorData.get(`${fatia.conta.titularId}|${c.data}`) || null
+      : c.matriculaId;
+
+    if (!dono) {
+      if (rende) { linha.fora += 1; receita.excedenteCent += valor; }
+      else linha.ignorado += 1;
+      continue;
+    }
+
+    const meta = metas.get(dono) || 0;
+    const n = (noMes.get(dono) || 0) + 1;
+    noMes.set(dono, n);
 
     // SEM META NÃO HÁ PACOTE, ENTÃO TUDO É EXTRA
     //   Antes o teto do repasse fazia as vezes de pacote aqui, e os check-ins
@@ -1105,12 +1153,17 @@ function panoramaDoMes({
     //   Isto alinha esta tela com a aba Frequência, que sempre exigiu
     //   `mes.meta > 0` para entrar no pacote. As duas contavam populações
     //   diferentes e discordavam sobre o mesmo dia.
+    //
+    //   O corte entre extra e perdido usa `rende`, não o contador da ficha: o
+    //   teto de doze é da assinatura, e numa conta dividida o contador de cada
+    //   pessoa nunca chega lá sozinho. `rende` vem de `pagos`, que já conta
+    //   por conta do portal — é o mesmo número que o extrato do Wellhub mostra.
     if (!meta) {
-      if (n <= TETO_MES) { linha.fora += 1; receita.excedenteCent += valor; }
+      if (rende) { linha.fora += 1; receita.excedenteCent += valor; }
       else linha.ignorado += 1;
     } else if (n <= Math.min(meta, TETO_MES)) {
       linha.feito += 1; receita.pacoteCent += valor;
-    } else if (n <= TETO_MES) {
+    } else if (rende) {
       linha.fora += 1; receita.excedenteCent += valor;
     } else linha.ignorado += 1;
   }
