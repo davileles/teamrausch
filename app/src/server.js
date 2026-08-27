@@ -8,6 +8,7 @@ const pollerPortal = require('./poller-portal');
 const checkinsStore = require('./checkins-store');
 const matriculas = require('./matriculas-store');
 const alertasFrequencia = require('./alertas-frequencia');
+const configApp = require('./config');
 const { lerCheckin } = require('./payload-map');
 
 const app = express();
@@ -396,6 +397,93 @@ app.all('/wellhub/frequencia/aviso', async (req, res) => {
     res.json({ ok: true, ...r });
   } catch (e) {
     res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
+/* ---------------------------------------------------------------------------
+   WhatsApp — pareamento do número pela rede privada
+
+   O serviço de WhatsApp não tem domínio público de propósito: quem fala com
+   ele é este app, pela rede interna do Railway. Mas o pareamento precisa de um
+   QR na tela, e o `/qr` de lá só aceita token em cabeçalho — coisa que o
+   navegador não manda. Estas rotas fazem a ponte: abra
+   `/whatsapp/qr?token=SEU_PANEL_TOKEN` no celular e leia o código.
+
+   O QR do WhatsApp expira em segundos, então a página recarrega sozinha
+   enquanto o número não estiver conectado.
+--------------------------------------------------------------------------- */
+function baseDoWhatsApp() {
+  const c = configApp.ler();
+  const bruta = String((c.envio && c.envio.url) || process.env.WHATSAPP_URL || '').trim();
+  if (!bruta) return null;
+  // O endereço configurado aponta para o endpoint de envio; o QR mora na raiz.
+  return bruta.replace(/\/+$/, '').replace(/\/(enviar|qr|status)$/i, '');
+}
+
+function tokenDoWhatsApp() {
+  const c = configApp.ler();
+  return String((c.envio && c.envio.token) || process.env.WHATSAPP_TOKEN || '').trim();
+}
+
+async function buscarNoWhatsApp(caminho) {
+  const base = baseDoWhatsApp();
+  if (!base) {
+    const e = new Error('Endereço do serviço de WhatsApp não configurado. Preencha Configurações → Técnica ou WHATSAPP_URL.');
+    e.semEndereco = true;
+    throw e;
+  }
+  const cabecalhos = {};
+  const t = tokenDoWhatsApp();
+  if (t) cabecalhos.Authorization = /^Bearer /i.test(t) ? t : `Bearer ${t}`;
+
+  const controle = new AbortController();
+  const timer = setTimeout(() => controle.abort(), 10000);
+  try {
+    const r = await fetch(`${base}${caminho}`, { headers: cabecalhos, signal: controle.signal });
+    return {
+      status: r.status,
+      corpo: await r.text(),
+      tipo: r.headers.get('content-type') || '',
+      alvo: `${base}${caminho}`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+app.get('/whatsapp/qr', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  try {
+    const r = await buscarNoWhatsApp('/qr');
+    if (r.tipo.includes('json')) return res.status(r.status).type('json').send(r.corpo);
+
+    let html = r.corpo;
+    const jaConectado = /ligado ao n[úu]mero/i.test(html);
+    if (!jaConectado && html.includes('</head>')) {
+      html = html.replace('</head>', '<meta http-equiv="refresh" content="12"></head>');
+    }
+    res.status(r.status).type('html').send(html);
+  } catch (e) {
+    res.status(e.semEndereco ? 400 : 502)
+      .json({ ok: false, erro: e.semEndereco ? e.message : pollerPortal.motivoDeRede(e) });
+  }
+});
+
+/* Situação da conexão em JSON: útil para conferir sem abrir a página do QR. */
+app.get('/whatsapp/status', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  try {
+    const r = await buscarNoWhatsApp('/status');
+    let dados = null;
+    try { dados = JSON.parse(r.corpo); } catch { dados = { corpo: r.corpo.slice(0, 300) }; }
+    res.status(r.status).json({ ok: r.status < 400, alvo: r.alvo, ...dados });
+  } catch (e) {
+    res.status(e.semEndereco ? 400 : 502)
+      .json({ ok: false, erro: e.semEndereco ? e.message : pollerPortal.motivoDeRede(e) });
   }
 });
 
