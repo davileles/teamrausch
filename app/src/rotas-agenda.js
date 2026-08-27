@@ -603,6 +603,54 @@ rotas.get('/admin/config', exigirLogin, exigirAdmin, (_req, res) => {
   res.json(config.paraAdmin());
 });
 
+/**
+ * Grupos de que o número do estúdio participa, para escolher o grupo dos
+ * avisos sem ter de descobrir o JID na mão.
+ *
+ * O serviço de WhatsApp vive na rede interna do Railway e não abre no
+ * navegador; esta rota é a única porta para a lista. Reaproveita o endereço e
+ * o token de Configurações → Técnica: trocando `/enviar` por `/grupos` não há
+ * um segundo lugar para configurar.
+ */
+rotas.get('/admin/whatsapp/grupos', exigirLogin, exigirAdmin, async (_req, res) => {
+  const c = config.ler();
+  const base = (c.envio && c.envio.url) || process.env.WHATSAPP_URL || '';
+  if (!base) return res.status(400).json({ erro: 'Endereço do serviço de WhatsApp não configurado.' });
+
+  let alvo;
+  try {
+    const u = new URL(base);
+    u.pathname = '/grupos';
+    u.search = '';
+    alvo = u.toString();
+  } catch (e) {
+    return res.status(400).json({ erro: 'Endereço do serviço de WhatsApp inválido.' });
+  }
+
+  const token = (c.envio && c.envio.token) || process.env.WHATSAPP_TOKEN || '';
+  const controle = new AbortController();
+  const timer = setTimeout(() => controle.abort(), 10000);
+  try {
+    const r = await fetch(alvo, {
+      headers: token
+        ? { authorization: /^Bearer /i.test(token) ? token : `Bearer ${token}` }
+        : {},
+      signal: controle.signal,
+    });
+    const texto = await r.text().catch(() => '');
+    if (!r.ok) {
+      return res.status(502).json({ erro: `O serviço de WhatsApp respondeu ${r.status}: ${texto.slice(0, 200)}` });
+    }
+    let dados = {};
+    try { dados = JSON.parse(texto); } catch (e) { dados = {}; }
+    res.json({ grupos: Array.isArray(dados.grupos) ? dados.grupos : [] });
+  } catch (e) {
+    res.status(502).json({ erro: `Não consegui falar com o serviço de WhatsApp: ${e.message}` });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
   const novo = req.body || {};
 
@@ -695,6 +743,24 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
         limpos.push(tel);
       }
       a.telefones = [...new Set(limpos)];
+    }
+
+    // Grupos do WhatsApp (o "grupo do operador"). Guardamos o JID inteiro:
+    // é o que o serviço de WhatsApp usa como endereço.
+    if (a.grupos !== undefined) {
+      if (!Array.isArray(a.grupos)) {
+        return res.status(400).json({ erro: 'Lista de grupos inválida.' });
+      }
+      const limpos = [];
+      for (const bruto of a.grupos) {
+        const jid = String(bruto || '').trim();
+        if (!jid) continue;
+        if (!/^\d{5,}@g\.us$/.test(jid)) {
+          return res.status(400).json({ erro: `Grupo inválido: ${jid}. Use o ID terminado em @g.us.` });
+        }
+        limpos.push(jid);
+      }
+      a.grupos = [...new Set(limpos)];
     }
 
     if (a.checkinConfirmado !== undefined) a.checkinConfirmado = Boolean(a.checkinConfirmado);
