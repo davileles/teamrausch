@@ -914,6 +914,22 @@ function panoramaDoMes({
     semProduto: { checkins: 0, cent: 0 },
   };
 
+  /* ------------------ o check-in que vale menos à toa --------------------- *
+   * Funcional e crosstraining custam o mesmo para o aluno: são o mesmo plano
+   * do lado dele. Do lado do estúdio, um paga menos que o outro. Quem entra
+   * pelo produto barato não economiza nada e o estúdio deixa a diferença na
+   * mesa — é a única perda desta tela que se resolve com uma conversa, e não
+   * com o aluno treinando mais.
+   *
+   * Só entram os check-ins que RENDEM: acima dos doze do teto a diferença é
+   * zero contra zero, e somá-la inventaria dinheiro que não existia.
+   *
+   * Se um dia o funcional passar a pagar mais, `diferenca` fica negativa e a
+   * conta se desliga sozinha — não há o que instruir.
+   * ---------------------------------------------------------------------- */
+  const diferencaCent = tabela.crosstraining - tabela.funcional;
+  const noBarato = new Map();
+
   for (const c of emOrdem) {
     const linha = indice.get(c.data);
     if (!linha) continue;
@@ -936,6 +952,21 @@ function panoramaDoMes({
     doProduto.checkins += 1;
     if (rende) { doProduto.cent += valor; linha.receitaCent += valor; }
     else receita.perdidoCent += valor;
+
+    if (rende && diferencaCent > 0 && kProduto === 'funcional') {
+      const jaTem = noBarato.get(chaveFin) || {
+        matriculaId: c.matriculaId || null,
+        // Sem ficha o nome do portal é tudo que existe — e é o suficiente para
+        // achar a pessoa na aba Frequência e vincular.
+        nome: c.nomeMatricula || c.nome || 'Sem nome',
+        semFicha: !c.matriculaId,
+        checkins: 0,
+        cent: 0,
+      };
+      jaTem.checkins += 1;
+      jaTem.cent += diferencaCent;
+      noBarato.set(chaveFin, jaTem);
+    }
 
     if (!c.matriculaId) {
       linha.semVinculo += 1;
@@ -999,6 +1030,7 @@ function panoramaDoMes({
   const mesCorrente = de.slice(0, 7) === hoje.slice(0, 7);
   const restantesDoMes = mesCorrente ? diasRestantes(hoje) : 0;
   let aReceberCent = 0;
+  let aRecuperarCent = 0;
   let projetados = 0;
   let alunosNaProjecao = 0;
   if (restantesDoMes > 0) {
@@ -1012,6 +1044,9 @@ function panoramaDoMes({
       if (!faltam) continue;
       const k = chaveProduto(produtos.get(m.id));
       aReceberCent += faltam * (k ? tabela[k] : tabela.padrao);
+      // O que ainda dá para virar: instruir hoje muda o preço dos treinos que
+      // faltam, não o dos que já passaram.
+      if (k === 'funcional' && diferencaCent > 0) aRecuperarCent += faltam * diferencaCent;
       projetados += faltam;
       alunosNaProjecao += 1;
     }
@@ -1088,6 +1123,33 @@ function panoramaDoMes({
           checkins: porProduto.semProduto.checkins,
           valor: reais(porProduto.semProduto.cent),
         },
+      },
+      /**
+       * A perda que se resolve conversando: quem marca funcional podendo marcar
+       * crosstraining pelo mesmo preço.
+       *
+       * `deixadoNaMesa` já aconteceu neste mês e não volta. `aRecuperar` é o
+       * que os treinos que ainda faltam rendem a mais se a pessoa for
+       * instruída hoje — é este o número que justifica a ligação.
+       */
+      trocaDeProduto: {
+        diferenca: reais(diferencaCent),
+        checkins: [...noBarato.values()].reduce((s, a) => s + a.checkins, 0),
+        pessoas: noBarato.size,
+        deixadoNaMesa: reais([...noBarato.values()].reduce((s, a) => s + a.cent, 0)),
+        aRecuperar: reais(aRecuperarCent),
+        // Do maior para o menor: a lista existe para ser percorrida de cima
+        // para baixo até o esforço deixar de valer a pena.
+        alunos: [...noBarato.values()]
+          .map((a) => ({
+            matriculaId: a.matriculaId,
+            nome: a.nome,
+            semFicha: a.semFicha,
+            checkins: a.checkins,
+            deixadoNaMesa: reais(a.cent),
+          }))
+          .sort((a, b) => b.deixadoNaMesa - a.deixadoNaMesa
+            || a.nome.localeCompare(b.nome, 'pt-BR')),
       },
     },
   };
