@@ -76,6 +76,20 @@ const PADRAO = {
     corpo: '{"telefone":"{{telefone}}","mensagem":"{{mensagem}}"}',
     texto: 'Seu código de acesso é {{codigo}}. Vale por {{minutos}} minutos.',
   },
+  /**
+   * Repasse do Wellhub por check-in validado, separado por produto.
+   *
+   * O portal manda o produto em `product.description` — hoje "Funcional" e
+   * "Crosstraining" — e cada um paga um valor diferente. Sem estes dois números
+   * a aba Mês sabe contar treinos e não sabe dizer quanto o mês vale.
+   *
+   * Editável em Configurações → Negócio. Os valores abaixo só valem na primeira
+   * vez que o serviço sobe: reajuste de contrato se faz na tela, não aqui.
+   */
+  financeiro: {
+    valorFuncional: 18.75,
+    valorCrosstraining: 22.28,
+  },
   // Quem recebe os avisos do check-in Wellhub (e-mail e/ou WhatsApp).
   // Editável em Configurações → Avisos de check-in. Listas vazias = canal
   // desligado; sem e-mail cadastrado o sistema cai no WELLHUB_ALERTA_EMAIL.
