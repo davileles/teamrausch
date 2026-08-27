@@ -651,6 +651,63 @@ rotas.get('/admin/whatsapp/grupos', exigirLogin, exigirAdmin, async (_req, res) 
   }
 });
 
+/**
+ * QR de pareamento do número do estúdio, para a aba Configurações → Técnica.
+ *
+ * Mesma ponte da rota de grupos: o serviço de WhatsApp vive na rede interna do
+ * Railway e o `/qr` de lá exige token em cabeçalho, que o navegador não manda.
+ * Aqui a sessão de administrador já foi conferida, então o painel só desenha o
+ * que voltar. O QR expira em segundos — a tela repete a chamada sozinha.
+ */
+rotas.get('/admin/whatsapp/qr', exigirLogin, exigirAdmin, async (_req, res) => {
+  const c = config.ler();
+  const base = (c.envio && c.envio.url) || process.env.WHATSAPP_URL || '';
+  if (!base) return res.status(400).json({ erro: 'Endereço do serviço de WhatsApp não configurado.' });
+
+  let alvo;
+  try {
+    const u = new URL(base);
+    u.pathname = '/qr.json';
+    u.search = '';
+    alvo = u.toString();
+  } catch (e) {
+    return res.status(400).json({ erro: 'Endereço do serviço de WhatsApp inválido.' });
+  }
+
+  const token = (c.envio && c.envio.token) || process.env.WHATSAPP_TOKEN || '';
+  const controle = new AbortController();
+  const timer = setTimeout(() => controle.abort(), 10000);
+  try {
+    const r = await fetch(alvo, {
+      headers: token
+        ? { authorization: /^Bearer /i.test(token) ? token : `Bearer ${token}` }
+        : {},
+      signal: controle.signal,
+    });
+    const texto = await r.text().catch(() => '');
+    if (r.status === 404) {
+      return res.status(502).json({
+        erro: 'O serviço de WhatsApp ainda não tem /qr.json. Aguarde o deploy terminar e tente de novo.',
+      });
+    }
+    if (!r.ok) {
+      return res.status(502).json({ erro: `O serviço de WhatsApp respondeu ${r.status}: ${texto.slice(0, 200)}` });
+    }
+    let dados = {};
+    try { dados = JSON.parse(texto); } catch (e) { dados = {}; }
+    res.json({
+      situacao: dados.situacao || 'desconhecida',
+      numero: dados.numero || null,
+      temQr: Boolean(dados.temQr),
+      imagem: dados.imagem || null,
+    });
+  } catch (e) {
+    res.status(502).json({ erro: `Não consegui falar com o serviço de WhatsApp: ${e.message}` });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
   const novo = req.body || {};
 
