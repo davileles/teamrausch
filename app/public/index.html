@@ -400,7 +400,15 @@
   #mat-grade .horarios{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;
     align-items:start}
   #mat-grade .horarios .ficha{margin-bottom:0;min-width:0}
-  #fq-lista{overflow-x:auto}
+  /* NADA DE overflow AQUI — ELE MATA O CABEÇALHO GRUDADO
+     `overflow-x:auto` fazia o navegador computar `overflow-y:visible` como
+     `auto` (regra do CSS: um eixo rolável obriga o outro a rolar também). Com
+     isso esta div virava o "scrollport" mais próximo, e o `position:sticky` do
+     <th> passava a se ancorar nela em vez de na página. Como a div nunca rola
+     na vertical, o cabeçalho simplesmente subia junto com a lista e sumia.
+     A tabela cabe até 320px graças aos ajustes no @media abaixo, então o
+     scroll lateral deixou de ser necessário. */
+  #fq-lista{overflow:visible}
   #mat-soltos .soltos{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
     gap:8px;align-items:start}
   #mat-soltos .soltos .solto{margin-bottom:0;min-width:0}
@@ -477,6 +485,15 @@
     /* Some o que dá para deduzir: no celular o que importa é quem deve e quanto. */
     .freq-tabela .opc{display:none}
     .freq-tabela th,.freq-tabela td{padding:8px 6px}
+  }
+  /* Telas estreitas: sem estes cortes a tabela mede 375px fixos e transborda
+     num aparelho de 360px — e devolver o scroll lateral para resolver isso
+     quebraria o cabeçalho grudado de novo. Medido: cabe com folga até 320px. */
+  @media(max-width:420px){
+    .freq-tabela .nome{min-width:0}
+    .freq-tabela th,.freq-tabela td{padding:8px 4px}
+    .freq-tabela .acoes{gap:4px}
+    .freq-tabela .acoes button{padding:5px 6px;font-size:11px}
   }
   .freq-cartoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));
     gap:8px;margin:12px 0 16px}
