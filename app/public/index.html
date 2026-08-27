@@ -449,7 +449,13 @@
     font:500 13px/1.35 'Work Sans',sans-serif}
   .freq-tabela th{font:400 11px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
     color:var(--fraco);text-align:left;padding:7px 8px;white-space:nowrap;
-    border-bottom:1px solid var(--linha-2);background:var(--fundo);
+    border-bottom:1px solid var(--linha-2);
+    /* `--fundo` (sem sufixo) NÃO EXISTE: as variáveis são --fundo-2 e --fundo-3.
+       Com a variável indefinida o `background` era descartado e o cabeçalho
+       ficava transparente — de pé, mas com as linhas passando por trás e o
+       texto embolando durante a rolagem. O fundo da página é `--preto`, que
+       existe nos dois temas (no claro ele vale #F2F3F5). */
+    background:var(--preto);
     /* Gruda ABAIXO do cabeçalho do app, não no topo do viewport: os dois são
        sticky, e com top:0 o cabeçalho da tabela ficava escondido atrás dele —
        na prática a linha de títulos sumia assim que a rolagem começava.
