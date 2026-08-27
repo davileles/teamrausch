@@ -2788,9 +2788,9 @@ function graficoMes(p){
   // A meta é uma reta: o combinado do mês repartido pelos dias do mês. Era uma
   // escada enquanto a cobrança vencia nos dias 7, 14 e 21 — e no dia 27 aquela
   // escada ainda mostrava o degrau do dia 21, seis dias de treino atrás do
-  // calendário. Desenha pela fração exata (`metaExata`) e não pelo inteiro
-  // cobrável: as metas do estúdio são poucas e repetidas, então o arredondado
-  // volta a saltar de dezenas em dezenas.
+  // calendário. `metaAcum` é a régua do estúdio inteiro, a mesma dos cartões:
+  // por um tempo o gráfico desenhou uma conta e o cartão mostrou outra, e a
+  // linha aparecia abaixo de um número que dizia o contrário.
   const escada = () => p.dias
     .map((d,i)=>`${x(i).toFixed(1)},${y(d.metaAcum).toFixed(1)}`).join(' ');
 
