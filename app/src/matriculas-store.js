@@ -33,6 +33,12 @@ const CAMINHO_BACKUP = process.env.GITHUB_PATH_MATRICULAS || 'teamrausch/matricu
 const CAMINHO_TELEFONES = process.env.GITHUB_PATH_TELEFONES || 'teamrausch/telefones.json';
 const CAMINHO_WELLHUB_IDS = process.env.GITHUB_PATH_WELLHUB_IDS
   || 'teamrausch/wellhub-ids.json';
+// Data em que cada aluno começou a treinar de fato, quando ela é anterior ao
+// cadastro da ficha. Toda a base entrou de uma vez em 24/08, e sem isto a
+// projeção de agenda de quem não passa pelo portal começa na data da
+// importação — o mensalista aparecia com uma semana de mês em vez de um mês.
+const CAMINHO_INICIOS = process.env.GITHUB_PATH_INICIOS
+  || 'teamrausch/inicio-alunos.json';
 
 const VINCULOS = ['wellhub', 'mensalista'];
 const CICLOS = ['mensal', 'trimestral', 'semestral', 'anual'];
@@ -40,6 +46,7 @@ const CICLOS = ['mensal', 'trimestral', 'semestral', 'anual'];
 const backup = backupGithub.criar(CAMINHO_BACKUP, 'Matrículas do estúdio');
 const fonteTelefones = backupGithub.criar(CAMINHO_TELEFONES, 'Telefones (leitura)');
 const fonteWellhubIds = backupGithub.criar(CAMINHO_WELLHUB_IDS, 'Wellhub IDs (leitura)');
+const fonteInicios = backupGithub.criar(CAMINHO_INICIOS, 'Início dos alunos (leitura)');
 
 let dados = { matriculas: [], excecoes: [] };
 let pendente = null;
@@ -217,6 +224,51 @@ async function complementarWellhubIds() {
     aplicados: r.aplicados.length, jaTinham: r.jaTinham.length, recusados: r.recusados.length,
   }));
   for (const x of r.recusados) console.log(`[matriculas] wellhub id recusado — ${x.id}: ${x.motivo}`);
+  return r;
+}
+
+/**
+ * Preenche `desde` — o dia em que o aluno começou a treinar — a partir do
+ * arquivo no repositório privado.
+ *
+ * POR QUE UM ARQUIVO E NÃO UMA REGRA
+ *   A tentação é deduzir: "ficha criada no dia da importação, logo o aluno já
+ *   treinava antes". Só que isso vale para as 120 fichas que entraram em 24/08
+ *   e é falso para o aluno que se matriculou de verdade naquele dia — e os dois
+ *   casos são indistinguíveis olhando a ficha. Um arquivo com a lista resolve o
+ *   caso conhecido sem plantar uma heurística que erra sozinha no futuro.
+ *
+ * IDEMPOTENTE: ficha que já tem `desde` é pulada, então rodar de novo a cada
+ * boot não sobrescreve o que alguém corrigiu na mão depois.
+ */
+async function complementarInicios() {
+  if (!fonteInicios.ligado) {
+    return { ok: false, motivo: 'Defina GITHUB_TOKEN e GITHUB_REPO para ler o arquivo.' };
+  }
+  const remoto = await fonteInicios.baixar();
+  const lista = remoto && Array.isArray(remoto.inicios) ? remoto.inicios : [];
+  const r = { ok: true, noArquivo: lista.length, aplicados: 0, jaTinham: 0, recusados: [] };
+
+  for (const item of lista) {
+    const alvo = String((item && item.id) || '');
+    const desde = String((item && item.desde) || '').trim();
+    const m = porId(alvo);
+    if (!m) { r.recusados.push({ id: alvo, motivo: 'ficha não encontrada' }); continue; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) {
+      r.recusados.push({ id: alvo, motivo: `data inválida: "${desde}"` });
+      continue;
+    }
+    if (m.desde) { r.jaTinham += 1; continue; }
+    m.desde = desde;
+    m.atualizadoEm = new Date().toISOString();
+    r.aplicados += 1;
+  }
+  if (r.aplicados) gravar();
+
+  console.log('[matriculas] início dos alunos:', JSON.stringify({
+    aplicados: r.aplicados, jaTinham: r.jaTinham, recusados: r.recusados.length,
+  }));
+  for (const x of r.recusados) console.log(`[matriculas] início recusado — ${x.id}: ${x.motivo}`);
   return r;
 }
 
@@ -971,6 +1023,9 @@ normalizarHorarios();
 semear()
   .then(() => complementarTelefones())
   .then(() => complementarWellhubIds())
+  .then(() => complementarInicios().catch((e) => {
+    console.error('[matriculas] início dos alunos falhou:', e.message);
+  }))
   // Depois do semeio: normalizar antes dele arrumaria uma base ainda vazia.
   .then(() => normalizarNomes())
   .catch((erro) => console.error('[matriculas] falha ao preparar a base:', erro.message));
@@ -982,6 +1037,6 @@ module.exports = {
   criar, atualizar, inativar, remover, definirContaDe, dependentesDe,
   excecoes, registrarExcecao, apagarExcecao,
   importar, resumo, backup, normalizarHorarios, normalizarNomes, horaCheia,
-  complementarTelefones, complementarWellhubIds,
+  complementarTelefones, complementarWellhubIds, complementarInicios,
   VINCULOS, CICLOS,
 };
