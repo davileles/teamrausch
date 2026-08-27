@@ -69,6 +69,55 @@ const TETO_SEMANAL = Number(process.env.FREQ_TETO_SEMANAL || 3);
  */
 const TETO_MES = Number(process.env.FREQ_TETO_MES || TETO_SEMANAL * SEMANAS_NO_MES);
 
+/* ------------------------------ financeiro -------------------------------- *
+ * O Wellhub paga por check-in validado, e o valor muda com o produto que o
+ * aluno marcou. Contar treinos responde "quem está devendo"; multiplicar pelo
+ * preço responde "quanto o mês vale", que é outra pergunta e mora aqui.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Produto do portal reduzido a uma chave estável.
+ *
+ * Hoje o portal escreve "Funcional" e "Crosstraining", mas já variou de caixa e
+ * de acento; comparar o texto cru faria o preço sumir no dia em que virasse
+ * "Cross Training". O que não for reconhecido devolve null e a tela mostra
+ * quantos ficaram sem preço, em vez de somar um número inventado.
+ */
+function chaveProduto(produto) {
+  const t = String(produto || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (!t) return null;
+  if (t.includes('funcional')) return 'funcional';
+  if (t.includes('cross')) return 'crosstraining';
+  return null;
+}
+
+/** Só valem enquanto Configurações → Negócio não for preenchido. */
+const PRECOS_PADRAO = { funcional: 18.75, crosstraining: 22.28 };
+
+/**
+ * Tabela em CENTAVOS.
+ *
+ * Somar 22,28 em ponto flutuante quatrocentas vezes devolve um total com resto
+ * de fração de centavo, e o número que aparece na tela é o que a pessoa vai
+ * comparar com o extrato. Inteiro não erra; a divisão por cem acontece uma vez
+ * só, na saída.
+ */
+function tabelaDePrecos(precos = {}) {
+  const cent = (valor, padrao) => {
+    const n = Number(valor);
+    return Math.round((Number.isFinite(n) && n >= 0 ? n : padrao) * 100);
+  };
+  const tabela = {
+    funcional: cent(precos.valorFuncional, PRECOS_PADRAO.funcional),
+    crosstraining: cent(precos.valorCrosstraining, PRECOS_PADRAO.crosstraining),
+  };
+  // Produto desconhecido vale o menor dos dois: numa previsão que vira decisão
+  // de caixa, errar para baixo custa menos do que prometer o que não entra.
+  tabela.padrao = Math.min(tabela.funcional, tabela.crosstraining);
+  return tabela;
+}
+
 function hojeLocal() {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: FUSO, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -731,7 +780,15 @@ function gradeParaVolume(matricula, data, desde) {
  *   número vira cobrança. Aqui não: uma coluna de hoje que cresce ao longo do
  *   dia faria o gráfico mudar de forma a cada visita.
  */
-function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = {}) {
+function panoramaDoMes({
+  matriculas = [], excecoes = [], checkins = [], mes,
+  // Configurações → Negócio. Ausente, cai nos padrões da tabela.
+  precos = {},
+  // matriculaId → produto do último check-in, de `checkins-store`. Serve só
+  // para precificar o que ainda vai acontecer.
+  produtos = new Map(),
+} = {}) {
+  const tabela = tabelaDePrecos(precos);
   const hoje = hojeLocal();
   const base = /^\d{4}-\d{2}$/.test(String(mes || '')) ? `${mes}-01` : hoje;
   const de = inicioDoMes(base);
@@ -782,6 +839,8 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
       ignorado: 0,
       experimental: 0,
       semVinculo: 0,
+      // Em centavos até o fim da função; vira reais junto com o acumulado.
+      receitaCent: 0,
       futuro: d > hoje,
       ehHoje: d === hoje,
     };
@@ -839,6 +898,22 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
 
   const vistos = new Set();
   const noMes = new Map();
+  // Teto do repasse contado por PESSOA, não por faixa: os doze são da
+  // assinatura e valem igual para o aluno de pacote, para o experimental e
+  // para quem ainda não tem ficha. Reusar `noMes` deixaria justamente os dois
+  // últimos — o que a tela chama de "extra" — sem teto nenhum.
+  const pagos = new Map();
+  const treinouHoje = new Set();
+  const receita = {
+    pacoteCent: 0, excedenteCent: 0, experimentalCent: 0,
+    semVinculoCent: 0, perdidoCent: 0,
+  };
+  const porProduto = {
+    funcional: { checkins: 0, cent: 0 },
+    crosstraining: { checkins: 0, cent: 0 },
+    semProduto: { checkins: 0, cent: 0 },
+  };
+
   for (const c of emOrdem) {
     const linha = indice.get(c.data);
     if (!linha) continue;
@@ -848,27 +923,53 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
     if (vistos.has(chave)) continue;
     vistos.add(chave);
 
-    if (!c.matriculaId) { linha.semVinculo += 1; continue; }
+    const chaveFin = c.matriculaId ? `m:${c.matriculaId}` : `g:${c.gympassId || c.id}`;
+    const nPago = (pagos.get(chaveFin) || 0) + 1;
+    pagos.set(chaveFin, nPago);
+    if (c.matriculaId && c.data === hoje) treinouHoje.add(c.matriculaId);
+
+    const kProduto = chaveProduto(c.produto);
+    const valor = kProduto ? tabela[kProduto] : tabela.padrao;
+    const rende = nPago <= TETO_MES;
+
+    const doProduto = porProduto[kProduto || 'semProduto'];
+    doProduto.checkins += 1;
+    if (rende) { doProduto.cent += valor; linha.receitaCent += valor; }
+    else receita.perdidoCent += valor;
+
+    if (!c.matriculaId) {
+      linha.semVinculo += 1;
+      if (rende) receita.semVinculoCent += valor;
+      continue;
+    }
     const m = porId.get(c.matriculaId);
-    if (m && m.experimental) { linha.experimental += 1; continue; }
+    if (m && m.experimental) {
+      linha.experimental += 1;
+      if (rende) receita.experimentalCent += valor;
+      continue;
+    }
 
     const meta = metas.get(c.matriculaId) || 0;
     const tetoPacote = meta > 0 ? Math.min(meta, TETO_MES) : TETO_MES;
     const n = (noMes.get(c.matriculaId) || 0) + 1;
     noMes.set(c.matriculaId, n);
-    if (n <= tetoPacote) linha.feito += 1;
-    else if (n <= TETO_MES) linha.fora += 1;
+    if (n <= tetoPacote) { linha.feito += 1; receita.pacoteCent += valor; }
+    else if (n <= TETO_MES) { linha.fora += 1; receita.excedenteCent += valor; }
     else linha.ignorado += 1;
   }
 
   // Acumulados: a leitura do mês é de soma corrida, não de coluna solta. Sai
   // daqui e não da tela para o CSV exportar exatamente o que o gráfico desenha.
   let aPrevisto = 0; let aFeito = 0; let aExp = 0; let aSem = 0;
-  let aFora = 0; let aIgn = 0;
+  let aFora = 0; let aIgn = 0; let aReceita = 0;
   for (const l of dias) {
     aPrevisto += l.previsto; aFeito += l.feito;
     aExp += l.experimental; aSem += l.semVinculo;
     aFora += l.fora; aIgn += l.ignorado;
+    aReceita += l.receitaCent;
+    l.receita = l.receitaCent / 100;
+    l.receitaAcum = aReceita / 100;
+    delete l.receitaCent;
     l.previstoAcum = aPrevisto;
     l.feitoAcum = aFeito;
     l.foraAcum = aFora;
@@ -879,6 +980,46 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
 
   const ateHoje = dias.filter((l) => !l.futuro);
   const ultimoFechado = ateHoje.length ? ateHoje[ateHoje.length - 1] : null;
+
+  /* --------------------- o que ainda pode entrar --------------------------- *
+   * SÓ O PACOTE ENTRA NA PREVISÃO
+   *   Excedente e experimental são o aluno decidindo aparecer; colocá-los na
+   *   projeção é contar no caixa com o que ninguém combinou. O que se promete
+   *   é o combinado: cada aluno projeta o que falta para a meta dele.
+   *
+   * O LIMITE É O CALENDÁRIO
+   *   `checkins-store` deduplica por dia, então ninguém gera dois repasses na
+   *   mesma data. Quem deve cinco com três dias pela frente rende três, não
+   *   cinco — e quem já treinou hoje não pode contar o dia de hoje de novo.
+   *
+   * MÊS PASSADO NÃO TEM PREVISÃO
+   *   Ali o que houve é tudo o que vai haver; a tela mostra o realizado e
+   *   pronto.
+   * ------------------------------------------------------------------------ */
+  const mesCorrente = de.slice(0, 7) === hoje.slice(0, 7);
+  const restantesDoMes = mesCorrente ? diasRestantes(hoje) : 0;
+  let aReceberCent = 0;
+  let projetados = 0;
+  let alunosNaProjecao = 0;
+  if (restantesDoMes > 0) {
+    for (const m of naGrade) {
+      const meta = metas.get(m.id) || 0;
+      if (!meta) continue;
+      const tetoPacote = Math.min(meta, TETO_MES);
+      const feitosPacote = Math.min(noMes.get(m.id) || 0, tetoPacote);
+      const cabem = treinouHoje.has(m.id) ? restantesDoMes - 1 : restantesDoMes;
+      const faltam = Math.min(Math.max(meta - feitosPacote, 0), Math.max(cabem, 0));
+      if (!faltam) continue;
+      const k = chaveProduto(produtos.get(m.id));
+      aReceberCent += faltam * (k ? tabela[k] : tabela.padrao);
+      projetados += faltam;
+      alunosNaProjecao += 1;
+    }
+  }
+
+  const recebidoCent = receita.pacoteCent + receita.excedenteCent
+    + receita.experimentalCent + receita.semVinculoCent;
+  const reais = (cent) => cent / 100;
 
   return {
     mes: de.slice(0, 7),
@@ -904,6 +1045,50 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
       alunosNoTeto: [...noMes.values()].filter((n) => n > TETO_MES).length,
       experimental: aExp,
       semVinculo: aSem,
+      receita: reais(recebidoCent),
+    },
+    /**
+     * O mês em dinheiro. `realizado` é o que já foi validado e rende;
+     * `aReceber` é o que o pacote ainda promete até o dia 31; `previsto` é a
+     * soma dos dois — o número que responde "quanto devo receber neste mês".
+     */
+    financeiro: {
+      moeda: 'BRL',
+      precos: {
+        funcional: reais(tabela.funcional),
+        crosstraining: reais(tabela.crosstraining),
+      },
+      realizado: {
+        pacote: reais(receita.pacoteCent),
+        excedente: reais(receita.excedenteCent),
+        experimental: reais(receita.experimentalCent),
+        semVinculo: reais(receita.semVinculoCent),
+        total: reais(recebidoCent),
+      },
+      // Passou dos doze por pessoa: o treino aconteceu e o repasse não vem.
+      perdido: reais(receita.perdidoCent),
+      aReceber: reais(aReceberCent),
+      previsto: reais(recebidoCent + aReceberCent),
+      projetados,
+      alunosNaProjecao,
+      diasRestantes: restantesDoMes,
+      mesCorrente,
+      porProduto: {
+        funcional: {
+          checkins: porProduto.funcional.checkins,
+          valor: reais(porProduto.funcional.cent),
+        },
+        crosstraining: {
+          checkins: porProduto.crosstraining.checkins,
+          valor: reais(porProduto.crosstraining.cent),
+        },
+        // Produto que o portal mandou com outro nome: entrou pelo valor mais
+        // baixo e precisa aparecer, senão vira erro silencioso na conta.
+        semProduto: {
+          checkins: porProduto.semProduto.checkins,
+          valor: reais(porProduto.semProduto.cent),
+        },
+      },
     },
   };
 }
