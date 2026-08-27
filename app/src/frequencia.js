@@ -929,6 +929,11 @@ function panoramaDoMes({
    * ---------------------------------------------------------------------- */
   const diferencaCent = tabela.crosstraining - tabela.funcional;
   const noBarato = new Map();
+  // Quantos check-ins do mês o Wellhub de fato paga, somando todas as faixas —
+  // pacote, excedente, experimental e órfão. É o número que casa com o extrato,
+  // e o único da tela que dá para conferir linha a linha lá.
+  let checkinsPagos = 0;
+  let checkinsNaoPagos = 0;
 
   for (const c of emOrdem) {
     const linha = indice.get(c.data);
@@ -950,8 +955,8 @@ function panoramaDoMes({
 
     const doProduto = porProduto[kProduto || 'semProduto'];
     doProduto.checkins += 1;
-    if (rende) { doProduto.cent += valor; linha.receitaCent += valor; }
-    else receita.perdidoCent += valor;
+    if (rende) { doProduto.cent += valor; linha.receitaCent += valor; checkinsPagos += 1; }
+    else { receita.perdidoCent += valor; checkinsNaoPagos += 1; }
 
     if (rende && diferencaCent > 0 && kProduto === 'funcional') {
       const jaTem = noBarato.get(chaveFin) || {
@@ -1089,6 +1094,9 @@ function panoramaDoMes({
      */
     financeiro: {
       moeda: 'BRL',
+      // Em check-ins, não em reais: é a ponte entre os cartões de contagem lá
+      // em cima e o dinheiro daqui de baixo.
+      checkins: { pagos: checkinsPagos, naoPagos: checkinsNaoPagos },
       precos: {
         funcional: reais(tabela.funcional),
         crosstraining: reais(tabela.crosstraining),
