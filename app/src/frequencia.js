@@ -934,26 +934,23 @@ function panoramaDoMes({
     for (const id of pessoas) todos.add(id);
     linha.previstoTodos = todos.size;
 
-    // Meta acumulada até esta data — a mesma régua que a aba Frequência usa
-    // para dizer quem está atrasado, somada aluno a aluno.
-    linha.metaAcum = comPacote.reduce((s, m) =>
-      s + devidoAteAgora(m, linha.data, metas.get(m.id)), 0);
-
-    // A MESMA RÉGUA, SEM O ARREDONDAMENTO — SÓ PARA DESENHAR
-    //   `devidoAteAgora` arredonda para baixo porque check-in é inteiro: não se
-    //   cobra 10,45 treinos de ninguém. Só que as metas do estúdio são poucas e
-    //   repetidas (4, 8 e 12), então todo mundo cruza o inteiro no mesmo dia e a
-    //   soma volta a dar saltos de dezenas — o degrau semanal trocado por um
-    //   degrau de três em três dias.
+    // META DO ESTÚDIO: SOMA DAS FRAÇÕES, NÃO SOMA DOS ARREDONDAMENTOS
+    //   `devidoAteAgora` arredonda para baixo por aluno, e faz certo: não se
+    //   cobra 10,45 treinos de ninguém. Mas somar 68 arredondamentos para baixo
+    //   perde até um treino por pessoa — no dia 27 de agosto a soma dos
+    //   inteiros dava 566 contra 606 da conta exata, quarenta check-ins de
+    //   dívida que existiam e não apareciam.
     //
-    //   Para a linha do gráfico a fração serve melhor: ela responde "a esta
-    //   altura do mês, quanto o estúdio inteiro deveria ter", e aí meio treino
-    //   de cada um soma um número perfeitamente real. O tooltip e o CSV seguem
-    //   mostrando o inteiro, que é o que se cobra de uma pessoa.
+    //   Aqui a pergunta é do estúdio inteiro, não de uma pessoa, e meio treino
+    //   de cada um soma um número perfeitamente real. Por isso a régua agregada
+    //   é a fração somada e depois arredondada uma única vez, no fim.
+    //
+    //   É a mesma conta que a linha do gráfico desenha — antes eram duas, e a
+    //   linha ficava abaixo do que o cartão dizia.
     const diasDoMes = Number(fim.slice(8, 10));
     const passado = Math.min(Number(linha.data.slice(8, 10)), diasDoMes);
-    linha.metaExata = Math.round(comPacote.reduce((s, m) =>
-      s + ((metas.get(m.id) || 0) * passado) / diasDoMes, 0) * 10) / 10;
+    linha.metaAcum = Math.round(comPacote.reduce((s, m) =>
+      s + ((metas.get(m.id) || 0) * passado) / diasDoMes, 0));
   }
 
   // Realizado: deduplicado por pessoa e dia, do mesmo jeito que o repasse. Sem
