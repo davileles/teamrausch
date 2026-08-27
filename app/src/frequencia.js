@@ -825,6 +825,18 @@ function panoramaDoMes({
   const idsNaGrade = new Set(naGrade.map((m) => m.id));
   const metas = new Map(comPacote.map((m) => [m.id, metaDoMes(m)]));
 
+  // A SALA INTEIRA, PARA A CONTA DE OCUPAÇÃO
+  //   Tudo acima é sobre repasse, e nisso mensalista não entra: ele não passa
+  //   pelo portal e não gera check-in. Só que "quanta gente eu espero na porta"
+  //   não é uma pergunta de repasse — é de sala cheia e de professor na
+  //   escala —, e responder 68 quando 121 pessoas têm horário fixo subestima a
+  //   ocupação pela metade.
+  //
+  //   Esta população não toca nas linhas do gráfico nem no dinheiro: só produz
+  //   o total da agenda, ao lado do recorte Wellhub.
+  const naAgenda = matriculas.filter((m) => m.ativo && (m.grade || []).length);
+  const idsNaAgenda = new Set(naAgenda.map((m) => m.id));
+
   // Primeiro check-in de cada aluno no mês: a evidência de quando ele já estava
   // treinando, que numa base importada chega muito antes do cadastro da ficha.
   const primeiro = new Map();
@@ -835,7 +847,9 @@ function panoramaDoMes({
   }
   // Estreia de cada ficha, resolvida uma vez só — dentro do laço de dias isto
   // seria a mesma conta trinta e uma vezes por aluno.
-  const estreia = new Map(naGrade.map((m) => {
+  const estreia = new Map(naAgenda.concat(
+    naGrade.filter((m) => !idsNaAgenda.has(m.id)),
+  ).map((m) => {
     const cadastro = String(m.criadoEm || '').slice(0, 10) || null;
     const treinou = primeiro.get(m.id) || null;
     if (!cadastro) return [m.id, treinou];
@@ -851,6 +865,9 @@ function panoramaDoMes({
       dia: Number(d.slice(8, 10)),
       diaDaSemana: grade.diaDaSemana(d),
       previsto: 0,
+      // Mesma projeção, população inteira do estúdio (Wellhub + mensalista).
+      // Fica fora do gráfico: é ocupação, não repasse.
+      previstoTodos: 0,
       feito: 0,
       // Treino além do combinado do aluno, mas dentro dos doze que a assinatura
       // paga. Série própria: somado ao `feito` empurraria a curva do pacote
@@ -891,6 +908,26 @@ function panoramaDoMes({
       pessoas.add(e.matriculaId);
     }
     linha.previsto = pessoas.size;
+
+    const todos = new Set();
+    for (const m of naAgenda) {
+      for (const s of gradeParaVolume(m, linha.data, estreia.get(m.id))) {
+        if (s.dia !== linha.diaDaSemana || cancelou(m.id, s.hora)) continue;
+        todos.add(m.id);
+        break;
+      }
+    }
+    for (const e of doDia) {
+      if (e.tipo !== 'extra' || !e.hora) continue;
+      if (!idsNaAgenda.has(e.matriculaId)) continue;
+      if (cancelou(e.matriculaId, e.hora)) continue;
+      todos.add(e.matriculaId);
+    }
+    // Wellhub ativo sem grade cadastrada não entra em `naAgenda`, mas pode ter
+    // aula extra e já estar somado em `previsto`. Sem esta união o total do
+    // estúdio sairia menor que o recorte Wellhub, que é impossível.
+    for (const id of pessoas) todos.add(id);
+    linha.previstoTodos = todos.size;
 
     // Meta acumulada até esta data — a mesma régua que a aba Frequência usa
     // para dizer quem está atrasado, somada aluno a aluno.
@@ -1035,11 +1072,13 @@ function panoramaDoMes({
   // Acumulados: a leitura do mês é de soma corrida, não de coluna solta. Sai
   // daqui e não da tela para o CSV exportar exatamente o que o gráfico desenha.
   let aPrevisto = 0; let aFeito = 0; let aExp = 0; let aSem = 0;
-  let aFora = 0; let aIgn = 0; let aReceita = 0;
+  let aFora = 0; let aIgn = 0; let aReceita = 0; let aTodos = 0;
   for (const l of dias) {
     aPrevisto += l.previsto; aFeito += l.feito;
     aExp += l.experimental; aSem += l.semVinculo;
     aFora += l.fora; aIgn += l.ignorado;
+    aTodos += l.previstoTodos;
+    l.previstoTodosAcum = aTodos;
     aReceita += l.receitaCent;
     l.receita = l.receitaCent / 100;
     l.receitaAcum = aReceita / 100;
@@ -1106,9 +1145,41 @@ function panoramaDoMes({
     hoje,
     metaMes: comPacote.reduce((s, m) => s + metas.get(m.id), 0),
     alunosComPacote: comPacote.length,
+    alunosNaAgenda: naAgenda.length,
+    alunosNaAgendaWellhub: naGrade.length,
+    /**
+     * Fichas cuja agenda começa tarde no mês SÓ porque a ficha foi cadastrada
+     * tarde — sem nenhum check-in que prove o contrário.
+     *
+     * Quem passa pelo portal não cai aqui: o primeiro check-in do mês puxa a
+     * estreia para trás mesmo numa ficha digitada no dia 24. Mensalista não
+     * deixa essa marca, e numa base importada de uma vez a estreia dele vira a
+     * data da importação — a agenda sai honestamente baixa, e sem esta contagem
+     * a tela deixaria parecer que mensalista não treina.
+     *
+     * Não filtra por vínculo de propósito: o que define o caso é a falta de
+     * evidência, e um aluno Wellhub que não treinou o mês todo tem o mesmo
+     * problema.
+     */
+    agendaParcial: (() => {
+      const semProva = naAgenda.filter((m) =>
+        !primeiro.has(m.id) && (estreia.get(m.id) || de) > de);
+      return {
+        pessoas: semProva.length,
+        // A partir de quando a agenda desse grupo passa a contar.
+        desde: semProva.reduce((menor, m) => {
+          const d = estreia.get(m.id);
+          return !menor || d < menor ? d : menor;
+        }, null),
+      };
+    })(),
     dias,
     totais: {
       previsto: aPrevisto,
+      // Agenda do estúdio inteiro e a parte que não é Wellhub. Ocupação, não
+      // repasse: nenhum dos dois entra nas contas de dinheiro.
+      previstoTodos: aTodos,
+      previstoOutros: aTodos - aPrevisto,
       // O previsto que já venceu. Comparar o feito com o mês inteiro no dia 5
       // diria que o estúdio está 90% vazio.
       previstoAteHoje: ateHoje.reduce((s, l) => s + l.previsto, 0),
