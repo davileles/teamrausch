@@ -441,7 +441,16 @@
     font:500 13px/1.35 'Work Sans',sans-serif}
   .freq-tabela th{font:400 11px Anton,sans-serif;letter-spacing:.08em;text-transform:uppercase;
     color:var(--fraco);text-align:left;padding:7px 8px;white-space:nowrap;
-    border-bottom:1px solid var(--linha-2);position:sticky;top:0;background:var(--fundo)}
+    border-bottom:1px solid var(--linha-2);background:var(--fundo);
+    /* Gruda ABAIXO do cabeçalho do app, não no topo do viewport: os dois são
+       sticky, e com top:0 o cabeçalho da tabela ficava escondido atrás dele —
+       na prática a linha de títulos sumia assim que a rolagem começava.
+       `--topo-fixo` é medido em tempo de execução, então acompanha o cabeçalho
+       em qualquer tela. z-index abaixo do 100 do cabeçalho e acima das linhas. */
+    position:sticky;top:var(--topo-fixo,58px);z-index:30;
+    /* `border-collapse` não desenha borda em elemento sticky: sem isto, a linha
+       de baixo do cabeçalho desaparece durante a rolagem. */
+    box-shadow:inset 0 -1px 0 var(--linha-2)}
   .freq-tabela td{padding:9px 8px;border-bottom:1px solid var(--linha);vertical-align:middle}
   .freq-tabela tbody tr:hover td{background:var(--fundo-2)}
   .freq-tabela .nome{font:400 14px Anton,sans-serif;letter-spacing:.04em;
@@ -1510,6 +1519,11 @@ function medirTopo(){
   return h;
 }
 window.addEventListener('resize', medirTopo);
+// Medido também no carregamento. Antes só a lista de alunos media, então quem
+// entrasse direto na Frequência ficava com o valor de reserva (58px) e o
+// cabeçalho da tabela grudava no lugar errado.
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', medirTopo);
+else medirTopo();
 
 /**
  * Abre a ficha de um aluno vindo de outra subaba (Lotação, Frequência, acessos
@@ -2414,22 +2428,28 @@ async function carregarFrequencia(){
         ${cartaoFreq(f.resumo.criticos, 'críticos', 'critico')}
         ${cartaoFreq(f.resumo.atrasados, 'atrasados', 'atrasado')}
         ${cartaoFreq(f.resumo.emDia, 'em dia', 'em-dia')}
-        ${f.resumo.quitados ? cartaoFreq(f.resumo.quitados, 'pacote fechado', 'em-dia') : ''}
-        ${f.resumo.naoFecham ? cartaoFreq(f.resumo.naoFecham, 'não fecham mais', 'critico') : ''}
         ${cartaoFreq(f.resumo.faltamMes, 'faltam no mês', f.resumo.faltamMes ? 'atrasado' : 'em-dia')}
         ${cartaoFreq(`${f.resumo.realizadoMes}/${f.resumo.metaMes}`,
           `pacote · ${f.resumo.comPacote} alunos`)}
-        ${f.resumo.excedenteMes
-          ? cartaoFreq(f.resumo.excedenteMes,
-              `além do combinado · ${f.resumo.alunosComExcedente} aluno(s)`) : ''}
-        ${f.resumo.ignoradosMes
-          ? cartaoFreq(f.resumo.ignoradosMes,
-              `sem repasse · ${f.resumo.alunosNoTeto} aluno(s)`, 'atrasado') : ''}
-        ${f.resumo.checkinsExperimentais
-          ? cartaoFreq(f.resumo.checkinsExperimentais, 'experimentais fora do pacote') : ''}
-        ${cartaoFreq(f.checkins.ultimos7, 'check-ins 7d')}
-        ${f.resumo.experimentais ? cartaoFreq(f.resumo.experimentais, 'experimentais') : ''}
       </div>
+      ${(()=>{
+        // O RESTO VIRA FRASE, NÃO CARTÃO
+        //   Eram doze cartões e a faixa quebrava em duas linhas — e um cartão
+        //   na segunda linha não é mais destaque, é ruído com moldura. Ficam em
+        //   cima os cinco que mudam a decisão do dia: quem cobrar, quanto falta.
+        //   O que se lê uma vez por semana cabe numa linha de texto.
+        const notas = [];
+        if (f.resumo.quitados) notas.push(`<b>${f.resumo.quitados}</b> já fecharam o pacote`);
+        if (f.resumo.naoFecham) notas.push(`⛔ <b>${f.resumo.naoFecham}</b> não fecham mais`);
+        if (f.resumo.excedenteMes) notas.push(`<b>${f.resumo.excedenteMes}</b> check-in(s)
+          além do combinado, de ${f.resumo.alunosComExcedente} aluno(s)`);
+        if (f.resumo.ignoradosMes) notas.push(`<b>${f.resumo.ignoradosMes}</b> sem repasse,
+          de ${f.resumo.alunosNoTeto} aluno(s)`);
+        if (f.resumo.checkinsExperimentais) notas.push(`<b>${f.resumo.checkinsExperimentais}</b>
+          check-in(s) de ${f.resumo.experimentais || '?'} experimenta(l/is)`);
+        notas.push(`<b>${f.checkins.ultimos7}</b> check-in(s) nos últimos 7 dias`);
+        return `<p class="ajuda" style="margin-top:-6px">${notas.join(' · ')}.</p>`;
+      })()}
 
       <div class="freq-acoes">
         <button class="leve" id="fq-sincronizar">Buscar check-ins agora</button>
