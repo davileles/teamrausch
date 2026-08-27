@@ -704,6 +704,28 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
       alunosComExcedente: doPacote.filter((a) => a.mes.excedente > 0).length,
       alunosNoTeto: doPacote.filter((a) => a.mes.ignorado > 0).length,
       faltamMes: somar((a) => a.mes.faltam),
+      /**
+       * A COTA DO ESTÚDIO ATÉ HOJE, E NÃO A DO FIM DO MÊS
+       *
+       * `metaMes` é o fechamento; esta é a régua de agora: a meta de cada aluno
+       * repartida pelos dias do mês, acumulada até hoje. Comparada com
+       * `realizadoMes`, responde "o mês está adiantado ou atrasado?" — que é
+       * outra pergunta de "quantos alunos estão em dia", porque um punhado de
+       * assíduos cobre na soma quem sumiu.
+       *
+       * Soma as frações e arredonda UMA vez, no fim. Somar o inteiro de cada
+       * aluno (que `avaliar` arredonda para baixo, como deve, já que ninguém
+       * deve meio treino) perderia até um check-in por pessoa — em agosto eram
+       * quarenta de dívida invisível. É a mesma conta da aba Mês, de propósito:
+       * as duas telas não podem discordar sobre o mesmo dia.
+       */
+      devidoAteHoje: (() => {
+        const ate = opcoes.ate || hojeLocal();
+        const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
+        const passado = Math.min(Number(String(ate).slice(8, 10)), diasDoMes);
+        return Math.round(doPacote.reduce((s, a) =>
+          s + (a.mes.meta * passado) / diasDoMes, 0));
+      })(),
       devendoNoMes: doPacote.filter((a) => a.mes.faltam > 0).length,
       // Quem já não fecha o pacote: é a conta que o fim do mês vai cobrar.
       naoFecham: doPacote.filter((a) => a.mes.risco === 'impossivel').length,
