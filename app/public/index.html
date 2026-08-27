@@ -3605,6 +3605,19 @@ async function carregarConfig(){
         <textarea id="c-texto" rows="2">${esc(c.envio.texto)}</textarea>
         <p class="ajuda">Use {{codigo}} e {{minutos}}.</p></div>
 
+      <h3>Número do WhatsApp</h3>
+      <p class="ajuda">Qual celular envia as mensagens. O pareamento é o mesmo do
+        WhatsApp Web: um QR lido em Aparelhos conectados.</p>
+      <div id="c-wpp-estado" class="nota">Consultando…</div>
+      <div id="c-wpp-qr" hidden style="text-align:center;margin-top:12px">
+        <img id="c-wpp-img" alt="QR de conexão" width="260" height="260"
+          style="border:1px solid var(--linha,#D2D4CD);border-radius:6px;background:#fff;padding:10px">
+        <p class="ajuda" style="margin-top:8px">No celular do estúdio:
+          WhatsApp → Aparelhos conectados → Conectar aparelho.</p>
+      </div>
+      <button type="button" class="acao" id="c-wpp-botao"
+        style="width:auto;margin:10px 0 0;padding:8px 14px">Conferir conexão</button>
+
       <h3>Backup da ficha dos alunos</h3>
       <div id="c-backup" class="nota">Consultando…</div>
 
@@ -3629,11 +3642,72 @@ async function carregarConfig(){
     });
 
     ligarBuscaDeGrupos();
+    ligarConexaoWhatsApp();
     ligarSubabas(alvo);
     ligarGrade(alvo, c.agenda.horarios);
     mostrarBackup();
     document.getElementById('btn-salvar').addEventListener('click', salvarConfig);
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/**
+ * Mostra em que pé está a conexão do número e, quando houver QR, desenha ele
+ * aqui mesmo — sem abrir o serviço de WhatsApp, que não tem endereço público.
+ *
+ * O QR do WhatsApp vira pó em poucos segundos, então a consulta se repete
+ * sozinha enquanto a tela estiver aberta e o número, desconectado. Ao sair da
+ * aba de configurações o painel é remontado e o timer antigo morre junto.
+ */
+let timerWpp = null;
+function ligarConexaoWhatsApp(){
+  const estado = document.getElementById('c-wpp-estado');
+  const caixaQr = document.getElementById('c-wpp-qr');
+  const img = document.getElementById('c-wpp-img');
+  const botao = document.getElementById('c-wpp-botao');
+  if (!estado) return;
+
+  if (timerWpp) { clearInterval(timerWpp); timerWpp = null; }
+
+  const consultar = async ()=>{
+    // A tela foi remontada por baixo: para de bater no servidor.
+    if (!document.body.contains(estado)){
+      if (timerWpp) { clearInterval(timerWpp); timerWpp = null; }
+      return;
+    }
+    try{
+      const r = await api('/admin/whatsapp/qr');
+      if (r.situacao === 'conectado'){
+        estado.innerHTML = 'Conectado ao número <b>' + esc(r.numero || '—') + '</b>.';
+        caixaQr.hidden = true;
+        if (timerWpp) { clearInterval(timerWpp); timerWpp = null; }
+        return;
+      }
+      if (r.imagem){
+        estado.textContent = 'Número desconectado. Leia o código abaixo — ele troca a cada poucos segundos.';
+        img.src = r.imagem;
+        caixaQr.hidden = false;
+        return;
+      }
+      estado.textContent = r.situacao === 'iniciando'
+        ? 'O serviço está subindo. O código aparece em instantes.'
+        : 'Sem código no momento. Aguarde alguns segundos.';
+      caixaQr.hidden = true;
+    }catch(e){
+      estado.textContent = 'Não consegui consultar: ' + e.message;
+      caixaQr.hidden = true;
+      if (timerWpp) { clearInterval(timerWpp); timerWpp = null; }
+    }
+  };
+
+  botao.addEventListener('click', ()=>{
+    if (timerWpp) { clearInterval(timerWpp); }
+    estado.textContent = 'Consultando…';
+    consultar();
+    timerWpp = setInterval(consultar, 8000);
+  });
+
+  consultar();
+  timerWpp = setInterval(consultar, 8000);
 }
 
 /**
