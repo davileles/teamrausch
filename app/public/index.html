@@ -3473,6 +3473,18 @@ async function carregarConfig(){
           placeholder="31988887777, 11977776666">
         <p class="ajuda">Com DDD. O aviso sai pelo mesmo número do estúdio que envia os
           códigos de acesso.</p></div>
+      <div class="campo"><label for="c-aviso-grupos">Grupos do WhatsApp</label>
+        <input id="c-aviso-grupos" value="${esc((av.grupos||[]).join(', '))}"
+          placeholder="120363411741796601@g.us">
+        <p class="ajuda">O grupo do operador: em vez de manter a lista de telefones a cada
+          troca de recepção, o aviso cai num grupo. O número do estúdio precisa estar nele.
+          Separe por vírgula.</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+          <button type="button" class="acao" id="c-buscar-grupos"
+            style="width:auto;margin:0;padding:8px 14px">Buscar grupos</button>
+          <select id="c-lista-grupos" hidden style="flex:1;min-width:180px"></select>
+        </div>
+        <p class="ajuda" id="c-grupos-aviso" style="margin-top:6px"></p></div>
 
       </div></div><!-- fim colunas -->
       </div><!-- fim negócio -->
@@ -3580,11 +3592,54 @@ async function carregarConfig(){
       if (r) r.closest('.linha-c').remove();
     });
 
+    ligarBuscaDeGrupos();
     ligarSubabas(alvo);
     ligarGrade(alvo, c.agenda.horarios);
     mostrarBackup();
     document.getElementById('btn-salvar').addEventListener('click', salvarConfig);
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/**
+ * Preenche o seletor com os grupos de que o número do estúdio participa.
+ *
+ * O serviço de WhatsApp mora na rede interna do Railway e não abre no
+ * navegador — sem isto, descobrir o ID de um grupo vira caça ao tesouro.
+ */
+function ligarBuscaDeGrupos(){
+  const botao = document.getElementById('c-buscar-grupos');
+  const lista = document.getElementById('c-lista-grupos');
+  const nota  = document.getElementById('c-grupos-aviso');
+  const campo = document.getElementById('c-aviso-grupos');
+  if (!botao) return;
+
+  botao.addEventListener('click', async ()=>{
+    botao.disabled = true; botao.textContent = 'Buscando…'; nota.textContent = '';
+    try{
+      const r = await api('/admin/whatsapp/grupos');
+      const grupos = r.grupos || [];
+      if (!grupos.length){
+        nota.textContent = 'O número do estúdio não participa de nenhum grupo.';
+        lista.hidden = true;
+      } else {
+        lista.innerHTML = '<option value="">Escolha um grupo para adicionar…</option>' +
+          grupos.map(g=>`<option value="${esc(g.id)}">${esc(g.nome)} (${g.participantes})</option>`).join('');
+        lista.hidden = false;
+        nota.textContent = `${grupos.length} grupo(s) encontrado(s).`;
+      }
+    }catch(e){ nota.textContent = 'Não consegui buscar: ' + e.message; }
+    finally{ botao.disabled = false; botao.textContent = 'Buscar grupos'; }
+  });
+
+  lista.addEventListener('change', ()=>{
+    const id = lista.value;
+    if (!id) return;
+    const atuais = campo.value.split(',').map(s=>s.trim()).filter(Boolean);
+    if (!atuais.includes(id)) atuais.push(id);
+    campo.value = atuais.join(', ');
+    lista.value = '';
+    nota.textContent = 'Grupo adicionado. Salve as configurações para valer.';
+  });
 }
 
 async function salvarConfig(){
@@ -3629,6 +3684,7 @@ async function salvarConfig(){
       checkinConfirmado: v('c-aviso-ligado') === '1',
       emails: v('c-aviso-emails').split(',').map(s=>s.trim()).filter(Boolean),
       telefones: v('c-aviso-tels').split(',').map(s=>s.trim()).filter(Boolean),
+      grupos: v('c-aviso-grupos').split(',').map(s=>s.trim()).filter(Boolean),
     },
     administradores: v('c-admins').split(',').map(s=>s.trim()).filter(Boolean),
   };
