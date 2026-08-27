@@ -98,6 +98,7 @@ function situacao() {
     avisoCheckinLigado: preferencias().checkinConfirmado !== false,
     emailsAviso: emailsDestino(),
     telefonesAviso: telefonesDestino(),
+    gruposAviso: gruposDestino(),
     ultimoCiclo: estado.ultimoCiclo,
   };
 }
@@ -133,6 +134,24 @@ function telefonesDestino() {
   return (preferencias().telefones || [])
     .map((t) => String(t || '').replace(/\D/g, ''))
     .filter(Boolean);
+}
+
+/**
+ * Grupos do WhatsApp que recebem os avisos (o "grupo do operador").
+ *
+ * Ficam em lista própria porque `telefonesDestino` tira tudo que não é dígito
+ * — um JID passando por lá viraria um número inventado e o envio sumiria em
+ * silêncio.
+ */
+function gruposDestino() {
+  return (preferencias().grupos || [])
+    .map((g) => String(g || '').trim())
+    .filter((g) => /^\d{5,}@g\.us$/.test(g));
+}
+
+/** Telefones e grupos na ordem em que os avisos saem. */
+function destinosWhatsApp() {
+  return [...telefonesDestino(), ...gruposDestino()];
 }
 
 /** Endereço e token do serviço de WhatsApp: config primeiro, ambiente depois. */
@@ -199,7 +218,7 @@ function motivoDeRede(e) {
  * teste possa mostrar o que aconteceu, em vez de só "mandei".
  */
 async function enviarWhatsApp(texto) {
-  const telefones = telefonesDestino();
+  const telefones = destinosWhatsApp();
   if (!telefones.length) return [];  // ninguém cadastrado para receber
   const { url, token } = canalWhatsApp();
   if (!url) {
@@ -220,7 +239,9 @@ async function enviarWhatsApp(texto) {
           'content-type': 'application/json',
           ...(token ? { authorization: /^Bearer /i.test(token) ? token : `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ telefone, mensagem: texto }),
+        // `destino` atende telefone e grupo; `telefone` continua indo junto
+        // para o caso de o serviço de WhatsApp ainda ser o de antes.
+        body: JSON.stringify({ destino: telefone, telefone, mensagem: texto }),
         signal: controle.signal,
       });
       const corpo = (await r.text().catch(() => '')).slice(0, 200);
@@ -457,7 +478,7 @@ async function rodarUmaVez(opcoes = {}) {
 function iniciar() {
   if (!ATIVO) return;
   log(`ligado: a cada ${MINUTOS}min, auto-confirmar=${estado.autoConfirmar}, `
-    + `e-mail=[${emailsDestino().join(', ') || '-'}], whatsapp=[${telefonesDestino().join(', ') || '-'}]`);
+    + `e-mail=[${emailsDestino().join(', ') || '-'}], whatsapp=[${destinosWhatsApp().join(', ') || '-'}]`);
   rodarUmaVez().catch((e) => log('erro:', e.message));
   setInterval(() => rodarUmaVez().catch((e) => log('erro:', e.message)), MINUTOS * 60000);
 }
@@ -488,4 +509,5 @@ module.exports = {
   // Reaproveitados pelo aviso de frequência: os destinatários e os canais já
   // estão configurados aqui, não faz sentido ter uma segunda cópia disso.
   avisar, enviarEmail, enviarWhatsApp, emailsDestino, telefonesDestino,
+  gruposDestino, destinosWhatsApp,
 };
