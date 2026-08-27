@@ -602,22 +602,26 @@ function devedores(painelPronto) {
  *
  * `gradeVigente` devolve vazio antes de `vigenteDe`, e faz certo: a tela de um
  * dia passado não pode mostrar o aluno num horário que ainda não era o dele.
- * Só que `vigenteDe` é o dia em que a grade foi montada na ficha, não o dia em
- * que o aluno começou a treinar — numa base recém-cadastrada ele é o mês
- * inteiro. Aplicado a esta conta, o resultado era um previsto de 235 aulas
- * contra uma meta de 696 no mesmo mês: dois terços dos alunos apareciam sem
- * aula nenhuma nos dias anteriores ao cadastro da grade.
+ * Só que `vigenteDe` é o dia em que a grade foi digitada na ficha, não o dia em
+ * que o aluno começou a treinar. Numa base importada de uma vez os dois são
+ * coisas muito diferentes — as 68 fichas Wellhub nasceram todas em 24/08, com
+ * check-ins desde o dia 1º, e a projeção ficava colada no zero por 23 dias para
+ * depois disparar, como se o estúdio tivesse aberto naquela quarta.
  *
- * Aqui a pergunta é outra — "quanto volume o mês deveria ter" — e sem uma
- * grade anterior arquivada não existe horário concorrente a respeitar. Então a
- * grade de hoje vale para trás, com um piso: antes de a ficha existir não há
- * volume nenhum a esperar.
+ * Aqui a pergunta é "quanto volume o mês deveria ter", e sem uma grade anterior
+ * arquivada não existe horário concorrente a respeitar: a grade de hoje vale
+ * para trás. O piso não é o cadastro da ficha, é a estreia — a menor data entre
+ * `criadoEm` e o primeiro check-in do aluno no mês. Quem treinou no dia 3 já era
+ * aluno no dia 3, por mais que a ficha só tenha sido digitada no 24; e quem
+ * entrou de verdade no meio do mês continua sem gerar aula nos dias em que não
+ * era aluno de ninguém.
+ *
+ * @param desde  data de estreia (YYYY-MM-DD) ou null para projetar o mês todo
  */
-function gradeParaVolume(matricula, data) {
+function gradeParaVolume(matricula, data, desde) {
   const g = grade.gradeVigente(matricula, data);
   if (g.length) return g;
-  const nasceu = String(matricula.criadoEm || '').slice(0, 10);
-  if (nasceu && data < nasceu) return [];
+  if (desde && data < desde) return [];
   return matricula.grade || [];
 }
 
@@ -678,6 +682,24 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
   const idsNaGrade = new Set(naGrade.map((m) => m.id));
   const metas = new Map(comPacote.map((m) => [m.id, metaDoMes(m)]));
 
+  // Primeiro check-in de cada aluno no mês: a evidência de quando ele já estava
+  // treinando, que numa base importada chega muito antes do cadastro da ficha.
+  const primeiro = new Map();
+  for (const c of checkins) {
+    if (!c.matriculaId || c.data < de || c.data > fim) continue;
+    const atual = primeiro.get(c.matriculaId);
+    if (!atual || c.data < atual) primeiro.set(c.matriculaId, c.data);
+  }
+  // Estreia de cada ficha, resolvida uma vez só — dentro do laço de dias isto
+  // seria a mesma conta trinta e uma vezes por aluno.
+  const estreia = new Map(naGrade.map((m) => {
+    const cadastro = String(m.criadoEm || '').slice(0, 10) || null;
+    const treinou = primeiro.get(m.id) || null;
+    if (!cadastro) return [m.id, treinou];
+    if (!treinou) return [m.id, cadastro];
+    return [m.id, treinou < cadastro ? treinou : cadastro];
+  }));
+
   const dias = [];
   const indice = new Map();
   for (let d = de; d <= fim; d = grade.somarDias(d, 1)) {
@@ -704,7 +726,7 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
 
     const pessoas = new Set();
     for (const m of naGrade) {
-      for (const s of gradeParaVolume(m, linha.data)) {
+      for (const s of gradeParaVolume(m, linha.data, estreia.get(m.id))) {
         if (s.dia !== linha.diaDaSemana || cancelou(m.id, s.hora)) continue;
         pessoas.add(m.id);
         break;

@@ -2711,19 +2711,16 @@ function mesVizinho(mes, passo){
  *   amarela está abaixo da tracejada, o mês está atrasado, e a distância
  *   vertical é exatamente quantos treinos faltam.
  *
- * UMA RÉGUA SÓ
+ * DUAS RÉGUAS, E ELAS MEDEM COISAS DIFERENTES
  *   A tracejada é a meta do pacote, que sobe em degraus nos dias 7, 14, 21 e no
- *   fechamento — o combinado é semanal, então a cobrança também é.
+ *   fechamento — o combinado é semanal, então a cobrança também é. É o que vira
+ *   dinheiro. A cinza contínua é a agenda: cada aula combinada projetada no
+ *   calendário. É quanta gente o estúdio esperava na porta.
  *
- *   Aqui já houve uma segunda linha, a grade projetada no calendário. Ela saiu:
- *   duas réguas quase paralelas obrigam quem lê a decidir qual delas vale antes
- *   de conseguir ler qualquer coisa, e a resposta é sempre o pacote, que é o
- *   que o Wellhub repassa. Pior, ela mentia numa base recém-cadastrada — a
- *   grade só existe a partir do dia em que a ficha foi criada, então a linha
- *   ficava colada no zero até essa data e disparava depois, como se o estúdio
- *   tivesse aberto no dia 24. Quem quer a agenda tem as abas Grade do dia e
- *   Lotação da semana, que respondem isso sem projetar passado nenhum. O número
- *   continua no CSV, coluna a coluna.
+ *   Elas não batem de propósito. Quem treina segunda, quarta e sexta tem 13
+ *   aulas num mês de cinco segundas e só 12 entram no repasse; quem treina de
+ *   segunda a sexta tem 21 aulas e os mesmos 12 de teto. A agenda acima da meta
+ *   é exatamente o treino que o aluno faz e o Wellhub não paga.
  *
  * AS LINHAS DO REALIZADO PARAM EM HOJE
  *   Estendê-las até o dia 31 as deixaria horizontais no resto do mês, como se
@@ -2741,7 +2738,8 @@ function graficoMes(p){
   const n = p.dias.length;
   const fim = p.dias[n-1];
 
-  const maior = Math.max(4, fim.metaAcum, fim.feitoAcum, fim.experimentalAcum);
+  const maior = Math.max(4, fim.metaAcum, fim.previstoAcum,
+    fim.feitoAcum, fim.experimentalAcum);
   const passo = maior<=40 ? 10 : maior<=120 ? 25 : maior<=400 ? 100 : 200;
   const teto = Math.ceil(maior/passo)*passo;
 
@@ -2790,8 +2788,12 @@ function graficoMes(p){
       + ` x2="${x(ultimo).toFixed(1)}" y2="${TOPO+areaA}"/>`;
   }
 
+  // A régua do pacote é a que se lê primeiro, então vai mais clara; a agenda é
+  // contexto e fica apagada. Com os dois cinzas parecidos, a tracejada sumia.
   svg += `<polyline class="g-linha ref" points="${escada()}"`
     + ` stroke="var(--apagado)" stroke-dasharray="5 4"/>`;
+  svg += `<polyline class="g-linha ref" points="${linha('previstoAcum')}"`
+    + ` stroke="var(--linha-3)"/>`;
   if (ultimo >= 0){
     if (fim.experimentalAcum) svg += `<polyline class="g-linha"`
       + ` points="${linha('experimentalAcum', ultimo)}" stroke="var(--liberado)"/>`;
@@ -2807,11 +2809,12 @@ function graficoMes(p){
   p.dias.forEach((d,i)=>{
     const dica = `${d.dia} de ${MES_NOME[Number(p.mes.slice(5))-1]} · ${DIA_LONGO[d.diaDaSemana]}`
       + `\nDeveria ter até aqui: ${d.metaAcum}`
+      + `\nPrevisto pela grade: ${d.previstoAcum}`
       + (d.futuro ? '\nAinda não aconteceu.'
         : `\nAlunos: ${d.feitoAcum}`
           + `\nExperimentais: ${d.experimentalAcum}`
           + (d.semVinculoAcum ? `\nSem aluno: ${d.semVinculoAcum}` : '')
-          + `\n(neste dia: ${d.feito} aluno(s), ${d.experimental} experimental(is))`);
+          + `\n(neste dia: ${d.previsto} previsto(s), ${d.feito} aluno(s))`);
     svg += `<g><title>${esc(dica)}</title><rect x="${(ESQ+i*fatia).toFixed(1)}" y="${TOPO}"`
       + ` width="${fatia.toFixed(1)}" height="${areaA}" fill="transparent"/></g>`;
   });
@@ -2858,6 +2861,7 @@ async function carregarMes(){
           atraso > 0 ? 'atrasado' : 'em-dia')}
         ${cartaoFreq(p.metaMes, 'meta do mês')}
         ${cartaoFreq(faltam, 'faltam até o fim', faltam ? '' : 'em-dia')}
+        ${cartaoFreq(t.previsto, 'aulas na grade')}
         ${t.experimental ? cartaoFreq(t.experimental, 'experimentais') : ''}
         ${t.semVinculo ? cartaoFreq(t.semVinculo, 'sem aluno', 'critico') : ''}
       </div>
@@ -2866,6 +2870,7 @@ async function carregarMes(){
 
       <div class="legenda-mes">
         <span><i style="background:var(--apagado)"></i>deveria ter (pacote)</span>
+        <span><i style="background:var(--linha-3)"></i>previsto pela grade</span>
         <span><i style="background:var(--amarelo)"></i>alunos</span>
         ${t.experimental
           ? '<span><i style="background:var(--liberado)"></i>experimentais</span>' : ''}
@@ -2877,12 +2882,21 @@ async function carregarMes(){
         até ali, e não o movimento daquele dia. A distância vertical entre a amarela e a
         tracejada é, em treinos, o quanto o mês está adiantado ou atrasado.</p>
 
-      <p class="ajuda">A tracejada é o <b>pacote</b>: o combinado semanal de cada aluno vezes
-        quatro, limitado a 12, porque o Wellhub não repassa mais do que isso. Somados os
-        ${p.alunosComPacote} alunos, dá ${p.metaMes} no mês. Ela sobe em degrau porque a
-        cobrança é semanal — quem faz 3× precisa ter 3 no dia 7, 6 no dia 14, 9 no dia 21 e
-        os 12 no fechamento. É a mesma régua que decide quem aparece atrasado na aba
-        Frequência, então o gráfico e aquela lista nunca discordam.</p>
+      <p class="ajuda">A tracejada é o <b>pacote</b> (${p.metaMes} no mês): o combinado semanal
+        de cada aluno vezes quatro, limitado a 12, porque o Wellhub não repassa mais do que
+        isso — são ${p.alunosComPacote} alunos. Sobe em degrau porque a cobrança é semanal:
+        quem faz 3× precisa ter 3 no dia 7, 6 no dia 14, 9 no dia 21 e os 12 no fechamento.
+        É a mesma régua que decide quem aparece atrasado na aba Frequência, então o gráfico e
+        aquela lista nunca discordam.<br>
+        A cinza contínua é a <b>agenda</b> (${t.previsto} no mês): cada aula combinada
+        projetada no calendário, sem as desmarcadas e com as extras, contando uma vez por
+        aluno por dia. Responde quanta gente o estúdio esperava na porta. Onde ela passa da
+        tracejada, a diferença é o treino que o aluno faz e o Wellhub não paga.</p>
+
+      <p class="ajuda">A projeção vale o mês inteiro mesmo para quem foi cadastrado no meio
+        dele: o piso é a estreia do aluno — a primeira das duas datas entre o cadastro da
+        ficha e o primeiro check-in do mês —, e não o dia em que a grade foi digitada. Quem
+        treinou no dia 3 já era aluno no dia 3.</p>
 
       ${t.experimental ? `<p class="ajuda">Experimental fica na própria linha e fora da conta
         do pacote: sem grade combinada não há meta para comparar, e o treino dele é excedente
