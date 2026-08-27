@@ -495,6 +495,9 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
       fecha: fimDoMes(ate),
       esperado: previstasMes.length,
       realizado: feitasMes.length,
+      // As datas por trás de `realizado`, em ordem. A exportação do fechamento
+      // quebra o mês em semanas a partir daqui em vez de recontar check-in.
+      datas: feitasMes,
       saldo: feitasMes.length - previstasMes.length,
       // Treino além do combinado que o Wellhub ainda paga: da meta até o teto
       // de doze. Não entra em `realizado` — não era previsto, e somá-lo faria
