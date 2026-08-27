@@ -850,11 +850,16 @@ function panoramaDoMes({
   const estreia = new Map(naAgenda.concat(
     naGrade.filter((m) => !idsNaAgenda.has(m.id)),
   ).map((m) => {
-    const cadastro = String(m.criadoEm || '').slice(0, 10) || null;
-    const treinou = primeiro.get(m.id) || null;
-    if (!cadastro) return [m.id, treinou];
-    if (!treinou) return [m.id, cadastro];
-    return [m.id, treinou < cadastro ? treinou : cadastro];
+    // Três candidatos, e vale o mais antigo. `desde` é o único informado por
+    // uma pessoa — quando existe, é a verdade sobre quando o aluno começou; os
+    // outros dois são pistas. O cadastro é a mais fraca das três: numa base
+    // importada de uma vez ele é a data da importação, não da estreia.
+    const candidatos = [
+      String(m.desde || '').slice(0, 10) || null,
+      primeiro.get(m.id) || null,
+      String(m.criadoEm || '').slice(0, 10) || null,
+    ].filter(Boolean);
+    return [m.id, candidatos.length ? candidatos.sort()[0] : null];
   }));
 
   const dias = [];
@@ -1163,7 +1168,7 @@ function panoramaDoMes({
      */
     agendaParcial: (() => {
       const semProva = naAgenda.filter((m) =>
-        !primeiro.has(m.id) && (estreia.get(m.id) || de) > de);
+        !m.desde && !primeiro.has(m.id) && (estreia.get(m.id) || de) > de);
       return {
         pessoas: semProva.length,
         // A partir de quando a agenda desse grupo passa a contar.
