@@ -692,6 +692,29 @@ function mapaPorMatricula({ de, ate } = {}) {
   return mapa;
 }
 
+/**
+ * Produto do Wellhub mais recente de cada ficha — a base da previsão de receita.
+ *
+ * Funcional e Crosstraining pagam valores diferentes, então projetar o que
+ * ainda falta no mês exige saber o que o aluno costuma marcar. O critério é o
+ * último check-in dele: quem trocou de plano em maio não pode ficar preso ao
+ * preço de janeiro. Ficha sem check-in nenhum não entra no mapa e a projeção
+ * cai no valor mais baixo, que erra para baixo de propósito.
+ */
+function produtoPorMatricula() {
+  const mapa = new Map();
+  const quando = new Map();
+  for (const c of dados.checkins) {
+    if (!c.matriculaId || !c.produto) continue;
+    const carimbo = `${c.data} ${c.hora || ''}`;
+    if (!quando.has(c.matriculaId) || carimbo > quando.get(c.matriculaId)) {
+      quando.set(c.matriculaId, carimbo);
+      mapa.set(c.matriculaId, c.produto);
+    }
+  }
+  return mapa;
+}
+
 function ultimoDaMatricula(matriculaId) {
   const meus = dados.checkins.filter((c) => c.matriculaId === matriculaId);
   if (!meus.length) return null;
@@ -744,5 +767,6 @@ module.exports = {
   registrar, registrarLote, porId, vincular, desvincular, revincularOrfaos,
   importarHistorico, pessoas, reatribuir, quantosDaMatricula,
   listar, datasDaMatricula, mapaPorMatricula, ultimoDaMatricula, aplicarNomesDoPortal,
+  produtoPorMatricula,
   resumo, normalizarNome, dataLocal, hojeLocal, backup,
 };
