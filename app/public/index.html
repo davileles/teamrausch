@@ -1916,7 +1916,7 @@ async function carregarMatriculas(){
         <button data-sub="grade" aria-selected="${matEstado.sub==='grade'}">Grade do dia</button>
         <button data-sub="lotacao" aria-selected="${matEstado.sub==='lotacao'}">Lotação da semana</button>
         <button data-sub="freq" aria-selected="${matEstado.sub==='freq'}">Frequência</button>
-        <button data-sub="mes" aria-selected="${matEstado.sub==='mes'}">Mês</button>
+        <button data-sub="mes" aria-selected="${matEstado.sub==='mes'}">Indicadores</button>
       </div>
       <div data-painel="alunos" ${matEstado.sub==='alunos'?'':'hidden'}>
         <p class="ajuda">${resumo.ativas} ativos · ${resumo.mensalistas} mensalistas ·
@@ -3823,7 +3823,7 @@ async function carregarConfig(){
       <h3>Repasse do Wellhub</h3>
       <p class="ajuda">Quanto o Wellhub paga por check-in validado, em cada produto. O portal
         já manda no check-in qual dos dois o aluno marcou, então basta o valor: a aba
-        <b>Mês</b> soma sozinha o que já entrou e projeta o que ainda falta até o dia 31.
+        <b>Indicadores</b> soma sozinha o que já entrou e projeta o que ainda falta até o dia 31.
         Mudou o contrato, troque aqui — a conta do mês inteiro passa a usar o valor novo.</p>
       <div class="dupla">
         <div class="campo"><label for="c-val-func">Funcional (R$ por check-in)</label>
@@ -3834,7 +3834,7 @@ async function carregarConfig(){
             value="${Number(fin.valorCrosstraining ?? 22.28)}"></div>
       </div>
       <p class="ajuda">Check-in com um produto que não seja nenhum dos dois entra pelo menor
-        dos dois valores e aparece separado na aba Mês — assim um nome novo no portal vira
+        dos dois valores e aparece separado na aba Indicadores — assim um nome novo no portal vira
         um aviso na tela, e não um erro silencioso na soma.</p>
 
       <h3>Avisos de check-in</h3>
