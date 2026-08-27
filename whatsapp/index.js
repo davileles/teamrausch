@@ -229,6 +229,13 @@ function normalizar(entrada) {
 }
 
 /**
+ * JID de grupo do WhatsApp. Serve para o mesmo POST /enviar atender pessoa e
+ * grupo: o painel manda o grupo do operador aqui, e o grupo nao passa por
+ * `normalizar` — os digitos de um JID de grupo nao sao um telefone.
+ */
+const RE_JID_GRUPO = /^\d{5,}@g\.us$/;
+
+/**
  * Celular brasileiro tem duas formas possíveis no WhatsApp: com e sem o nono
  * dígito. Perguntamos ao servidor qual existe antes de mandar.
  */
@@ -375,21 +382,30 @@ app.post('/enviar', exigirToken, async (req, res) => {
     return res.status(503).json({ erro: 'WhatsApp desconectado. Leia o QR em /qr.' });
   }
 
-  const telefone = normalizar(req.body.telefone);
+  // `destino` e o nome novo, que aceita telefone OU JID de grupo. `telefone`
+  // continua valendo para nao quebrar quem ja chama esta rota.
+  const bruto = String(req.body.destino || req.body.telefone || '').trim();
+  const ehGrupo = RE_JID_GRUPO.test(bruto);
+  const telefone = ehGrupo ? null : normalizar(bruto);
   const mensagem = String(req.body.mensagem || '').trim();
-  if (!telefone) return res.status(400).json({ erro: 'Telefone inválido.' });
+  if (!ehGrupo && !telefone) {
+    return res.status(400).json({ erro: 'Destino inválido. Use telefone com DDD ou um JID de grupo (…@g.us).' });
+  }
   if (!mensagem) return res.status(400).json({ erro: 'Mensagem vazia.' });
 
+  const alvo = ehGrupo ? bruto : telefone;
   try {
     const resultado = await enfileirar(async () => {
-      const jid = await descobrirJid(telefone);
+      // Grupo ja e o proprio endereco; so telefone precisa da consulta do
+      // nono dígito.
+      const jid = ehGrupo ? bruto : await descobrirJid(telefone);
       if (!jid) return { ok: false, motivo: 'Esse número não tem WhatsApp.' };
       const r = await socket.sendMessage(jid, { text: mensagem });
       return { ok: true, id: r && r.key && r.key.id, jid };
     });
 
     if (!resultado.ok) return res.status(404).json({ erro: resultado.motivo });
-    log('enviado para', telefone);
+    log('enviado para', alvo);
     res.json({ enviado: true, id: resultado.id });
   } catch (erro) {
     log('falha no envio:', erro.message);
