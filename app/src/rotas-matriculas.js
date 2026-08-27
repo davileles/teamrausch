@@ -252,6 +252,10 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       // cortar aqui apagaria dias do gráfico sem aviso nenhum.
       checkins: checkins.listar({ de, ate, limite: 20000 }),
       mes: de.slice(0, 7),
+      precos: config.ler().financeiro || {},
+      // Da base inteira, não só do mês: quem ainda não treinou em setembro
+      // precisa ser precificado pelo que marcou em agosto.
+      produtos: checkins.produtoPorMatricula(),
     }));
   });
 
