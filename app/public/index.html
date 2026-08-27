@@ -2790,9 +2790,14 @@ async function carregarFrequencia(){
         });
         return conta;
       };
-      const cabSimples = [...recorte(cabecalho),
-        'Semana 1 (1–7)','Semana 2 (8–14)','Semana 3 (15–21)','Semana 4 (22–fim)'];
-      const linhasSimples = linhas.map((l,i)=>[...recorte(l), ...porSemana(f.alunos[i])]);
+      // As quatro faixas entram logo depois de "Meta do mês": lê-se a meta,
+      // depois como o mês se distribuiu, e só então o total e o que falta.
+      const APOS_META = 3;
+      const encaixar = (base, semanas)=>
+        [...base.slice(0, APOS_META), ...semanas, ...base.slice(APOS_META)];
+      const cabSimples = encaixar(recorte(cabecalho),
+        ['Semana 1 (1–7)','Semana 2 (8–14)','Semana 3 (15–21)','Semana 4 (22–fim)']);
+      const linhasSimples = linhas.map((l,i)=> encaixar(recorte(l), porSemana(f.alunos[i])));
       baixarXlsx(`frequencia-${j.ate.slice(0,7)}.xlsx`, [
         {nome:'Resumo', cabecalho, linhas},
         {nome:'Resumo simplificado', cabecalho: cabSimples, linhas: linhasSimples},
