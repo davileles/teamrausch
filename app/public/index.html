@@ -2773,9 +2773,29 @@ async function carregarFrequencia(){
       // Aluno, Grade x/sem, Meta do mês, Feitos, Faltam e Situação.
       const SIMPLES = [0, 2, 4, 5, 8, 12];
       const recorte = (l)=> SIMPLES.map(i=>l[i]);
+      /* Quebra do mês em quatro faixas por dia do mês: 1–7, 8–14, 15–21 e do 22
+         até o último dia, seja 28, 29, 30 ou 31. Não é semana de calendário —
+         é o corte fixo que o fechamento usa. As datas vêm de `mes.datas`, as
+         mesmas que somam a coluna "Feitos", então as quatro colunas fecham
+         com ela. */
+      const semanaDoDia = (data)=>{
+        const dia = Number(String(data).slice(8,10));
+        return dia <= 7 ? 0 : dia <= 14 ? 1 : dia <= 21 ? 2 : 3;
+      };
+      const porSemana = (a)=>{
+        const conta = [0,0,0,0];
+        ((a.mes && a.mes.datas) || []).forEach(d=>{
+          const i = semanaDoDia(d);
+          if (i >= 0 && i <= 3) conta[i] += 1;
+        });
+        return conta;
+      };
+      const cabSimples = [...recorte(cabecalho),
+        'Semana 1 (1–7)','Semana 2 (8–14)','Semana 3 (15–21)','Semana 4 (22–fim)'];
+      const linhasSimples = linhas.map((l,i)=>[...recorte(l), ...porSemana(f.alunos[i])]);
       baixarXlsx(`frequencia-${j.ate.slice(0,7)}.xlsx`, [
         {nome:'Resumo', cabecalho, linhas},
-        {nome:'Resumo simplificado', cabecalho: recorte(cabecalho), linhas: linhas.map(recorte)},
+        {nome:'Resumo simplificado', cabecalho: cabSimples, linhas: linhasSimples},
       ]);
       avisar(`${linhas.length} aluno(s) exportado(s) em 2 abas.`,'ok');
     });
