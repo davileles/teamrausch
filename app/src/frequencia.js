@@ -986,8 +986,8 @@ function panoramaDoMes({
   //   entra na faixa a que pertence: até a meta do aluno é pacote (`feito`),
   //   da meta até doze é excedente pago (`fora`), acima disso é `ignorado`.
   //
-  //   Sem meta — ficha sem grade, mensalista com check-in avulso — o teto do
-  //   repasse serve de pacote, que é como esta tela sempre contou.
+  //   Sem meta — ficha sem grade, mensalista com check-in avulso — não há
+  //   pacote nenhum: tudo entra como excedente. Ver o bloco de faixas abaixo.
   //
   //   A ordem importa: o corte é "as primeiras do mês", e `listar` devolve do
   //   mais recente para o mais antigo. Sem ordenar, o dia 28 entraria no pacote
@@ -1085,12 +1085,31 @@ function panoramaDoMes({
     }
 
     const meta = metas.get(c.matriculaId) || 0;
-    const tetoPacote = meta > 0 ? Math.min(meta, TETO_MES) : TETO_MES;
     const n = (noMes.get(c.matriculaId) || 0) + 1;
     noMes.set(c.matriculaId, n);
-    if (n <= tetoPacote) { linha.feito += 1; receita.pacoteCent += valor; }
-    else if (n <= TETO_MES) { linha.fora += 1; receita.excedenteCent += valor; }
-    else linha.ignorado += 1;
+
+    // SEM META NÃO HÁ PACOTE, ENTÃO TUDO É EXTRA
+    //   Antes o teto do repasse fazia as vezes de pacote aqui, e os check-ins
+    //   de quem não tem grade caíam em `feito`. Isso somava no numerador do
+    //   cartão "feitos, do pacote" gente que não somava nada no denominador —
+    //   e o mês aparecia melhor do que estava. Pior: dava a entender que havia
+    //   um combinado a cobrar de quem justamente não combinou nada.
+    //
+    //   Quem treina sem meta está aparecendo por conta própria, que é a mesma
+    //   coisa que o excedente já significa. Vai para `fora`, o "extras, o
+    //   Wellhub paga" da tela: rende repasse igual, e não vira cobrança.
+    //
+    //   Isto alinha esta tela com a aba Frequência, que sempre exigiu
+    //   `mes.meta > 0` para entrar no pacote. As duas contavam populações
+    //   diferentes e discordavam sobre o mesmo dia.
+    if (!meta) {
+      if (n <= TETO_MES) { linha.fora += 1; receita.excedenteCent += valor; }
+      else linha.ignorado += 1;
+    } else if (n <= Math.min(meta, TETO_MES)) {
+      linha.feito += 1; receita.pacoteCent += valor;
+    } else if (n <= TETO_MES) {
+      linha.fora += 1; receita.excedenteCent += valor;
+    } else linha.ignorado += 1;
   }
 
   // Acumulados: a leitura do mês é de soma corrida, não de coluna solta. Sai
