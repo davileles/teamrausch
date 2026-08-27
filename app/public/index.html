@@ -2380,7 +2380,10 @@ async function carregarFrequencia(){
     alvo.innerHTML = `
       <p class="ajuda">${cabecalho}
         <b>Mês</b> é o pacote: check-ins feitos sobre a meta, que é o combinado semanal
-        vezes quatro, limitado a 12 — o Wellhub não repassa mais do que isso. Experimental
+        vezes quatro, limitado a 12 — o Wellhub não repassa mais do que isso. Quem treina
+        além disso continua sendo confirmado no portal, mas o 13º check-in em diante não
+        entra nessa soma: aparece em <b>acima do teto</b>, que é treino entregue sem
+        repasse. Experimental
         fica fora dessa soma: sem grade combinada não há meta, e o treino dele é excedente
         até a ficha virar aluno de fato.
         <b>No prazo</b> compara com o que já venceu: quem faz 3× por semana precisa ter 3
@@ -2397,8 +2400,11 @@ async function carregarFrequencia(){
         ${cartaoFreq(f.resumo.faltamMes, 'faltam no mês', f.resumo.faltamMes ? 'atrasado' : 'em-dia')}
         ${cartaoFreq(`${f.resumo.realizadoMes}/${f.resumo.metaMes}`,
           `pacote · ${f.resumo.comPacote} alunos`)}
+        ${f.resumo.excedenteMes
+          ? cartaoFreq(f.resumo.excedenteMes,
+              `acima do teto · ${f.resumo.alunosNoTeto} aluno(s)`) : ''}
         ${f.resumo.checkinsExperimentais
-          ? cartaoFreq(f.resumo.checkinsExperimentais, 'fora do pacote') : ''}
+          ? cartaoFreq(f.resumo.checkinsExperimentais, 'experimentais fora do pacote') : ''}
         ${cartaoFreq(f.checkins.ultimos7, 'check-ins 7d')}
         ${f.resumo.experimentais ? cartaoFreq(f.resumo.experimentais, 'experimentais') : ''}
       </div>
@@ -2739,7 +2745,7 @@ function graficoMes(p){
   const fim = p.dias[n-1];
 
   const maior = Math.max(4, fim.metaAcum, fim.previstoAcum,
-    fim.feitoAcum, fim.experimentalAcum);
+    fim.feitoAcum, fim.experimentalAcum, fim.foraAcum);
   const passo = maior<=40 ? 10 : maior<=120 ? 25 : maior<=400 ? 100 : 200;
   const teto = Math.ceil(maior/passo)*passo;
 
@@ -2799,6 +2805,10 @@ function graficoMes(p){
       + ` points="${linha('experimentalAcum', ultimo)}" stroke="var(--liberado)"/>`;
     if (fim.semVinculoAcum) svg += `<polyline class="g-linha ref"`
       + ` points="${linha('semVinculoAcum', ultimo)}" stroke="var(--vermelho)"/>`;
+    // Fora do pacote fica num amarelo apagado, logo abaixo da linha cheia: é
+    // treino de aluno como o outro, só que sem repasse.
+    if (fim.foraAcum) svg += `<polyline class="g-linha ref"`
+      + ` points="${linha('foraAcum', ultimo)}" stroke="var(--amarelo-2)"/>`;
     svg += `<polyline class="g-linha" points="${linha('feitoAcum', ultimo)}"`
       + ` stroke="var(--amarelo)"/>`;
   }
@@ -2812,9 +2822,11 @@ function graficoMes(p){
       + `\nPrevisto pela grade: ${d.previstoAcum}`
       + (d.futuro ? '\nAinda não aconteceu.'
         : `\nAlunos: ${d.feitoAcum}`
+          + (d.foraAcum ? `\nFora do pacote: ${d.foraAcum}` : '')
           + `\nExperimentais: ${d.experimentalAcum}`
           + (d.semVinculoAcum ? `\nSem aluno: ${d.semVinculoAcum}` : '')
-          + `\n(neste dia: ${d.previsto} previsto(s), ${d.feito} aluno(s))`);
+          + `\n(neste dia: ${d.previsto} previsto(s), ${d.feito} aluno(s)`
+          + (d.fora ? `, ${d.fora} fora do pacote` : '') + `)`);
     svg += `<g><title>${esc(dica)}</title><rect x="${(ESQ+i*fatia).toFixed(1)}" y="${TOPO}"`
       + ` width="${fatia.toFixed(1)}" height="${areaA}" fill="transparent"/></g>`;
   });
@@ -2862,6 +2874,7 @@ async function carregarMes(){
         ${cartaoFreq(p.metaMes, 'meta do mês')}
         ${cartaoFreq(faltam, 'faltam até o fim', faltam ? '' : 'em-dia')}
         ${cartaoFreq(t.previsto, 'aulas na grade')}
+        ${t.fora ? cartaoFreq(t.fora, `fora do pacote · ${t.alunosNoTeto} aluno(s)`) : ''}
         ${t.experimental ? cartaoFreq(t.experimental, 'experimentais') : ''}
         ${t.semVinculo ? cartaoFreq(t.semVinculo, 'sem aluno', 'critico') : ''}
       </div>
@@ -2872,6 +2885,8 @@ async function carregarMes(){
         <span><i style="background:var(--apagado)"></i>deveria ter (pacote)</span>
         <span><i style="background:var(--linha-3)"></i>previsto pela grade</span>
         <span><i style="background:var(--amarelo)"></i>alunos</span>
+        ${t.fora
+          ? '<span><i style="background:var(--amarelo-2)"></i>fora do pacote</span>' : ''}
         ${t.experimental
           ? '<span><i style="background:var(--liberado)"></i>experimentais</span>' : ''}
         ${t.semVinculo
@@ -2898,6 +2913,12 @@ async function carregarMes(){
         ficha e o primeiro check-in do mês —, e não o dia em que a grade foi digitada. Quem
         treinou no dia 3 já era aluno no dia 3.</p>
 
+      ${t.fora ? `<p class="ajuda">${t.fora} check-in(s) do mês passaram do teto de 12 por
+        aluno — ${t.alunosNoTeto} pessoa(s) treinaram mais do que a assinatura rende. Eles
+        foram confirmados no portal normalmente, mas ficam na linha apagada e fora da conta
+        do pacote: o Wellhub repassa doze, e contar o décimo terceiro aqui faria o mês
+        parecer melhor do que o extrato vai mostrar.</p>` : ''}
+
       ${t.experimental ? `<p class="ajuda">Experimental fica na própria linha e fora da conta
         do pacote: sem grade combinada não há meta para comparar, e o treino dele é excedente
         até a ficha virar aluno de fato.</p>` : ''}
@@ -2920,12 +2941,13 @@ async function carregarMes(){
 
     alvo.querySelector('#mes-csv').addEventListener('click', ()=>{
       baixarCsv(`mes-${p.mes}.csv`,
-        ['Data','Dia da semana','Previsto no dia','Alunos no dia','Experimentais no dia',
-         'Sem aluno no dia','Deveria ter (acum.)','Previsto (acum.)','Alunos (acum.)',
-         'Experimentais (acum.)','Sem aluno (acum.)'],
+        ['Data','Dia da semana','Previsto no dia','Alunos no dia','Fora do pacote no dia',
+         'Experimentais no dia','Sem aluno no dia','Deveria ter (acum.)','Previsto (acum.)',
+         'Alunos (acum.)','Fora do pacote (acum.)','Experimentais (acum.)','Sem aluno (acum.)'],
         p.dias.map(d=>[d.data, DIA_LONGO[d.diaDaSemana],
-          d.previsto, d.feito, d.experimental, d.semVinculo,
-          d.metaAcum, d.previstoAcum, d.feitoAcum, d.experimentalAcum, d.semVinculoAcum]));
+          d.previsto, d.feito, d.fora, d.experimental, d.semVinculo,
+          d.metaAcum, d.previstoAcum, d.feitoAcum, d.foraAcum,
+          d.experimentalAcum, d.semVinculoAcum]));
       avisar(`${p.dias.length} dia(s) exportado(s).`,'ok');
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
