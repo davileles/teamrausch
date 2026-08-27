@@ -475,6 +475,11 @@
   .freq-cartao b{display:block;font:400 22px Anton,sans-serif;letter-spacing:.04em}
   .freq-cartao span{font:600 10px 'Work Sans',sans-serif;letter-spacing:.1em;
     text-transform:uppercase;color:var(--fraco)}
+  /* Dinheiro é sempre mais largo que um número de treinos: "R$ 18.955,09" não
+     cabe nos 90px da grade de contagem sem quebrar no meio do milhar. Mesma
+     gramática visual, coluna mais folgada e fonte um ponto menor. */
+  .freq-cartoes.dinheiro{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+  .freq-cartoes.dinheiro .freq-cartao b{font-size:19px}
   .freq-cartao.critico b{color:var(--vermelho)}
   .freq-cartao.atrasado b{color:var(--amarelo)}
   .freq-cartao.em-dia b{color:var(--liberado)}
@@ -2172,6 +2177,12 @@ function dataCurta(iso){
   return `${d}/${m}`;
 }
 
+/** R$ 1.234,56 — sem centavo perdido e sem depender do locale do aparelho. */
+function dinheiro(valor){
+  return (Number(valor) || 0).toLocaleString('pt-BR',
+    {style:'currency', currency:'BRL', minimumFractionDigits:2});
+}
+
 function cartaoFreq(valor, rotulo, classe){
   return `<div class="freq-cartao ${classe||''}"><b>${valor}</b><span>${rotulo}</span></div>`;
 }
@@ -2861,6 +2872,7 @@ async function carregarMes(){
     matEstado.mesRef = p.mes;
 
     const t = p.totais;
+    const f = p.financeiro;
     const noCorrente = p.mes === p.hoje.slice(0,7);
     const atraso = t.metaAteHoje - t.feito;
     const faltam = Math.max(p.metaMes - t.feito, 0);
@@ -2888,6 +2900,61 @@ async function carregarMes(){
         ${t.experimental ? cartaoFreq(t.experimental, 'experimentais') : ''}
         ${t.semVinculo ? cartaoFreq(t.semVinculo, 'sem aluno', 'critico') : ''}
       </div>
+
+      <h3 style="margin:18px 0 0">O mês em dinheiro</h3>
+      <p class="ajuda">${f.mesCorrente
+        ? `Já validado <b>${dinheiro(f.realizado.total)}</b>; o pacote ainda promete
+           <b>${dinheiro(f.aReceber)}</b> até o dia 31.`
+        : 'Mês fechado: o que está aqui é o que foi validado, sem projeção.'}
+        Cada check-in vale ${dinheiro(f.precos.funcional)} no funcional e
+        ${dinheiro(f.precos.crosstraining)} no crosstraining — valores da aba
+        Configurações → Negócio.</p>
+
+      <div class="freq-cartoes dinheiro">
+        ${cartaoFreq(dinheiro(f.realizado.total), 'já validado')}
+        ${f.mesCorrente ? cartaoFreq(dinheiro(f.aReceber), 'ainda a receber') : ''}
+        ${f.mesCorrente ? cartaoFreq(dinheiro(f.previsto), 'previsão do mês', 'em-dia') : ''}
+        ${cartaoFreq(dinheiro(f.realizado.pacote), 'do pacote')}
+        ${f.realizado.excedente
+          ? cartaoFreq(dinheiro(f.realizado.excedente), 'além do combinado') : ''}
+        ${f.realizado.experimental
+          ? cartaoFreq(dinheiro(f.realizado.experimental), 'de experimentais') : ''}
+        ${f.realizado.semVinculo
+          ? cartaoFreq(dinheiro(f.realizado.semVinculo), 'de sem aluno') : ''}
+        ${f.perdido ? cartaoFreq(dinheiro(f.perdido), 'perdido no teto', 'atrasado') : ''}
+      </div>
+
+      <table class="freq-tabela" style="margin-bottom:14px">
+        <thead><tr><th>Produto</th><th>Check-ins</th><th>Valor</th><th>Repasse</th></tr></thead>
+        <tbody>
+          <tr><td>Funcional</td><td>${f.porProduto.funcional.checkins}</td>
+            <td>${dinheiro(f.precos.funcional)}</td>
+            <td><b>${dinheiro(f.porProduto.funcional.valor)}</b></td></tr>
+          <tr><td>Crosstraining</td><td>${f.porProduto.crosstraining.checkins}</td>
+            <td>${dinheiro(f.precos.crosstraining)}</td>
+            <td><b>${dinheiro(f.porProduto.crosstraining.valor)}</b></td></tr>
+          ${f.porProduto.semProduto.checkins ? `<tr class="orfao">
+            <td>Produto não reconhecido</td><td>${f.porProduto.semProduto.checkins}</td>
+            <td>${dinheiro(Math.min(f.precos.funcional, f.precos.crosstraining))}</td>
+            <td><b>${dinheiro(f.porProduto.semProduto.valor)}</b></td></tr>` : ''}
+        </tbody>
+      </table>
+
+      ${f.mesCorrente && f.projetados ? `<p class="ajuda">A previsão soma o que
+        <b>${f.alunosNaProjecao}</b> aluno(s) ainda devem para fechar o pacote —
+        <b>${f.projetados}</b> check-in(s) — pelo produto que cada um costuma marcar.
+        Só o pacote entra: treino além do combinado e experimental são o aluno decidindo
+        aparecer, e prometer isso no caixa é contar com o que ninguém combinou. O limite
+        é o calendário — sobram ${f.diasRestantes} dia(s) e ninguém gera dois repasses na
+        mesma data, então quem deve mais do que isso projeta só o que cabe.</p>` : ''}
+
+      ${f.perdido ? `<p class="ajuda">${dinheiro(f.perdido)} passaram dos 12 check-ins por
+        pessoa: o treino aconteceu, o estúdio entregou e o repasse não vem.</p>` : ''}
+
+      ${f.porProduto.semProduto.checkins ? `<p class="ajuda alerta-rev">
+        ${f.porProduto.semProduto.checkins} check-in(s) vieram com um produto que não é
+        Funcional nem Crosstraining. Entraram pelo valor mais baixo para não inflar a
+        previsão — se o portal criou um produto novo, ele precisa de preço próprio.</p>` : ''}
 
       ${graficoMes(p)}
 
@@ -2957,11 +3024,15 @@ async function carregarMes(){
         ['Data','Dia da semana','Previsto no dia','Alunos no dia','Além do combinado no dia',
          'Sem repasse no dia','Experimentais no dia','Sem aluno no dia','Deveria ter (acum.)',
          'Previsto (acum.)','Alunos (acum.)','Além do combinado (acum.)','Sem repasse (acum.)',
-         'Experimentais (acum.)','Sem aluno (acum.)'],
+         'Experimentais (acum.)','Sem aluno (acum.)','Repasse no dia','Repasse (acum.)'],
         p.dias.map(d=>[d.data, DIA_LONGO[d.diaDaSemana],
           d.previsto, d.feito, d.fora, d.ignorado, d.experimental, d.semVinculo,
           d.metaAcum, d.previstoAcum, d.feitoAcum, d.foraAcum, d.ignoradoAcum,
-          d.experimentalAcum, d.semVinculoAcum]));
+          d.experimentalAcum, d.semVinculoAcum,
+          // Vírgula decimal: o CSV abre no Excel em pt-BR, e 215.74 vira duzentos
+          // e quinze mil setecentos e quarenta na planilha.
+          d.receita.toFixed(2).replace('.', ','),
+          d.receitaAcum.toFixed(2).replace('.', ',')]));
       avisar(`${p.dias.length} dia(s) exportado(s).`,'ok');
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
@@ -3372,6 +3443,7 @@ async function carregarConfig(){
     const c = await api('/admin/config');
     configAtual = c;
     const av = c.avisos || {};
+    const fin = c.financeiro || {};
     alvo.innerHTML = `
       <h2>Configurações</h2>
 
@@ -3491,6 +3563,23 @@ async function carregarConfig(){
           placeholder="31988887777, 11977776666">
         <p class="ajuda">Separe por vírgula. Quem está aqui vê as abas Lista do dia,
           Alunos e Configurações. Você não pode tirar o seu próprio número.</p></div>
+
+      <h3>Repasse do Wellhub</h3>
+      <p class="ajuda">Quanto o Wellhub paga por check-in validado, em cada produto. O portal
+        já manda no check-in qual dos dois o aluno marcou, então basta o valor: a aba
+        <b>Mês</b> soma sozinha o que já entrou e projeta o que ainda falta até o dia 31.
+        Mudou o contrato, troque aqui — a conta do mês inteiro passa a usar o valor novo.</p>
+      <div class="dupla">
+        <div class="campo"><label for="c-val-func">Funcional (R$ por check-in)</label>
+          <input id="c-val-func" type="number" min="0" step="0.01"
+            value="${Number(fin.valorFuncional ?? 18.75)}"></div>
+        <div class="campo"><label for="c-val-cross">Crosstraining (R$ por check-in)</label>
+          <input id="c-val-cross" type="number" min="0" step="0.01"
+            value="${Number(fin.valorCrosstraining ?? 22.28)}"></div>
+      </div>
+      <p class="ajuda">Check-in com um produto que não seja nenhum dos dois entra pelo menor
+        dos dois valores e aparece separado na aba Mês — assim um nome novo no portal vira
+        um aviso na tela, e não um erro silencioso na soma.</p>
 
       <h3>Avisos de check-in</h3>
       <p class="ajuda">Quem é avisado quando um check-in do Wellhub é confirmado. Pode ser
@@ -3789,6 +3878,10 @@ async function salvarConfig(){
     envio: {
       url: v('c-url'), nomeDoCabecalhoDoToken: v('c-cabec'),
       corpo: v('c-corpo'), texto: v('c-texto'),
+    },
+    financeiro: {
+      valorFuncional: n('c-val-func'),
+      valorCrosstraining: n('c-val-cross'),
     },
     avisos: {
       checkinConfirmado: v('c-aviso-ligado') === '1',
