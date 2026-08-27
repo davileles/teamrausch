@@ -478,6 +478,12 @@
   /* Dinheiro é sempre mais largo que um número de treinos: "R$ 18.955,09" não
      cabe nos 90px da grade de contagem sem quebrar no meio do milhar. Mesma
      gramática visual, coluna mais folgada e fonte um ponto menor. */
+  /* Título de grupo dos cartões do mês. Sem ele, doze números em sequência
+     parecem a mesma unidade — e "597" ao lado de "R$ 16.415" não é. */
+  .grupo-mes{font:600 11px 'Work Sans',sans-serif;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--fraco);margin:16px 0 0}
+  .grupo-mes small{display:block;text-transform:none;letter-spacing:0;font-weight:400;
+    font-size:11px;color:var(--fraco-2);margin-top:3px}
   .freq-cartoes.dinheiro{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
   .freq-cartoes.dinheiro .freq-cartao b{font-size:19px}
   .freq-cartao.critico b{color:var(--vermelho)}
@@ -2834,17 +2840,19 @@ function graficoMes(p){
   const fatia = areaL / n;
   p.dias.forEach((d,i)=>{
     const dica = `${d.dia} de ${MES_NOME[Number(p.mes.slice(5))-1]} · ${DIA_LONGO[d.diaDaSemana]}`
-      + `\nDeveria ter até aqui: ${d.metaAcum}`
-      + `\nPrevisto pela grade: ${d.previstoAcum}`
+      + `\nMeta do pacote até aqui: ${d.metaAcum} check-in(s)`
+      + `\nAulas na agenda: ${d.previstoAcum}`
       + (d.futuro ? '\nAinda não aconteceu.'
-        : `\nAlunos: ${d.feitoAcum}`
+        : `\nCheck-ins do pacote: ${d.feitoAcum}`
           + (d.foraAcum ? `\nAlém do combinado: ${d.foraAcum}` : '')
           + (d.ignoradoAcum ? `\nSem repasse: ${d.ignoradoAcum}` : '')
           + `\nExperimentais: ${d.experimentalAcum}`
           + (d.semVinculoAcum ? `\nSem aluno: ${d.semVinculoAcum}` : '')
-          + `\n(neste dia: ${d.previsto} previsto(s), ${d.feito} aluno(s)`
+          + (d.receitaAcum ? `\nRepasse até aqui: ${dinheiro(d.receitaAcum)}` : '')
+          + `\n(neste dia: ${d.previsto} na agenda, ${d.feito} do pacote`
           + (d.fora ? `, ${d.fora} além do combinado` : '')
-          + (d.ignorado ? `, ${d.ignorado} sem repasse` : '') + `)`);
+          + (d.ignorado ? `, ${d.ignorado} acima do teto` : '')
+          + (d.receita ? `, ${dinheiro(d.receita)}` : '') + `)`);
     svg += `<g><title>${esc(dica)}</title><rect x="${(ESQ+i*fatia).toFixed(1)}" y="${TOPO}"`
       + ` width="${fatia.toFixed(1)}" height="${areaA}" fill="transparent"/></g>`;
   });
@@ -2885,30 +2893,49 @@ async function carregarMes(){
           ${noCorrente ? 'disabled' : ''}>›</button>
       </div>
 
+      <p class="ajuda">Todos os números desta faixa contam <b>check-ins</b> — um por aluno
+        por dia, do jeito que o Wellhub paga. Não são pessoas: o estúdio tem
+        <b>${p.alunosComPacote}</b> alunos com pacote. Dinheiro só depois do gráfico.</p>
+
+      <h4 class="grupo-mes">${noCorrente ? `Até hoje, dia ${Number(p.hoje.slice(8))}` : 'No mês'}
+        <small>O ritmo: se o mês parasse agora, estaria adiantado ou atrasado?</small></h4>
       <div class="freq-cartoes">
-        ${cartaoFreq(t.metaAteHoje, 'deveria ter hoje')}
-        ${cartaoFreq(t.feito, 'alunos', atraso > 0 ? 'atrasado' : 'em-dia')}
-        ${cartaoFreq(atraso > 0 ? `−${atraso}` : `+${-atraso}`, 'no ritmo',
+        ${cartaoFreq(t.metaAteHoje, 'o pacote já pedia')}
+        ${cartaoFreq(t.feito, 'feitos, do pacote', atraso > 0 ? 'atrasado' : 'em-dia')}
+        ${cartaoFreq(atraso > 0 ? `−${atraso}` : `+${-atraso}`,
+          atraso > 0 ? 'atrás do ritmo' : 'à frente do ritmo',
           atraso > 0 ? 'atrasado' : 'em-dia')}
-        ${cartaoFreq(p.metaMes, 'meta do mês')}
-        ${cartaoFreq(faltam, 'faltam até o fim', faltam ? '' : 'em-dia')}
-        ${cartaoFreq(t.previsto, 'aulas na grade')}
-        ${t.fora ? cartaoFreq(t.fora, 'além do combinado') : ''}
-        ${t.fora ? cartaoFreq(t.contabilizavel, 'repasse esperado') : ''}
-        ${t.ignorado ? cartaoFreq(t.ignorado,
-          `sem repasse · ${t.alunosNoTeto} aluno(s)`, 'atrasado') : ''}
-        ${t.experimental ? cartaoFreq(t.experimental, 'experimentais') : ''}
-        ${t.semVinculo ? cartaoFreq(t.semVinculo, 'sem aluno', 'critico') : ''}
       </div>
 
+      <h4 class="grupo-mes">Fechamento, dia ${Number(p.ate.slice(8))}
+        <small>O combinado do mês inteiro, e o que ainda falta para bater.</small></h4>
+      <div class="freq-cartoes">
+        ${cartaoFreq(p.metaMes, 'o pacote pede no mês')}
+        ${cartaoFreq(faltam, 'ainda faltam', faltam ? '' : 'em-dia')}
+        ${cartaoFreq(t.previsto, 'aulas na agenda')}
+      </div>
+
+      ${(t.fora || t.ignorado || t.experimental || t.semVinculo) ? `
+      <h4 class="grupo-mes">Fora do pacote
+        <small>Aconteceu, mas nenhum destes entra nas contas acima.</small></h4>
+      <div class="freq-cartoes">
+        ${t.fora ? cartaoFreq(t.fora, 'extras, o Wellhub paga') : ''}
+        ${t.experimental ? cartaoFreq(t.experimental, 'de experimentais') : ''}
+        ${t.semVinculo ? cartaoFreq(t.semVinculo, 'sem ficha', 'critico') : ''}
+        ${t.ignorado ? cartaoFreq(t.ignorado,
+          `acima do teto · ${t.alunosNoTeto} aluno(s)`, 'atrasado') : ''}
+      </div>` : ''}
+
       <h3 style="margin:18px 0 0">O mês em dinheiro</h3>
-      <p class="ajuda">${f.mesCorrente
-        ? `Já validado <b>${dinheiro(f.realizado.total)}</b>; o pacote ainda promete
-           <b>${dinheiro(f.aReceber)}</b> até o dia 31.`
-        : 'Mês fechado: o que está aqui é o que foi validado, sem projeção.'}
-        Cada check-in vale ${dinheiro(f.precos.funcional)} no funcional e
-        ${dinheiro(f.precos.crosstraining)} no crosstraining — valores da aba
-        Configurações → Negócio.</p>
+      <p class="ajuda">Dos check-ins acima, <b>${f.checkins.pagos}</b> o Wellhub paga —
+        somando pacote, extras, experimentais e órfãos${f.checkins.naoPagos
+          ? `, e ${f.checkins.naoPagos} não, por terem passado do teto de 12 por pessoa` : ''}.
+        Cada um vale ${dinheiro(f.precos.funcional)} no funcional e
+        ${dinheiro(f.precos.crosstraining)} no crosstraining (Configurações → Negócio).
+        ${f.mesCorrente
+          ? `Daí os <b>${dinheiro(f.realizado.total)}</b> já validados; o pacote ainda promete
+             <b>${dinheiro(f.aReceber)}</b> até o dia ${Number(p.ate.slice(8))}.`
+          : 'Mês fechado: o que está aqui é o que foi validado, sem projeção.'}</p>
 
       <div class="freq-cartoes dinheiro">
         ${cartaoFreq(dinheiro(f.realizado.total), 'já validado')}
@@ -2990,9 +3017,9 @@ async function carregarMes(){
       ${graficoMes(p)}
 
       <div class="legenda-mes">
-        <span><i style="background:var(--apagado)"></i>deveria ter (pacote)</span>
-        <span><i style="background:var(--linha-3)"></i>previsto pela grade</span>
-        <span><i style="background:var(--amarelo)"></i>alunos</span>
+        <span><i style="background:var(--apagado)"></i>meta do pacote</span>
+        <span><i style="background:var(--linha-3)"></i>aulas na agenda</span>
+        <span><i style="background:var(--amarelo)"></i>check-ins do pacote</span>
         ${t.fora
           ? '<span><i style="background:var(--amarelo-2)"></i>além do combinado</span>' : ''}
         ${t.experimental
@@ -3024,8 +3051,8 @@ async function carregarMes(){
       ${(t.fora || t.ignorado) ? `<p class="ajuda">O treino além do combinado tem duas
         camadas. ${t.fora ? `<b>${t.fora}</b> check-in(s) passaram da meta do aluno mas
         continuam dentro dos 12 que a assinatura paga — é a linha apagada, receita que
-        entra sem ter sido prevista. Somando ao pacote, o repasse esperado do mês é
-        <b>${t.contabilizavel}</b>.` : ''} ${t.ignorado ? `<b>${t.ignorado}</b> passaram dos
+        entra sem ter sido prevista. Somando ao pacote, são <b>${t.contabilizavel}</b>
+        check-in(s) de alunos com pacote que o Wellhub paga.` : ''} ${t.ignorado ? `<b>${t.ignorado}</b> passaram dos
         12 por aluno (${t.alunosNoTeto} pessoa(s)): foram confirmados no portal, mas não
         rendem nada e não entram em nenhuma linha.` : ''} Contar tudo junto faria o mês
         parecer melhor do que o extrato vai mostrar.</p>` : ''}
