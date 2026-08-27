@@ -56,7 +56,16 @@ const TETO_SEMANAL = Number(process.env.FREQ_TETO_SEMANAL || 3);
  * É um número fixo da assinatura, não da grade: quem contratou 1x por semana e
  * apareceu vinte vezes gera doze check-ins pagos, iguais aos de quem contratou
  * 3x. `metaDoMes` continua sendo o combinado de cada um — o que se cobra dele.
- * Este aqui é outro limite: o que o relatório pode contar como realizado.
+ *
+ * SÃO TRÊS FAIXAS, NÃO DUAS
+ *   Até a meta é PACOTE: o combinado, o que o mês tinha de render e o que a
+ *   cobrança usa. Da meta até doze é EXCEDENTE: o aluno veio a mais, o Wellhub
+ *   paga, mas não era previsto e não entra na régua de quem está atrasado.
+ *   Acima de doze é IGNORADO: aconteceu e não rende nada.
+ *
+ *   Quem tem meta doze não tem faixa do meio — para ele o teto e o pacote são
+ *   o mesmo número. Quem tem meta oito tem quatro check-ins de excedente
+ *   possíveis antes de começar a desperdiçar.
  */
 const TETO_MES = Number(process.env.FREQ_TETO_MES || TETO_SEMANAL * SEMANAS_NO_MES);
 
@@ -337,25 +346,38 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
   const todasDoMes = [...new Set(
     datasFeitas.filter((d) => d >= primeiroDoMes && d <= ate))].sort();
 
-  // O DÉCIMO TERCEIRO CHECK-IN DO MÊS NÃO EXISTE PARA O RELATÓRIO
-  //   Nada impede o aluno de passar no portal trinta vezes, e o portal valida
-  //   as trinta — mas a assinatura rende doze e o estúdio recebe doze. Contar
-  //   as trinta faz o painel prometer receita que não vem, e deixa um único
-  //   aluno assíduo esconder três colegas sumidos na soma do mês.
-  //
-  //   O corte é cronológico: as doze primeiras datas do mês são as que valem,
-  //   as demais viram excedente. Fica em `mes.excedente` porque o treino
-  //   aconteceu — some daqui e vira bug para quem confere na mão.
-  const feitasMes = todasDoMes.slice(0, TETO_MES);
-  const excedenteMes = todasDoMes.length - feitasMes.length;
+  // Conta compartilhada: a meta vem da fatia da conta, não da grade da ficha.
+  const metaMes = opcoes.metaMes !== undefined ? Number(opcoes.metaMes) : metaDoMes(matricula);
 
-  // A janela de sete dias herda o corte do mês: um treino de ontem que já
-  // passou do teto não pode aparecer como crédito da semana.
+  // O QUE O ALUNO PROMETEU, O QUE AINDA RENDE E O QUE SE PERDE
+  //   Nada impede o aluno de passar no portal trinta vezes, e o portal valida
+  //   as trinta. Mas quem combinou oito rende oito de pacote; do nono ao
+  //   décimo segundo o Wellhub ainda paga, só que aquilo não era previsto por
+  //   ninguém; e do décimo terceiro em diante não entra nada.
+  //
+  //   Contar tudo junto faz o painel prometer receita que não vem e deixa um
+  //   aluno assíduo esconder três colegas sumidos na soma do mês. Por isso as
+  //   três faixas: `realizado` é o pacote, `excedente` é o que veio a mais e
+  //   ainda rende, `ignorado` é o que passou do teto da assinatura.
+  //
+  //   O corte é cronológico — as primeiras datas do mês, em ordem, preenchem o
+  //   pacote. Nada some da base: `checkins-store` guarda os trinta.
+  //
+  //   SEM GRADE NÃO HÁ PACOTE A COMPARAR
+  //     Ficha nova, ainda sem horários combinados, tem meta zero. Aí não existe
+  //     faixa do meio para calcular: o teto do repasse vira o pacote inteiro,
+  //     que é como esta tela sempre tratou esse caso.
+  const tetoPacote = metaMes > 0 ? Math.min(metaMes, TETO_MES) : TETO_MES;
+  const feitasMes = todasDoMes.slice(0, tetoPacote);
+  const pagasMes = todasDoMes.slice(0, TETO_MES);
+  const excedenteMes = pagasMes.length - feitasMes.length;
+  const ignoradoMes = todasDoMes.length - pagasMes.length;
+
+  // A janela de sete dias herda o corte do pacote: um treino de ontem que já
+  // passou do combinado não pode aparecer como crédito da semana.
   const feitas = feitasMes.filter((d) => d >= de && d <= ate);
   const realizado = feitas.length;
 
-  // Conta compartilhada: a meta vem da fatia da conta, não da grade da ficha.
-  const metaMes = opcoes.metaMes !== undefined ? Number(opcoes.metaMes) : metaDoMes(matricula);
   const faltamNoMes = Math.max(metaMes - feitasMes.length, 0);
   const devido = devidoAteAgora(matricula, ate, metaMes);
   const saldoRitmo = feitasMes.length - devido;
@@ -403,9 +425,14 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
       esperado: previstasMes.length,
       realizado: feitasMes.length,
       saldo: feitasMes.length - previstasMes.length,
-      // Check-ins do mês que passaram do teto do repasse: o aluno veio, o
-      // portal validou, o estúdio não recebe. Ficam fora de toda régua acima.
+      // Treino além do combinado que o Wellhub ainda paga: da meta até o teto
+      // de doze. Não entra em `realizado` — não era previsto, e somá-lo faria
+      // um aluno de meta oito aparecer com 12/8 no fechamento.
       excedente: excedenteMes,
+      // Passou do teto da assinatura: aconteceu e não rende nada.
+      ignorado: ignoradoMes,
+      // O que de fato vira repasse: pacote + excedente, nunca mais que o teto.
+      contabilizavel: feitasMes.length + excedenteMes,
       realizadoBruto: todasDoMes.length,
       teto: TETO_MES,
       // O que conta no fechamento: quantos treinos o pacote pede no mês e
@@ -596,10 +623,15 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
       comPacote: doPacote.length,
       metaMes: somar((a) => a.mes.meta),
       realizadoMes: somar((a) => a.mes.realizado),
-      // Treinos além do teto, somados à parte: é o que o estúdio entrega e não
-      // fatura. Nunca entra em `realizadoMes` — aquele número é o do repasse.
+      // Além do combinado, somado à parte: o Wellhub paga, mas não era previsto
+      // e não pode inflar `realizadoMes`, que é a régua do pacote.
       excedenteMes: somar((a) => a.mes.excedente),
-      alunosNoTeto: doPacote.filter((a) => a.mes.excedente > 0).length,
+      // Repasse esperado do mês: pacote + excedente.
+      contabilizavelMes: somar((a) => a.mes.contabilizavel),
+      // O que o estúdio entrega e não fatura: passou dos doze.
+      ignoradosMes: somar((a) => a.mes.ignorado),
+      alunosComExcedente: doPacote.filter((a) => a.mes.excedente > 0).length,
+      alunosNoTeto: doPacote.filter((a) => a.mes.ignorado > 0).length,
       faltamMes: somar((a) => a.mes.faltam),
       devendoNoMes: doPacote.filter((a) => a.mes.faltam > 0).length,
       // Quem já não fecha o pacote: é a conta que o fim do mês vai cobrar.
@@ -741,9 +773,13 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
       diaDaSemana: grade.diaDaSemana(d),
       previsto: 0,
       feito: 0,
-      // Check-ins de aluno que já passaram do teto do mês. Série própria: são
-      // reais, e somados ao `feito` empurrariam a curva do repasse para cima.
+      // Treino além do combinado do aluno, mas dentro dos doze que a assinatura
+      // paga. Série própria: somado ao `feito` empurraria a curva do pacote
+      // acima da meta num mês em que metade do estúdio sumiu.
       fora: 0,
+      // Passou dos doze: aconteceu e não rende. Não vira linha no gráfico,
+      // só número — é a conta do que o estúdio entrega de graça.
+      ignorado: 0,
       experimental: 0,
       semVinculo: 0,
       futuro: d > hoje,
@@ -785,15 +821,19 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
   // ficha, a chave é a conta do portal — dois check-ins do mesmo órfão no mesmo
   // dia continuam sendo um.
   //
-  // O TETO DO REPASSE VALE AQUI TAMBÉM
-  //   `metaAcum` soma doze por aluno; se o realizado somasse os trinta que uma
-  //   pessoa muito assídua faz, a curva amarela passaria a tracejada num mês em
-  //   que metade do estúdio sumiu. Do décimo terceiro em diante o check-in vai
-  //   para `fora` — a linha do treino que o estúdio dá e não fatura.
+  // AS MESMAS TRÊS FAIXAS DA ABA FREQUÊNCIA
+  //   `metaAcum` soma o combinado de cada aluno. Se o realizado somasse os
+  //   trinta que uma pessoa muito assídua faz, a curva amarela passaria a
+  //   tracejada num mês em que metade do estúdio sumiu. Então cada check-in
+  //   entra na faixa a que pertence: até a meta do aluno é pacote (`feito`),
+  //   da meta até doze é excedente pago (`fora`), acima disso é `ignorado`.
   //
-  //   A ordem importa: o corte é "as doze primeiras do mês", e `listar` devolve
-  //   do mais recente para o mais antigo. Sem ordenar, o dia 28 entraria no
-  //   pacote e o dia 2 viraria excedente.
+  //   Sem meta — ficha sem grade, mensalista com check-in avulso — o teto do
+  //   repasse serve de pacote, que é como esta tela sempre contou.
+  //
+  //   A ordem importa: o corte é "as primeiras do mês", e `listar` devolve do
+  //   mais recente para o mais antigo. Sem ordenar, o dia 28 entraria no pacote
+  //   e o dia 2 viraria excedente.
   const emOrdem = [...checkins].sort((a, b) =>
     String(a.data).localeCompare(String(b.data)));
 
@@ -812,21 +852,27 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
     const m = porId.get(c.matriculaId);
     if (m && m.experimental) { linha.experimental += 1; continue; }
 
+    const meta = metas.get(c.matriculaId) || 0;
+    const tetoPacote = meta > 0 ? Math.min(meta, TETO_MES) : TETO_MES;
     const n = (noMes.get(c.matriculaId) || 0) + 1;
     noMes.set(c.matriculaId, n);
-    if (n > TETO_MES) linha.fora += 1;
-    else linha.feito += 1;
+    if (n <= tetoPacote) linha.feito += 1;
+    else if (n <= TETO_MES) linha.fora += 1;
+    else linha.ignorado += 1;
   }
 
   // Acumulados: a leitura do mês é de soma corrida, não de coluna solta. Sai
   // daqui e não da tela para o CSV exportar exatamente o que o gráfico desenha.
-  let aPrevisto = 0; let aFeito = 0; let aExp = 0; let aSem = 0; let aFora = 0;
+  let aPrevisto = 0; let aFeito = 0; let aExp = 0; let aSem = 0;
+  let aFora = 0; let aIgn = 0;
   for (const l of dias) {
     aPrevisto += l.previsto; aFeito += l.feito;
-    aExp += l.experimental; aSem += l.semVinculo; aFora += l.fora;
+    aExp += l.experimental; aSem += l.semVinculo;
+    aFora += l.fora; aIgn += l.ignorado;
     l.previstoAcum = aPrevisto;
     l.feitoAcum = aFeito;
     l.foraAcum = aFora;
+    l.ignoradoAcum = aIgn;
     l.experimentalAcum = aExp;
     l.semVinculoAcum = aSem;
   }
@@ -849,8 +895,12 @@ function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = 
       previstoAteHoje: ateHoje.reduce((s, l) => s + l.previsto, 0),
       metaAteHoje: ultimoFechado ? ultimoFechado.metaAcum : 0,
       feito: aFeito,
-      // Treino entregue acima do teto: não entra em `feito` nem na meta.
+      // Além do combinado e dentro dos doze: o Wellhub paga, a meta não previa.
       fora: aFora,
+      // Repasse esperado do mês: pacote + excedente.
+      contabilizavel: aFeito + aFora,
+      // Passou dos doze: entregue e não faturado.
+      ignorado: aIgn,
       alunosNoTeto: [...noMes.values()].filter((n) => n > TETO_MES).length,
       experimental: aExp,
       semVinculo: aSem,
