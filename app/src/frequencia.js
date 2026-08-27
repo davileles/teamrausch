@@ -595,9 +595,127 @@ function devedores(painelPronto) {
     a.situacao === 'atrasado' || a.situacao === 'critico');
 }
 
+/* --------------------------- panorama do mês ----------------------------- */
+
+/**
+ * O mês visto por data, e não por aluno.
+ *
+ * A tela de frequência responde "quem está devendo". Esta responde "que dia o
+ * estúdio esvaziou". São perguntas diferentes: um feriado, uma semana de chuva
+ * ou o portal fora do ar aparecem aqui como um vale de um dia só, enquanto a
+ * lista por aluno dilui o mesmo buraco em sessenta linhas de -1.
+ *
+ * PREVISTO É A GRADE PROJETADA, NÃO A META DO PACOTE
+ *   A meta (combinado semanal x 4, teto 12) é um número do mês inteiro e não se
+ *   reparte em dias. Quem treina segunda, quarta e sexta tem 13 aulas num mês
+ *   com cinco segundas e só 12 entram no repasse — espalhar essa perda pelo
+ *   calendário exigiria eleger qual segunda-feira não conta, e não existe
+ *   resposta certa para isso. Então o previsto de cada dia é a aula que estava
+ *   combinada para aquele dia, com as desmarcações descontadas e as extras
+ *   somadas, e o excedente do pacote continua sendo assunto da tela por aluno.
+ *
+ * UM ALUNO VALE UM CHECK-IN POR DIA
+ *   Quem tem dois horários na mesma terça aparece duas vezes na grade e uma vez
+ *   só aqui: o Wellhub repassa por dia, e `checkins-store` deduplica igual.
+ *   Contar as duas aulas deixaria o previsto acima de um realizado que nunca
+ *   teve como alcançá-lo.
+ *
+ * EXPERIMENTAL FICA NA PRÓPRIA SÉRIE
+ *   Sem grade combinada não há previsto para comparar. Somado ao dos alunos, o
+ *   treino dele empurraria o realizado acima do previsto num dia em que
+ *   ninguém do pacote veio a mais — a leitura do gráfico ficaria invertida.
+ *
+ * O DIA DE HOJE MOSTRA O DIA INTEIRO
+ *   `aulasPrevistas` corta as aulas cujo horário ainda não passou, porque lá o
+ *   número vira cobrança. Aqui não: uma coluna de hoje que cresce ao longo do
+ *   dia faria o gráfico mudar de forma a cada visita. Quem lê recebe a marca de
+ *   "hoje" na coluna e sabe que a noite ainda não aconteceu.
+ */
+function panoramaDoMes({ matriculas = [], excecoes = [], checkins = [], mes } = {}) {
+  const hoje = hojeLocal();
+  const base = /^\d{4}-\d{2}$/.test(String(mes || '')) ? `${mes}-01` : hoje;
+  const de = inicioDoMes(base);
+  const fim = fimDoMes(base);
+
+  const porId = new Map(matriculas.map((m) => [m.id, m]));
+  // Só quem faz check-in e tem pacote: mensalista não passa pelo portal e
+  // experimental ainda não combinou grade nenhuma.
+  const comPacote = matriculas.filter((m) =>
+    (m.vinculo || 'mensalista') === 'wellhub' && !m.experimental);
+
+  const dias = [];
+  const indice = new Map();
+  for (let d = de; d <= fim; d = grade.somarDias(d, 1)) {
+    const linha = {
+      data: d,
+      dia: Number(d.slice(8, 10)),
+      diaDaSemana: grade.diaDaSemana(d),
+      previsto: 0,
+      feito: 0,
+      experimental: 0,
+      semVinculo: 0,
+      futuro: d > hoje,
+      ehHoje: d === hoje,
+    };
+    dias.push(linha);
+    indice.set(d, linha);
+  }
+
+  // Previsto: a mesma projeção que desenha a tela "Grade do dia", contada por
+  // pessoa e não por aula.
+  for (const linha of dias) {
+    const doDia = excecoes.filter((e) => e.data === linha.data);
+    linha.previsto = new Set(
+      grade.agendaDoDia(comPacote, linha.data, doDia).map((a) => a.matriculaId)).size;
+  }
+
+  // Realizado: deduplicado por pessoa e dia, do mesmo jeito que o repasse. Sem
+  // ficha, a chave é a conta do portal — dois check-ins do mesmo órfão no mesmo
+  // dia continuam sendo um.
+  const vistos = new Set();
+  for (const c of checkins) {
+    const linha = indice.get(c.data);
+    if (!linha) continue;
+    const chave = c.matriculaId
+      ? `m:${c.matriculaId}|${c.data}`
+      : `g:${c.gympassId || c.id}|${c.data}`;
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+
+    if (!c.matriculaId) { linha.semVinculo += 1; continue; }
+    const m = porId.get(c.matriculaId);
+    if (m && m.experimental) linha.experimental += 1;
+    else linha.feito += 1;
+  }
+
+  const soma = (campo) => dias.reduce((s, l) => s + l[campo], 0);
+
+  return {
+    mes: de.slice(0, 7),
+    de,
+    ate: fim,
+    hoje,
+    // Meta somada de quem tem pacote: o que o mês rende no fechamento, para o
+    // realizado ter contra o que ser lido além do previsto da grade.
+    metaMes: comPacote.reduce((s, m) => s + metaDoMes(m), 0),
+    alunosComPacote: comPacote.length,
+    dias,
+    totais: {
+      previsto: soma('previsto'),
+      // O previsto que já venceu. Comparar o feito com o previsto do mês
+      // inteiro no dia 5 diria que o estúdio está 90% vazio.
+      previstoAteHoje: dias.filter((l) => !l.futuro)
+        .reduce((s, l) => s + l.previsto, 0),
+      feito: soma('feito'),
+      experimental: soma('experimental'),
+      semVinculo: soma('semVinculo'),
+    },
+  };
+}
+
 module.exports = {
   avaliar, painel, devedores, aulasPrevistas, metaDoMes, devidoAteAgora, proximoMarco,
-  diasRestantes, repartirConta, dividirContas, repartir, intercalar,
+  diasRestantes, repartirConta, dividirContas, repartir, intercalar, panoramaDoMes,
   hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes,
   TOLERANCIA_MIN, SEMANAS_NO_MES, TETO_SEMANAL,
 };

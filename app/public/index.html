@@ -485,6 +485,23 @@
   .freq-tabela tr.orfao select{padding:5px 8px;font-size:12px}
   .freq-acoes{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
   .freq-acoes button{flex:1;min-width:130px}
+  /* Gráfico do mês: SVG desenhado à mão, sem biblioteca. Trinta e uma colunas
+     não cabem em 380px de largura sem virar risco, então o quadro rola na
+     horizontal em vez de encolher a ponto de não se ler o número do dia. */
+  .grafico-mes{overflow-x:auto;margin:4px 0 10px;padding-bottom:4px}
+  .grafico-mes svg{display:block;width:100%;min-width:660px;height:auto}
+  .grafico-mes line{stroke-width:1}
+  .g-eixo{font:600 9px 'Work Sans',sans-serif;fill:var(--fraco-2)}
+  .g-dia{font:600 9px 'Work Sans',sans-serif;fill:var(--fraco)}
+  .g-dia.fds{fill:var(--fraco-2)}
+  .g-dia.hoje{fill:var(--amarelo)}
+  .legenda-mes{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 14px;
+    font:500 11px 'Work Sans',sans-serif;color:var(--fraco)}
+  .legenda-mes i{display:inline-block;width:10px;height:10px;margin-right:5px;vertical-align:-1px}
+  .nav-mes{display:flex;align-items:center;gap:10px;margin:0 0 4px}
+  .nav-mes b{flex:1;text-align:center;font:400 16px Anton,sans-serif;
+    letter-spacing:.05em;text-transform:uppercase}
+  .nav-mes button{min-width:46px}
   .alerta-rev{border-left:3px solid var(--amarelo);padding-left:10px;margin:12px 0 0}
   .barra-dia{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;margin-bottom:12px}
   .barra-dia input{background:var(--preto);margin:0}
@@ -1447,7 +1464,7 @@ const NOME_DIA = {0:'dom',1:'seg',2:'ter',3:'qua',4:'qui',5:'sex',6:'sáb'};
 function matEstadoInicial(){
   return { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
     experimental:false, acesso:'', data:null, aberta:null, freqDias:7, freqSo:'devendo',
-    focarFicha:false };
+    focarFicha:false, mesRef:null };
 }
 let matEstado = matEstadoInicial();
 /* Fora da função de propósito: `carregarMatriculas` roda de novo a cada
@@ -1873,6 +1890,7 @@ async function carregarMatriculas(){
         <button data-sub="grade" aria-selected="${matEstado.sub==='grade'}">Grade do dia</button>
         <button data-sub="lotacao" aria-selected="${matEstado.sub==='lotacao'}">Lotação da semana</button>
         <button data-sub="freq" aria-selected="${matEstado.sub==='freq'}">Frequência</button>
+        <button data-sub="mes" aria-selected="${matEstado.sub==='mes'}">Mês</button>
       </div>
       <div data-painel="alunos" ${matEstado.sub==='alunos'?'':'hidden'}>
         <p class="ajuda">${resumo.ativas} ativos · ${resumo.mensalistas} mensalistas ·
@@ -1938,6 +1956,9 @@ async function carregarMatriculas(){
       </div>
       <div data-painel="freq" ${matEstado.sub==='freq'?'':'hidden'}>
         <div id="mat-freq"><div class="vazio">Carregando…</div></div>
+      </div>
+      <div data-painel="mes" ${matEstado.sub==='mes'?'':'hidden'}>
+        <div id="mat-mes"><div class="vazio">Carregando…</div></div>
       </div>`;
 
     alvo.querySelector('#sub-mat').addEventListener('click', e=>{
@@ -2036,6 +2057,7 @@ async function carregarMatriculas(){
     if (matEstado.sub === 'grade') await carregarGradeDoDia();
     if (matEstado.sub === 'lotacao') await carregarLotacao();
     if (matEstado.sub === 'freq') await carregarFrequencia();
+    if (matEstado.sub === 'mes') await carregarMes();
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
@@ -2632,6 +2654,206 @@ async function carregarFrequencia(){
 
       const abrir = el.querySelector('.fq-abrir');
       if (abrir) abrir.addEventListener('click', ()=> abrirFichaDe(el.dataset.id));
+    });
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* ------------------------------ mês a dia -------------------------------- */
+
+const MES_NOME = ['janeiro','fevereiro','março','abril','maio','junho','julho',
+  'agosto','setembro','outubro','novembro','dezembro'];
+const DIA_LONGO = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+
+function rotuloMes(mes){
+  const [a,m] = String(mes).split('-').map(Number);
+  return `${MES_NOME[m-1]} de ${a}`;
+}
+
+/* Aritmética de mês pelo UTC: somar 30 dias a 31/01 cairia em março. */
+function mesVizinho(mes, passo){
+  const [a,m] = String(mes).split('-').map(Number);
+  return new Date(Date.UTC(a, m-1+passo, 1)).toISOString().slice(0,7);
+}
+
+/**
+ * As barras do mês, em SVG escrito à mão.
+ *
+ * SEM BIBLIOTECA DE GRÁFICO
+ *   Um gráfico de barras é um retângulo por número. Trazer Chart.js para isso
+ *   custaria 60 kB e uma dependência de CDN numa página que hoje não tem
+ *   nenhuma — e o app precisa abrir na recepção com internet ruim.
+ *
+ * PREVISTO ATRÁS, REALIZADO NA FRENTE
+ *   Lado a lado seriam três barras por dia e trinta e uma colunas: cada barra
+ *   ficaria com dois pixels. Sobrepostas, a leitura é imediata — a barra
+ *   estreita passou da larga, ou não chegou nela.
+ *
+ * ALUNOS E EXPERIMENTAIS EMPILHADOS
+ *   Empilhar mantém o topo da barra como o total que entrou no estúdio, e a
+ *   divisão por cor responde de onde veio. Duas barras separadas exigiriam
+ *   somar de cabeça para responder a mesma pergunta.
+ */
+function graficoMes(p){
+  const ESQ=32, DIR=6, TOPO=10, BASE=26, COL=22;
+  const larg = ESQ + DIR + p.dias.length*COL;
+  const alt  = 236;
+  const areaA = alt - TOPO - BASE;
+
+  // O teto do eixo sobe até um múltiplo redondo: linha de grade em 7 ou 13 não
+  // ajuda ninguém a estimar altura.
+  const maior = Math.max(4, ...p.dias.map(d=>
+    Math.max(d.previsto, d.feito + d.experimental + d.semVinculo)));
+  const passo = maior<=8 ? 2 : maior<=20 ? 5 : 10;
+  const teto = Math.ceil(maior/passo)*passo;
+  const y = v => TOPO + areaA - (v/teto)*areaA;
+  const h = v => (v/teto)*areaA;
+
+  const LP = 14, LR = 7;   // largura da barra prevista e da realizada
+  let svg = '';
+
+  // Sábado e domingo com fundo próprio: sem isso, um vale de fim de semana
+  // parece falta de aluno.
+  p.dias.forEach((d,i)=>{
+    if (d.diaDaSemana!==0 && d.diaDaSemana!==6) return;
+    svg += `<rect x="${ESQ+i*COL}" y="${TOPO}" width="${COL}" height="${areaA}" fill="var(--fundo-2)"/>`;
+  });
+
+  for (let v=0; v<=teto; v+=passo){
+    svg += `<line x1="${ESQ}" y1="${y(v)}" x2="${larg-DIR}" y2="${y(v)}"`
+      + ` stroke="var(--linha)"${v ? ' stroke-dasharray="2 4"' : ''}/>`
+      + `<text x="${ESQ-5}" y="${y(v)+3.5}" text-anchor="end" class="g-eixo">${v}</text>`;
+  }
+
+  p.dias.forEach((d,i)=>{
+    const cx = ESQ + i*COL + COL/2;
+    const dica = `${d.dia} de ${MES_NOME[Number(p.mes.slice(5))-1]} · ${DIA_LONGO[d.diaDaSemana]}`
+      + `\nPrevisto: ${d.previsto}`
+      + `\nAlunos: ${d.feito}`
+      + `\nExperimentais: ${d.experimental}`
+      + (d.semVinculo ? `\nSem aluno: ${d.semVinculo}` : '')
+      + (d.futuro ? '\nAinda não aconteceu.'
+        : d.ehHoje ? '\nHoje — a aula da noite ainda não passou.' : '');
+
+    // O retângulo transparente cobre a coluna inteira para o <title> responder
+    // em qualquer ponto dela, e não só em cima da barra.
+    svg += `<g><title>${esc(dica)}</title>`
+      + `<rect x="${ESQ+i*COL}" y="${TOPO}" width="${COL}" height="${areaA}" fill="transparent"/>`;
+
+    if (d.previsto) svg += `<rect x="${cx-LP/2}" y="${y(d.previsto)}" width="${LP}"`
+      + ` height="${h(d.previsto)}" fill="var(--fundo-3)" stroke="var(--linha-2)"`
+      + `${d.futuro ? ' opacity=".45"' : ''}/>`;
+
+    let base = 0;
+    const empilhar = (v, cor)=>{
+      if (!v) return '';
+      const r = `<rect x="${cx-LR/2}" y="${y(base+v)}" width="${LR}" height="${h(v)}" fill="${cor}"/>`;
+      base += v;
+      return r;
+    };
+    svg += empilhar(d.feito, 'var(--amarelo)');
+    svg += empilhar(d.experimental, 'var(--liberado)');
+    svg += empilhar(d.semVinculo, 'var(--fraco-2)');
+    svg += '</g>';
+
+    svg += `<text x="${cx}" y="${alt-BASE+13}" text-anchor="middle" class="g-dia${
+      d.ehHoje ? ' hoje' : (d.diaDaSemana===0||d.diaDaSemana===6) ? ' fds' : ''}">${d.dia}</text>`;
+  });
+
+  return `<div class="grafico-mes"><svg viewBox="0 0 ${larg} ${alt}" role="img"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-label="Check-ins previstos e realizados por dia em ${esc(rotuloMes(p.mes))}"
+    >${svg}</svg></div>`;
+}
+
+/**
+ * O mês por data: quanto o estúdio esperava em cada dia e quanto entrou.
+ *
+ * A aba Frequência já responde por aluno, e é lá que se cobra. Aqui a pergunta
+ * é outra — em que dias o previsto e o realizado descolaram. Um feriado, uma
+ * semana de chuva ou o portal fora do ar aparecem como um vale de uma coluna;
+ * na lista por aluno o mesmo buraco vira sessenta linhas de "-1" que não se
+ * somam sozinhas na cabeça de ninguém.
+ */
+async function carregarMes(){
+  const alvo = document.getElementById('mat-mes');
+  if (!alvo) return;
+  try{
+    const p = await api('/matriculas/frequencia/mes'
+      + (matEstado.mesRef ? '?mes='+matEstado.mesRef : ''));
+    // Grava o mês que o servidor resolveu: sem isto, o primeiro clique em "‹"
+    // partiria de `null` e voltaria para o mês corrente de novo.
+    matEstado.mesRef = p.mes;
+
+    const t = p.totais;
+    const noCorrente = p.mes === p.hoje.slice(0,7);
+    const realizado = t.feito + t.experimental;
+
+    alvo.innerHTML = `
+      <div class="nav-mes">
+        <button class="leve" id="mes-ant" title="Mês anterior" aria-label="Mês anterior">‹</button>
+        <b>${esc(rotuloMes(p.mes))}</b>
+        <button class="leve" id="mes-prox" title="Mês seguinte" aria-label="Mês seguinte"
+          ${noCorrente ? 'disabled' : ''}>›</button>
+      </div>
+
+      <p class="ajuda">Uma coluna por dia. A barra larga atrás é o <b>previsto</b>: a grade
+        combinada projetada naquela data, já sem as aulas desmarcadas e com as extras
+        encaixadas, contando <b>uma vez por aluno</b> — o Wellhub repassa por dia, não por
+        aula, então quem tem dois horários na mesma terça vale um. A barra estreita na frente
+        é o que o portal registrou: <b>alunos</b> embaixo, <b>experimentais</b> em cima.
+        Experimental fica separado porque não tem grade combinada e por isso não gera previsto
+        nenhum — somado aos alunos, faria o realizado passar do previsto num dia em que
+        ninguém do pacote veio a mais. O dia de hoje mostra o previsto do dia inteiro,
+        inclusive a aula da noite que ainda não aconteceu.</p>
+
+      <div class="freq-cartoes">
+        ${cartaoFreq(t.previsto, 'previsto no mês')}
+        ${cartaoFreq(t.previstoAteHoje, 'previsto até hoje')}
+        ${cartaoFreq(t.feito, 'alunos',
+          t.feito >= t.previstoAteHoje ? 'em-dia' : 'atrasado')}
+        ${cartaoFreq(t.experimental, 'experimentais')}
+        ${t.semVinculo ? cartaoFreq(t.semVinculo, 'sem aluno', 'critico') : ''}
+        ${cartaoFreq(`${t.feito}/${p.metaMes}`, `pacote · ${p.alunosComPacote} alunos`)}
+      </div>
+
+      ${graficoMes(p)}
+
+      <div class="legenda-mes">
+        <span><i style="background:var(--fundo-3);border:1px solid var(--linha-2)"></i>previsto</span>
+        <span><i style="background:var(--amarelo)"></i>alunos</span>
+        <span><i style="background:var(--liberado)"></i>experimentais</span>
+        ${t.semVinculo
+          ? '<span><i style="background:var(--fraco-2)"></i>sem aluno</span>' : ''}
+        <span>fundo mais claro = fim de semana</span>
+      </div>
+
+      ${t.semVinculo ? `<p class="ajuda alerta-rev">${t.semVinculo} check-in(s) do mês não
+        caíram em nenhuma ficha. Eles entram no gráfico porque aconteceram, mas não contam
+        para o pacote de ninguém — a aba <b>Frequência</b> lista essas pessoas e vincula.</p>`
+        : ''}
+
+      ${realizado < t.previstoAteHoje ? `<p class="ajuda">Até aqui o mês tem
+        <b>${t.previstoAteHoje - realizado}</b> treino(s) a menos do que a grade previa.
+        A diferença pode ser falta, aula desmarcada sem registro ou check-in que o portal não
+        repassou — a coluna curta no gráfico diz o dia em que procurar.</p>` : ''}
+
+      <button class="leve" id="mes-csv" style="margin-top:6px">Exportar dia a dia</button>`;
+
+    alvo.querySelector('#mes-ant').addEventListener('click', ()=>{
+      matEstado.mesRef = mesVizinho(p.mes, -1); carregarMes();
+    });
+    const prox = alvo.querySelector('#mes-prox');
+    prox.addEventListener('click', ()=>{
+      if (prox.disabled) return;
+      matEstado.mesRef = mesVizinho(p.mes, 1); carregarMes();
+    });
+
+    alvo.querySelector('#mes-csv').addEventListener('click', ()=>{
+      baixarCsv(`mes-${p.mes}.csv`,
+        ['Data','Dia da semana','Previsto','Alunos','Experimentais','Sem aluno'],
+        p.dias.map(d=>[d.data, DIA_LONGO[d.diaDaSemana],
+          d.previsto, d.feito, d.experimental, d.semVinculo]));
+      avisar(`${p.dias.length} dia(s) exportado(s).`,'ok');
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }

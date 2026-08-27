@@ -227,6 +227,34 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     });
   });
 
+  /**
+   * Dia a dia do mês: previsto pela grade x realizado no portal.
+   *
+   * Vive ao lado de '/frequencia' e antes de '/:id' pelo mesmo motivo das
+   * vizinhas — um caminho de dois segmentos que começa por 'frequencia' não
+   * corre risco aqui, mas manter o bloco junto evita que alguém mova a rota
+   * para depois do parâmetro sem perceber.
+   *
+   * `?mes=AAAA-MM` volta no calendário; sem ele, o mês corrente.
+   */
+  rotas.get('/frequencia/mes', (req, res) => {
+    const mes = String(req.query.mes || '');
+    if (mes && !/^\d{4}-\d{2}$/.test(mes)) {
+      return res.status(400).json({ erro: 'Mês inválido. Use AAAA-MM.' });
+    }
+    const base = mes ? `${mes}-01` : hoje();
+    const de = frequencia.inicioDoMes(base);
+    const ate = frequencia.fimDoMes(base);
+    res.json(frequencia.panoramaDoMes({
+      matriculas: store.listar(),
+      excecoes: store.excecoes({ de, ate }),
+      // Limite folgado de propósito: um mês inteiro do estúdio cabe sobrando, e
+      // cortar aqui apagaria dias do gráfico sem aviso nenhum.
+      checkins: checkins.listar({ de, ate, limite: 20000 }),
+      mes: de.slice(0, 7),
+    }));
+  });
+
   /** Pré-visualiza o aviso diário; ?enviar=1 dispara na hora. */
   rotas.post('/frequencia/aviso', async (req, res) => {
     try {
