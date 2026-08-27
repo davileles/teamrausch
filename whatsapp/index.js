@@ -292,6 +292,24 @@ app.get('/qr', exigirToken, async (_req, res) => {
     `<img src="${imagem}" alt="QR de conexão" width="320" height="320">`));
 });
 
+/**
+ * Mesmo QR, em JSON, para a tela de Configurações do app de agendamento
+ * desenhar sem abrir uma página deste serviço. Devolve a imagem já pronta em
+ * data URL: o painel só precisa jogar num <img>.
+ */
+app.get('/qr.json', exigirToken, async (_req, res) => {
+  let imagem = null;
+  if (qrAtual && situacao !== 'conectado') {
+    imagem = await QRCode.toDataURL(qrAtual, { margin: 1, width: 320 }).catch(() => null);
+  }
+  res.json({
+    situacao,
+    numero: numeroConectado,
+    temQr: Boolean(qrAtual),
+    imagem,
+  });
+});
+
 /** Lista os grupos de que ESTE número participa. */
 app.get('/grupos', exigirToken, async (_req, res) => {
   if (situacao !== 'conectado') {
