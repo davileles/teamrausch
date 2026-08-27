@@ -144,6 +144,24 @@ function fimDoMes(data) {
 }
 
 /**
+ * QUANTO O ALUNO JÁ DEVERIA TER FEITO A ESTA ALTURA DO MÊS
+ *
+ * A régua é linear: a meta do mês repartida pelos dias do mês, acumulada dia a
+ * dia. No dia 27 de um mês de 31, quem combinou 12 já deveria ter 10.
+ *
+ * POR QUE NÃO A ESCADA SEMANAL
+ *   A versão anterior subia em degraus nos dias 7, 14, 21 e no fechamento,
+ *   seguindo o desenho do pacote — que é vendido por semana. O problema é o que
+ *   acontece ENTRE dois degraus: no dia 27 a régua ainda cobrava o que era
+ *   exigido no dia 21, ignorando seis dias de treino que aconteceram e seis
+ *   dias de aula que foram cobrados. Quem sumiu depois do dia 21 continuava
+ *   "em dia" até o dia 28, e a curva do gráfico dava saltos que não
+ *   correspondiam a nada no calendário.
+ *
+ *   O pacote continua semanal na venda; só a medição do ritmo virou diária.
+ *   `metaDoMes` não mudou — o que se cobra no fim do mês é o mesmo número.
+ */
+/**
  * Meta do mês: o combinado semanal multiplicado por quatro, limitado a 12.
  *
  * O pacote é vendido assim — 1x por semana são 4 no mês, 2x são 8, 3x são 12 —
@@ -190,11 +208,10 @@ function devidoAteAgora(matricula, ate, metaOverride) {
   if (ate >= fimDoMes(ate)) return meta;
 
   const dia = Number(String(ate).slice(8, 10));
-  const cotas = Math.min(Math.floor(dia / 7), SEMANAS_NO_MES - 1);
-  // Fração de cota arredonda para baixo: numa conta dividida a fatia pode ser 7,
-  // e 7/4 por semana não é inteiro. Cobrar 2 na primeira semana de quem deve
-  // 1,75 seria adiantar exigência que o mês ainda vai equilibrar.
-  return Math.min(Math.floor((meta * cotas) / SEMANAS_NO_MES), meta);
+  const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
+  // Fração arredonda para baixo: check-in é inteiro, e cobrar 11 de quem deve
+  // 10,45 seria exigir hoje o treino de amanhã.
+  return Math.min(Math.floor((meta * dia) / diasDoMes), meta);
 }
 
 /**
@@ -211,19 +228,24 @@ function diasRestantes(ate) {
   return Math.max(fim - hoje + 1, 0);
 }
 
-/** Onde vence a próxima cota e quanto ela exige. Null quando o mês já fechou. */
+/**
+ * Quando a régua sobe mais um treino, e para quanto. Null com o mês fechado.
+ *
+ * A conta é a inversa de `devidoAteAgora`: o menor dia em que a linha linear
+ * alcança o próximo inteiro. Meta 12 num mês de 31 dias exige o 11º a partir
+ * do dia 29, porque 12 × 29 ÷ 31 = 11,2.
+ */
 function proximoMarco(matricula, ate, metaOverride) {
   const meta = metaOverride !== undefined ? Number(metaOverride) : metaDoMes(matricula);
   if (!meta || ate >= fimDoMes(ate)) return null;
-  const dia = Number(String(ate).slice(8, 10));
-  const cotas = Math.min(Math.floor(dia / 7), SEMANAS_NO_MES - 1);
 
-  const proxima = cotas + 1;
-  const exigido = Math.min(Math.floor((meta * proxima) / SEMANAS_NO_MES), meta);
-  const data = proxima >= SEMANAS_NO_MES
-    ? fimDoMes(ate)
-    : `${String(ate).slice(0, 8)}${String(proxima * 7).padStart(2, '0')}`;
-  return { data, exigido };
+  const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
+  const exigido = Math.min(devidoAteAgora(matricula, ate, meta) + 1, meta);
+  const diaAlvo = Math.min(Math.ceil((exigido * diasDoMes) / meta), diasDoMes);
+  return {
+    data: `${String(ate).slice(0, 8)}${String(diaAlvo).padStart(2, '0')}`,
+    exigido,
+  };
 }
 
 function emMinutos(hora) {
@@ -870,10 +892,26 @@ function panoramaDoMes({
     }
     linha.previsto = pessoas.size;
 
-    // Meta acumulada até esta data — a mesma escada de marcos que a aba
-    // Frequência usa para dizer quem está atrasado.
+    // Meta acumulada até esta data — a mesma régua que a aba Frequência usa
+    // para dizer quem está atrasado, somada aluno a aluno.
     linha.metaAcum = comPacote.reduce((s, m) =>
       s + devidoAteAgora(m, linha.data, metas.get(m.id)), 0);
+
+    // A MESMA RÉGUA, SEM O ARREDONDAMENTO — SÓ PARA DESENHAR
+    //   `devidoAteAgora` arredonda para baixo porque check-in é inteiro: não se
+    //   cobra 10,45 treinos de ninguém. Só que as metas do estúdio são poucas e
+    //   repetidas (4, 8 e 12), então todo mundo cruza o inteiro no mesmo dia e a
+    //   soma volta a dar saltos de dezenas — o degrau semanal trocado por um
+    //   degrau de três em três dias.
+    //
+    //   Para a linha do gráfico a fração serve melhor: ela responde "a esta
+    //   altura do mês, quanto o estúdio inteiro deveria ter", e aí meio treino
+    //   de cada um soma um número perfeitamente real. O tooltip e o CSV seguem
+    //   mostrando o inteiro, que é o que se cobra de uma pessoa.
+    const diasDoMes = Number(fim.slice(8, 10));
+    const passado = Math.min(Number(linha.data.slice(8, 10)), diasDoMes);
+    linha.metaExata = Math.round(comPacote.reduce((s, m) =>
+      s + ((metas.get(m.id) || 0) * passado) / diasDoMes, 0) * 10) / 10;
   }
 
   // Realizado: deduplicado por pessoa e dia, do mesmo jeito que o repasse. Sem
