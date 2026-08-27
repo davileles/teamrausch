@@ -2381,9 +2381,10 @@ async function carregarFrequencia(){
       <p class="ajuda">${cabecalho}
         <b>Mês</b> é o pacote: check-ins feitos sobre a meta, que é o combinado semanal
         vezes quatro, limitado a 12 — o Wellhub não repassa mais do que isso. Quem treina
-        além disso continua sendo confirmado no portal, mas o 13º check-in em diante não
-        entra nessa soma: aparece em <b>acima do teto</b>, que é treino entregue sem
-        repasse. Experimental
+        além do combinado continua sendo confirmado no portal, mas o excedente não entra
+        nessa soma: quem prometeu 8 e fez 12 fecha o pacote em 8, e os outros 4 aparecem em
+        <b>além do combinado</b> — o Wellhub ainda paga por eles, só que não eram previstos.
+        Do 13º em diante vai para <b>sem repasse</b>: aconteceu e não rende nada. Experimental
         fica fora dessa soma: sem grade combinada não há meta, e o treino dele é excedente
         até a ficha virar aluno de fato.
         <b>No prazo</b> compara com o que já venceu: quem faz 3× por semana precisa ter 3
@@ -2402,7 +2403,10 @@ async function carregarFrequencia(){
           `pacote · ${f.resumo.comPacote} alunos`)}
         ${f.resumo.excedenteMes
           ? cartaoFreq(f.resumo.excedenteMes,
-              `acima do teto · ${f.resumo.alunosNoTeto} aluno(s)`) : ''}
+              `além do combinado · ${f.resumo.alunosComExcedente} aluno(s)`) : ''}
+        ${f.resumo.ignoradosMes
+          ? cartaoFreq(f.resumo.ignoradosMes,
+              `sem repasse · ${f.resumo.alunosNoTeto} aluno(s)`, 'atrasado') : ''}
         ${f.resumo.checkinsExperimentais
           ? cartaoFreq(f.resumo.checkinsExperimentais, 'experimentais fora do pacote') : ''}
         ${cartaoFreq(f.checkins.ultimos7, 'check-ins 7d')}
@@ -2805,8 +2809,9 @@ function graficoMes(p){
       + ` points="${linha('experimentalAcum', ultimo)}" stroke="var(--liberado)"/>`;
     if (fim.semVinculoAcum) svg += `<polyline class="g-linha ref"`
       + ` points="${linha('semVinculoAcum', ultimo)}" stroke="var(--vermelho)"/>`;
-    // Fora do pacote fica num amarelo apagado, logo abaixo da linha cheia: é
-    // treino de aluno como o outro, só que sem repasse.
+    // Além do combinado fica num amarelo apagado, logo abaixo da linha cheia:
+    // é treino de aluno como o outro, só que ninguém previu. O que passa dos
+    // doze não vira linha — não rende, e uma quarta curva só polui o gráfico.
     if (fim.foraAcum) svg += `<polyline class="g-linha ref"`
       + ` points="${linha('foraAcum', ultimo)}" stroke="var(--amarelo-2)"/>`;
     svg += `<polyline class="g-linha" points="${linha('feitoAcum', ultimo)}"`
@@ -2822,11 +2827,13 @@ function graficoMes(p){
       + `\nPrevisto pela grade: ${d.previstoAcum}`
       + (d.futuro ? '\nAinda não aconteceu.'
         : `\nAlunos: ${d.feitoAcum}`
-          + (d.foraAcum ? `\nFora do pacote: ${d.foraAcum}` : '')
+          + (d.foraAcum ? `\nAlém do combinado: ${d.foraAcum}` : '')
+          + (d.ignoradoAcum ? `\nSem repasse: ${d.ignoradoAcum}` : '')
           + `\nExperimentais: ${d.experimentalAcum}`
           + (d.semVinculoAcum ? `\nSem aluno: ${d.semVinculoAcum}` : '')
           + `\n(neste dia: ${d.previsto} previsto(s), ${d.feito} aluno(s)`
-          + (d.fora ? `, ${d.fora} fora do pacote` : '') + `)`);
+          + (d.fora ? `, ${d.fora} além do combinado` : '')
+          + (d.ignorado ? `, ${d.ignorado} sem repasse` : '') + `)`);
     svg += `<g><title>${esc(dica)}</title><rect x="${(ESQ+i*fatia).toFixed(1)}" y="${TOPO}"`
       + ` width="${fatia.toFixed(1)}" height="${areaA}" fill="transparent"/></g>`;
   });
@@ -2874,7 +2881,10 @@ async function carregarMes(){
         ${cartaoFreq(p.metaMes, 'meta do mês')}
         ${cartaoFreq(faltam, 'faltam até o fim', faltam ? '' : 'em-dia')}
         ${cartaoFreq(t.previsto, 'aulas na grade')}
-        ${t.fora ? cartaoFreq(t.fora, `fora do pacote · ${t.alunosNoTeto} aluno(s)`) : ''}
+        ${t.fora ? cartaoFreq(t.fora, 'além do combinado') : ''}
+        ${t.fora ? cartaoFreq(t.contabilizavel, 'repasse esperado') : ''}
+        ${t.ignorado ? cartaoFreq(t.ignorado,
+          `sem repasse · ${t.alunosNoTeto} aluno(s)`, 'atrasado') : ''}
         ${t.experimental ? cartaoFreq(t.experimental, 'experimentais') : ''}
         ${t.semVinculo ? cartaoFreq(t.semVinculo, 'sem aluno', 'critico') : ''}
       </div>
@@ -2886,7 +2896,7 @@ async function carregarMes(){
         <span><i style="background:var(--linha-3)"></i>previsto pela grade</span>
         <span><i style="background:var(--amarelo)"></i>alunos</span>
         ${t.fora
-          ? '<span><i style="background:var(--amarelo-2)"></i>fora do pacote</span>' : ''}
+          ? '<span><i style="background:var(--amarelo-2)"></i>além do combinado</span>' : ''}
         ${t.experimental
           ? '<span><i style="background:var(--liberado)"></i>experimentais</span>' : ''}
         ${t.semVinculo
@@ -2913,10 +2923,13 @@ async function carregarMes(){
         ficha e o primeiro check-in do mês —, e não o dia em que a grade foi digitada. Quem
         treinou no dia 3 já era aluno no dia 3.</p>
 
-      ${t.fora ? `<p class="ajuda">${t.fora} check-in(s) do mês passaram do teto de 12 por
-        aluno — ${t.alunosNoTeto} pessoa(s) treinaram mais do que a assinatura rende. Eles
-        foram confirmados no portal normalmente, mas ficam na linha apagada e fora da conta
-        do pacote: o Wellhub repassa doze, e contar o décimo terceiro aqui faria o mês
+      ${(t.fora || t.ignorado) ? `<p class="ajuda">O treino além do combinado tem duas
+        camadas. ${t.fora ? `<b>${t.fora}</b> check-in(s) passaram da meta do aluno mas
+        continuam dentro dos 12 que a assinatura paga — é a linha apagada, receita que
+        entra sem ter sido prevista. Somando ao pacote, o repasse esperado do mês é
+        <b>${t.contabilizavel}</b>.` : ''} ${t.ignorado ? `<b>${t.ignorado}</b> passaram dos
+        12 por aluno (${t.alunosNoTeto} pessoa(s)): foram confirmados no portal, mas não
+        rendem nada e não entram em nenhuma linha.` : ''} Contar tudo junto faria o mês
         parecer melhor do que o extrato vai mostrar.</p>` : ''}
 
       ${t.experimental ? `<p class="ajuda">Experimental fica na própria linha e fora da conta
@@ -2941,12 +2954,13 @@ async function carregarMes(){
 
     alvo.querySelector('#mes-csv').addEventListener('click', ()=>{
       baixarCsv(`mes-${p.mes}.csv`,
-        ['Data','Dia da semana','Previsto no dia','Alunos no dia','Fora do pacote no dia',
-         'Experimentais no dia','Sem aluno no dia','Deveria ter (acum.)','Previsto (acum.)',
-         'Alunos (acum.)','Fora do pacote (acum.)','Experimentais (acum.)','Sem aluno (acum.)'],
+        ['Data','Dia da semana','Previsto no dia','Alunos no dia','Além do combinado no dia',
+         'Sem repasse no dia','Experimentais no dia','Sem aluno no dia','Deveria ter (acum.)',
+         'Previsto (acum.)','Alunos (acum.)','Além do combinado (acum.)','Sem repasse (acum.)',
+         'Experimentais (acum.)','Sem aluno (acum.)'],
         p.dias.map(d=>[d.data, DIA_LONGO[d.diaDaSemana],
-          d.previsto, d.feito, d.fora, d.experimental, d.semVinculo,
-          d.metaAcum, d.previstoAcum, d.feitoAcum, d.foraAcum,
+          d.previsto, d.feito, d.fora, d.ignorado, d.experimental, d.semVinculo,
+          d.metaAcum, d.previstoAcum, d.feitoAcum, d.foraAcum, d.ignoradoAcum,
           d.experimentalAcum, d.semVinculoAcum]));
       avisar(`${p.dias.length} dia(s) exportado(s).`,'ok');
     });
