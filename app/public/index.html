@@ -487,6 +487,16 @@
   .freq-tabela .acoes{display:flex;gap:6px;justify-content:flex-end}
   .freq-tabela .acoes button{padding:5px 9px;font-size:12px;white-space:nowrap}
   .freq-tabela .fraco{color:var(--fraco)}
+  /* Duplo clique na linha abre os check-ins do mês daquele aluno: a linha
+     inteira vira alvo, então ela precisa dizer que é clicável. */
+  .freq-tabela tbody tr.freq-item{cursor:pointer}
+  /* Caixa larga: a lista de check-ins é uma tabela, e 420px de largura com
+     `white-space:pre-wrap` (o padrão do popup de aviso) espremeria as colunas.
+     Rola por dentro para não empurrar o rodapé para fora da tela em mês cheio. */
+  .modal.largo{max-width:560px}
+  .modal .corpo.rolagem{white-space:normal;padding:14px 16px;
+    max-height:min(62vh,520px);overflow:auto}
+  .modal .corpo.rolagem .freq-tabela th{position:static;top:auto}
   @media(max-width:760px){
     /* Some o que dá para deduzir: no celular o que importa é quem deve e quanto. */
     .freq-tabela .opc{display:none}
@@ -2424,7 +2434,8 @@ function linhaFrequencia(a){
 
   const devendo = a.situacao === 'critico' || a.situacao === 'atrasado';
   const conta = a.mes && a.mes.conta ? a.mes.conta : null;
-  return `<tr class="freq-item ${esc(a.situacao)}" data-id="${esc(a.matriculaId)}">
+  return `<tr class="freq-item ${esc(a.situacao)}" data-id="${esc(a.matriculaId)}"
+    title="Duplo clique para ver os check-ins do mês">
     <td class="nome">${esc(a.nome)}${conta
       ? ` <span class="fraco" title="${esc(conta.ehTitular
           ? `Conta dividida com ${conta.participantes.filter(n=>n!==a.nome).join(', ')} · cota ${conta.cota}`
@@ -2605,7 +2616,8 @@ async function carregarFrequencia(){
         mês, subindo um pouco a cada dia. Quem faz 3× por semana deve 12 no fechamento, e no
         dia 20 de um mês de 31 já deveria ter 7. É daí que sai a situação —
         dá para ter treinado ontem e ainda estar atrasado no mês. ⏳ marca quem só fecha
-        vindo todos os dias que restam; ⛔, quem já não fecha de jeito nenhum.</p>
+        vindo todos os dias que restam; ⛔, quem já não fecha de jeito nenhum.
+        <b>Duplo clique na linha do aluno</b> abre a lista dos check-ins dele no mês, um a um.</p>
 
       <div class="freq-cartoes">
         ${cartaoFreq(f.resumo.criticos, 'críticos', 'critico')}
@@ -2953,8 +2965,169 @@ async function carregarFrequencia(){
 
       const abrir = el.querySelector('.fq-abrir');
       if (abrir) abrir.addEventListener('click', ()=> abrirFichaDe(el.dataset.id));
+
+      /* Duplo clique na linha: a lista de check-ins do mês daquele aluno.
+         A tabela responde "faltam 3"; o duplo clique responde "quais dias
+         foram", que é o que se confere contra a memória do aluno na hora da
+         cobrança. Cliques em botão, caixinha ou select ficam de fora — dois
+         cliques rápidos em "Cobrar" não podem abrir caixa nenhuma. */
+      el.addEventListener('dblclick', e=>{
+        if (e.target.closest('button,input,select,a,label')) return;
+        // Duplo clique seleciona a palavra embaixo do cursor; com a caixa
+        // aberta por cima, a seleção fica presa e aparece realçada atrás.
+        const sel = window.getSelection(); if (sel) sel.removeAllRanges();
+        const dele = f.alunos.find(x=> String(x.matriculaId) === el.dataset.id);
+        if (dele) abrirCheckinsDoMes(dele, j);
+      });
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* --------------------- check-ins do aluno, um a um ----------------------- *
+ * A tabela de frequência é um placar: diz quanto falta, não quais dias foram.
+ * Na hora de cobrar, a pergunta seguinte é sempre a mesma — "mas eu vim dia
+ * tal" — e ela só se responde com a lista aberta. Daí o duplo clique na linha.
+ * ------------------------------------------------------------------------- */
+
+const DIA_CURTO = ['dom','seg','ter','qua','qui','sex','sáb'];
+
+/**
+ * Caixa larga, no mesmo desenho do popup de aviso do estúdio.
+ *
+ * Reaproveita `.fundo-modal` e `.modal` para não inventar um segundo diálogo na
+ * página; muda só a largura e troca o `pre-wrap` do corpo por HTML normal, já
+ * que aqui dentro vai uma tabela. Devolve o elemento para quem chamou poder
+ * trocar o conteúdo depois que a busca voltar.
+ */
+function abrirPainel(titulo, html){
+  const antigo = document.querySelector('.fundo-modal');
+  if (antigo) antigo.remove();
+
+  const fundo = document.createElement('div');
+  fundo.className = 'fundo-modal';
+  fundo.innerHTML = `
+    <div class="modal largo" role="dialog" aria-modal="true" aria-labelledby="painel-titulo">
+      <div class="topo" id="painel-titulo">${esc(titulo)}</div>
+      <div class="corpo rolagem">${html}</div>
+      <div class="pe"><button class="acao" id="painel-ok">Fechar</button></div>
+    </div>`;
+
+  const fechar = ()=>{ fundo.remove(); document.removeEventListener('keydown', porTecla); };
+  function porTecla(e){ if (e.key === 'Escape') fechar(); }
+  fundo.querySelector('#painel-ok').addEventListener('click', fechar);
+  fundo.addEventListener('click', e=>{ if (e.target === fundo) fechar(); });
+  document.addEventListener('keydown', porTecla);
+
+  document.body.appendChild(fundo);
+  fundo.querySelector('#painel-ok').focus();
+  return fundo;
+}
+
+/**
+ * Em que zona do repasse cai cada check-in do mês.
+ *
+ * Mesma régua do fechamento: em ordem de data, os primeiros até a meta fecham o
+ * pacote, do seguinte até o 12º o Wellhub ainda paga como excedente, e do 13º
+ * em diante não rende nada. Sem meta (experimental, ficha sem grade) tudo é
+ * excedente — é exatamente o que o servidor faz com esses check-ins.
+ */
+function zonaDoCheckin(posicao, meta){
+  if (posicao > 12) return 'ignorado';
+  return meta && posicao <= meta ? 'pacote' : 'excedente';
+}
+
+const ZONA = {
+  pacote:    { marca:'🟢', rotulo:'pacote' },
+  excedente: { marca:'🟡', rotulo:'além do combinado' },
+  ignorado:  { marca:'⛔', rotulo:'sem repasse' },
+};
+
+/** dd/mm com o dia da semana, direto do ISO — sem passar pelo fuso do aparelho. */
+function diaComSemana(iso){
+  const [ano,mes,dia] = String(iso).split('-').map(Number);
+  const s = DIA_CURTO[new Date(Date.UTC(ano, mes-1, dia)).getUTCDay()];
+  return `${String(dia).padStart(2,'0')}/${String(mes).padStart(2,'0')} `
+    + `<span class="fraco">${s}</span>`;
+}
+
+/** O miolo da caixa: uma linha por check-in, do primeiro do mês ao último. */
+function corpoCheckinsDoMes(a, lista, mes){
+  const meta = a.mes && a.mes.meta ? a.mes.meta : 0;
+  const conta = a.mes && a.mes.conta ? a.mes.conta : null;
+
+  const nota = conta
+    ? `<p class="ajuda">${esc(conta.ehTitular
+        ? `Conta dividida com ${conta.participantes.filter(n=>n!==a.nome).join(', ')}: `
+          + `a lista abaixo é o que caiu nesta ficha, e a cota dela é ${conta.cota}.`
+        : `Esta ficha treina na conta de ${conta.titular}, com cota ${conta.cota}. `
+          + 'Check-ins lançados na conta do titular não aparecem aqui.')}</p>`
+    : '';
+
+  if (!lista.length) return nota + `<p class="ajuda">Nenhum check-in registrado em `
+    + `${rotuloMes(mes)}${a.gympassId ? '' : ' — esta ficha ainda não tem Wellhub ID vinculado'}.</p>`;
+
+  const ordenados = lista.slice().sort((x,y)=>
+    String(x.data).localeCompare(String(y.data))
+    || String(x.hora||'').localeCompare(String(y.hora||'')));
+
+  const soma = { pacote:0, excedente:0, ignorado:0 };
+  const linhas = ordenados.map((c,i)=>{
+    const zona = zonaDoCheckin(i+1, meta);
+    soma[zona] += 1;
+    const z = ZONA[zona];
+    return `<tr class="${zona === 'pacote' ? 'em-dia' : zona === 'excedente' ? 'atrasado' : 'critico'}">
+      <td class="num fraco">${i+1}</td>
+      <td>${diaComSemana(c.data)}${c.primeiraVez
+        ? ' <span class="fraco" title="Primeira vez no estúdio">✳︎</span>' : ''}</td>
+      <td class="num">${esc(c.hora || '—')}</td>
+      <td class="opc fraco">${esc(c.produto || '—')}</td>
+      <td class="fraco">${z.marca} ${z.rotulo}</td>
+    </tr>`;
+  }).join('');
+
+  const resumo = [
+    `<b>${ordenados.length}</b> check-in(s) no mês`,
+    meta ? `<b>${soma.pacote}</b> de ${meta} no pacote` : 'sem meta definida',
+    soma.excedente ? `<b>${soma.excedente}</b> além do combinado` : '',
+    soma.ignorado ? `<b>${soma.ignorado}</b> sem repasse` : '',
+    meta && a.mes.faltam ? `faltam <b>${a.mes.faltam}</b>` : '',
+  ].filter(Boolean).join(' · ');
+
+  return nota + `
+    <table class="freq-tabela" style="margin-bottom:10px">
+      <thead><tr>
+        <th class="num">#</th><th>Dia</th><th class="num">Hora</th>
+        <th class="opc">Produto</th><th>Conta</th>
+      </tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+    <p class="ajuda" style="margin:0">${resumo}.</p>`;
+}
+
+/**
+ * Busca e mostra os check-ins do mês vigente de um aluno.
+ *
+ * O recorte é o mesmo da janela já carregada na tela (dia 1º até `janela.ate`),
+ * para a contagem daqui bater com a coluna "Mês" da linha de onde veio o duplo
+ * clique. O endpoint já filtra por matrícula, então não há nada de novo no
+ * servidor — é a rota que a exportação de check-ins usa, com um parâmetro a
+ * mais.
+ */
+async function abrirCheckinsDoMes(a, janela){
+  const mes = String(janela.ate).slice(0,7);
+  const painel = abrirPainel(`${a.nome} · ${rotuloMes(mes)}`,
+    '<p class="ajuda">Carregando…</p>');
+  const corpo = painel.querySelector('.corpo');
+  try{
+    const r = await api('/matriculas/checkins'
+      + `?matriculaId=${encodeURIComponent(a.matriculaId)}`
+      + `&de=${mes}-01&ate=${janela.ate}&limite=200`);
+    // A caixa pode ter sido fechada enquanto a busca voltava.
+    if (!document.body.contains(painel)) return;
+    corpo.innerHTML = corpoCheckinsDoMes(a, r.checkins || [], mes);
+  }catch(e){
+    if (document.body.contains(painel)) corpo.innerHTML = `<p class="ajuda">${esc(e.message)}</p>`;
+  }
 }
 
 /* ------------------------------ mês a dia -------------------------------- */
