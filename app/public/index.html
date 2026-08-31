@@ -316,6 +316,12 @@
   .ficha.mudou{border-color:var(--amarelo)}
 
   /* ---- subabas de configurações ---- */
+  .msg-alvo{display:flex;align-items:center;gap:10px;padding:9px 6px;
+    border-bottom:1px solid var(--linha);font:400 13.5px 'Work Sans',sans-serif;cursor:pointer}
+  .msg-alvo:last-child{border-bottom:none}
+  .msg-alvo span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .msg-alvo em{font-style:normal;font-size:11.5px;color:var(--fraco);white-space:nowrap}
+  .msg-alvo.sem-tel{opacity:.5;cursor:not-allowed}
   .subabas{display:flex;gap:0;margin:18px 0 22px;border-bottom:1px solid var(--linha)}
   .subabas button{flex:1;background:transparent;border:none;border-bottom:3px solid transparent;
     padding:14px 10px;cursor:pointer;font:400 13px Anton,sans-serif;letter-spacing:.08em;
@@ -801,6 +807,7 @@
       <button data-aba="perfil" aria-selected="false">Meus dados</button>
       <button data-aba="dia" aria-selected="false" class="so-admin" hidden>Lista do dia</button>
       <button data-aba="matriculas" aria-selected="false" class="so-admin" hidden>Matrículas</button>
+      <button data-aba="mensagens" aria-selected="false" class="so-admin" hidden>Mensagens</button>
       <button data-aba="config" aria-selected="false" class="so-admin" hidden>Configurações</button>
     </nav>
   </header>
@@ -811,6 +818,7 @@
     <section id="aba-perfil" hidden></section>
     <section id="aba-dia" hidden></section>
     <section id="aba-matriculas" hidden></section>
+    <section id="aba-mensagens" hidden></section>
     <section id="aba-config" hidden></section>
   </div>
 </div>
@@ -1000,8 +1008,8 @@ function limparTela(){
 }
 
 /* ------------------------------ abas ----------------------------------- */
-const TODAS_ABAS  = ['agendar','meus','perfil','dia','matriculas','config'];
-const ABAS_ADMIN  = ['dia','matriculas','config'];
+const TODAS_ABAS  = ['agendar','meus','perfil','dia','matriculas','mensagens','config'];
+const ABAS_ADMIN  = ['dia','matriculas','mensagens','config'];
 
 /* ------------------------ a aba fica na URL ------------------------------ *
  * Recarregar a página devolvia a pessoa para "Agendar", perdendo o lugar em
@@ -1086,6 +1094,7 @@ function desenharAba(){
   if (abaAtiva === 'perfil') return carregarPerfil();
   if (abaAtiva === 'dia') return carregarDia();
   if (abaAtiva === 'matriculas') return carregarMatriculas();
+  if (abaAtiva === 'mensagens') return carregarMensagens();
   if (abaAtiva === 'config') return carregarConfig();
 }
 
@@ -3950,6 +3959,585 @@ async function mostrarBackup(){
       `Último envio: ${esc(quando)}.` +
       (s.ultimoErro ? `<br>Última falha: <b>${esc(s.ultimoErro)}</b>` : '');
   }catch(e){ alvo.textContent = 'Não consegui consultar o backup: '+e.message; }
+}
+
+
+/* ============================== MENSAGENS ================================= */
+/**
+ * Modelos, disparo individual, disparo em massa e histórico.
+ *
+ * O DISPARO EM MASSA RODA AQUI, NO NAVEGADOR
+ *   Uma chamada por aluno, com intervalo aleatório entre elas — o mesmo
+ *   desenho do concierge. Você vê o log ao vivo e pode parar no meio. Em
+ *   troca, a aba precisa ficar aberta: `msgMassa.rodando` bloqueia o redesenho
+ *   e a troca de sub-aba enquanto o lote anda, porque remontar o HTML no meio
+ *   apagaria a lista que está sendo percorrida.
+ *
+ *   Cada envio é gravado no servidor na hora. Se a aba fechar mesmo assim, o
+ *   lote é retomável: reabrir com o mesmo número de lote traz de volta quem já
+ *   recebeu, e essas pessoas entram desmarcadas.
+ *
+ *   O programado e o recorrente não passam por aqui — quem dispara é o
+ *   agendador do servidor.
+ */
+const MSG_PAUSA_MIN = 7000;
+const MSG_PAUSA_MAX = 18000;
+
+const MSG_PUBLICOS = [['devedores','Devendo treino'],['mensalista','Mensalistas'],
+  ['todos','Todos os ativos'],['wellhub','Wellhub']];
+const MSG_MODOS = [['manual','Manual — você dispara pela tela'],
+  ['programado','Programado — uma data e hora'],
+  ['recorrente','Recorrente — repete sempre']];
+const MSG_GATILHOS = [['aniversario','No aniversário do aluno'],
+  ['dia_do_mes','Todo mês, num dia fixo'],
+  ['dia_da_semana','Toda semana, num dia fixo']];
+const MSG_DIAS = [['0','Domingo'],['1','Segunda'],['2','Terça'],['3','Quarta'],
+  ['4','Quinta'],['5','Sexta'],['6','Sábado']];
+
+const msgEstado = { sub:'modelos', editando:null, publico:'todos', modeloId:'',
+  alunoId:'', modelos:[], marcadores:[], alunos:[], resumo:null, lote:null };
+const msgMassa = { rodando:false, abortar:false, timer:null, fila:[], i:0, ok:0, erro:0 };
+
+function msgRotulo(lista, valor){
+  const achou = lista.find(([v])=>String(v)===String(valor));
+  return achou ? achou[1] : valor;
+}
+
+/* -------------------------------- carga ---------------------------------- */
+
+async function carregarMensagens(){
+  const alvo = document.getElementById('aba-mensagens');
+  // Remontar a aba no meio de um lote apagaria a lista em uso e o log.
+  if (msgMassa.rodando) return;
+
+  try{
+    const r = await api('/mensagens/modelos');
+    msgEstado.modelos = r.modelos || [];
+    msgEstado.marcadores = r.marcadores || [];
+
+    alvo.innerHTML = `<h2>Mensagens</h2>
+      <div class="subabas" id="sub-msg" role="tablist">
+        <button data-sub="modelos" aria-selected="${msgEstado.sub==='modelos'}">Modelos</button>
+        <button data-sub="individual" aria-selected="${msgEstado.sub==='individual'}">Um aluno</button>
+        <button data-sub="massa" aria-selected="${msgEstado.sub==='massa'}">Em massa</button>
+        <button data-sub="historico" aria-selected="${msgEstado.sub==='historico'}">Histórico</button>
+      </div>
+      <div data-painel="modelos" ${msgEstado.sub==='modelos'?'':'hidden'}
+        id="msg-modelos">${msgPainelModelos()}</div>
+      <div data-painel="individual" ${msgEstado.sub==='individual'?'':'hidden'}
+        id="msg-individual"><div class="vazio">Carregando…</div></div>
+      <div data-painel="massa" ${msgEstado.sub==='massa'?'':'hidden'}
+        id="msg-massa"><div class="vazio">Carregando…</div></div>
+      <div data-painel="historico" ${msgEstado.sub==='historico'?'':'hidden'}
+        id="msg-hist"><div class="vazio">Carregando…</div></div>`;
+
+    alvo.querySelector('#sub-msg').addEventListener('click', e=>{
+      const b = e.target.closest('button[data-sub]'); if (!b) return;
+      if (msgMassa.rodando) return avisar('Termine ou pare o disparo antes de sair.', 'erro');
+      msgEstado.sub = b.dataset.sub; msgEstado.editando = null; gravarRota(); redesenhar();
+    });
+
+    alvo.addEventListener('click', msgCliques);
+
+    if (msgEstado.sub === 'individual') await msgPainelIndividual();
+    if (msgEstado.sub === 'massa') await msgPainelMassa();
+    if (msgEstado.sub === 'historico') await msgPainelHistorico();
+  }catch(e){
+    alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`;
+  }
+}
+
+/** Um só ouvinte para a aba inteira: o HTML é remontado o tempo todo. */
+function msgCliques(e){
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.marcador) return msgInserirMarcador(b.dataset.marcador);
+  if (b.id === 'mm-salvar') return msgSalvarModelo();
+  if (b.id === 'mm-cancelar'){ msgEstado.editando = null; return redesenhar(); }
+  if (b.dataset.editar){ msgEstado.editando = b.dataset.editar;
+    document.getElementById('msg-modelos').innerHTML = msgPainelModelos();
+    document.getElementById('msg-modelos').scrollIntoView({behavior:'smooth'}); return; }
+  if (b.dataset.excluir) return msgExcluirModelo(b.dataset.excluir);
+  if (b.id === 'mi-enviar') return msgEnviarIndividual();
+  if (b.id === 'mx-disparar') return msgDispararMassa();
+  if (b.id === 'mx-parar') return msgPararMassa();
+  if (b.id === 'mx-todos') return msgMarcarTodos(true);
+  if (b.id === 'mx-nenhum') return msgMarcarTodos(false);
+}
+
+/* ------------------------------- modelos --------------------------------- */
+
+function msgResumoModelo(m){
+  const quem = msgRotulo(MSG_PUBLICOS, m.publico);
+  if (m.modo === 'manual') return `manual · ${quem}`;
+  if (m.modo === 'programado'){
+    const [d,h] = String(m.quando||'').split('T');
+    return `programado · ${d ? d.split('-').reverse().join('/') : '?'} ${h||''} · ${quem}`
+      + (m.ativo ? '' : ' · já saiu');
+  }
+  const quando = m.gatilho === 'aniversario' ? 'no aniversário'
+    : m.gatilho === 'dia_do_mes' ? `todo dia ${m.diaDoMes} do mês`
+    : `toda ${msgRotulo(MSG_DIAS, m.diaDaSemana).toLowerCase()}`;
+  return `recorrente · ${quando} às ${m.hora} · ${quem}` + (m.ativo ? '' : ' · desligado');
+}
+
+function msgPainelModelos(){
+  const m = msgEstado.editando
+    ? (msgEstado.modelos.find(x=>x.id===msgEstado.editando) || {}) : {};
+  const modo = m.modo || 'manual';
+  const gatilho = m.gatilho || 'aniversario';
+
+  return `
+    <div class="ficha">
+      <h3>${msgEstado.editando ? 'Editando: '+esc(m.nome) : 'Novo modelo'}</h3>
+      <div class="dupla">
+        <div class="campo"><label for="mm-nome">Nome</label>
+          <input id="mm-nome" value="${esc(m.nome||'')}" placeholder="Ex: Cobrança de treino"></div>
+        <div class="campo"><label for="mm-publico">Quem recebe</label>
+          <select id="mm-publico">${MSG_PUBLICOS.map(([v,r])=>
+            `<option value="${v}"${(m.publico||'todos')===v?' selected':''}>${r}</option>`).join('')}</select></div>
+      </div>
+
+      <div class="campo"><label for="mm-modo">Quando sai</label>
+        <select id="mm-modo" onchange="msgAtualizarForm()">${MSG_MODOS.map(([v,r])=>
+          `<option value="${v}"${modo===v?' selected':''}>${r}</option>`).join('')}</select>
+        <p class="ajuda">Manual é você que dispara, pela sub-aba Em massa. Programado e
+          recorrente saem sozinhos, pelo servidor — não precisa deixar o app aberto.</p></div>
+
+      <div id="mm-programado" ${modo==='programado'?'':'hidden'}>
+        <div class="campo"><label for="mm-quando">Data e hora do envio</label>
+          <input id="mm-quando" type="datetime-local" value="${esc(m.quando||'')}">
+          <p class="ajuda">Sai uma vez só e desliga sozinho. Se o serviço estiver fora do ar
+            na hora marcada, ainda envia até 12 h depois; passou disso, não envia mais.</p></div>
+      </div>
+
+      <div id="mm-recorrente" ${modo==='recorrente'?'':'hidden'}>
+        <div class="dupla">
+          <div class="campo"><label for="mm-gatilho">Repetição</label>
+            <select id="mm-gatilho" onchange="msgAtualizarForm()">${MSG_GATILHOS.map(([v,r])=>
+              `<option value="${v}"${gatilho===v?' selected':''}>${r}</option>`).join('')}</select></div>
+          <div class="campo"><label for="mm-hora">Hora</label>
+            <input id="mm-hora" type="time" value="${esc(m.hora||'09:00')}"></div>
+        </div>
+        <div class="campo" id="mm-campo-dia-mes" ${gatilho==='dia_do_mes'?'':'hidden'}>
+          <label for="mm-dia-mes">Dia do mês</label>
+          <input id="mm-dia-mes" type="number" min="1" max="28" value="${m.diaDoMes||1}">
+          <p class="ajuda">De 1 a 28: fevereiro não tem dia 30, e um envio mensal que pula
+            um mês por ano é pior do que um que sai sempre.</p></div>
+        <div class="campo" id="mm-campo-dia-semana" ${gatilho==='dia_da_semana'?'':'hidden'}>
+          <label for="mm-dia-semana">Dia da semana</label>
+          <select id="mm-dia-semana">${MSG_DIAS.map(([v,r])=>
+            `<option value="${v}"${String(m.diaDaSemana||1)===v?' selected':''}>${r}</option>`).join('')}</select></div>
+      </div>
+
+      <div class="campo"><label for="mm-texto">Texto</label>
+        <textarea id="mm-texto" rows="7"
+          placeholder="Oi {{nome}}! Aqui é do TeamRausch…">${esc(m.texto||'')}</textarea>
+        <p class="ajuda">Clique para inserir no ponto do cursor:</p>
+        <div class="chips-mat">${msgEstado.marcadores.map(x=>
+          `<button class="chip" type="button" data-marcador="${x.chave}"
+            title="${esc(x.descricao)}">{{${x.chave}}}</button>`).join('')}</div></div>
+
+      <div class="campo"><label for="mm-ativo">Situação</label>
+        <select id="mm-ativo"><option value="1"${m.ativo===false?'':' selected'}>Ligado</option>
+          <option value="0"${m.ativo===false?' selected':''}>Desligado</option></select></div>
+
+      <button class="acao" id="mm-salvar">${msgEstado.editando?'Salvar alterações':'Criar modelo'}</button>
+      ${msgEstado.editando?'<button class="leve" id="mm-cancelar" style="width:100%;margin-top:10px">Cancelar edição</button>':''}
+    </div>
+
+    <h3>Modelos salvos</h3>
+    ${msgEstado.modelos.length ? msgEstado.modelos.map(x=>`
+      <div class="ficha">
+        <b>${esc(x.nome)}</b>
+        <span class="tags">${esc(msgResumoModelo(x))}</span>
+        <p class="ajuda" style="white-space:pre-wrap">${esc(x.texto.slice(0,220))}${x.texto.length>220?'…':''}</p>
+        ${x.ultimoDisparoEm?`<p class="ajuda">Último disparo: ${new Date(x.ultimoDisparoEm).toLocaleString('pt-BR')}</p>`:''}
+        <div class="dupla">
+          <button class="leve" data-editar="${esc(x.id)}">Editar</button>
+          <button class="leve" data-excluir="${esc(x.id)}">Excluir</button>
+        </div>
+      </div>`).join('') : '<div class="vazio">Nenhum modelo cadastrado ainda.</div>'}`;
+}
+
+function msgAtualizarForm(){
+  const modo = document.getElementById('mm-modo').value;
+  const gatilho = (document.getElementById('mm-gatilho')||{}).value || 'aniversario';
+  document.getElementById('mm-programado').hidden = modo !== 'programado';
+  document.getElementById('mm-recorrente').hidden = modo !== 'recorrente';
+  const dm = document.getElementById('mm-campo-dia-mes');
+  const ds = document.getElementById('mm-campo-dia-semana');
+  if (dm) dm.hidden = gatilho !== 'dia_do_mes';
+  if (ds) ds.hidden = gatilho !== 'dia_da_semana';
+}
+
+function msgInserirMarcador(chave){
+  const ta = document.getElementById('mm-texto') || document.getElementById('mx-texto');
+  if (!ta) return;
+  const marca = '{{'+chave+'}}';
+  const i = ta.selectionStart ?? ta.value.length;
+  const j = ta.selectionEnd ?? ta.value.length;
+  ta.value = ta.value.slice(0,i) + marca + ta.value.slice(j);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = i + marca.length;
+}
+
+async function msgSalvarModelo(){
+  const v = id => (document.getElementById(id)||{}).value;
+  const modo = v('mm-modo');
+  const corpo = {
+    nome: v('mm-nome'), texto: v('mm-texto'), modo,
+    publico: v('mm-publico'), ativo: v('mm-ativo') === '1',
+  };
+  if (modo === 'programado') corpo.quando = v('mm-quando');
+  if (modo === 'recorrente'){
+    corpo.gatilho = v('mm-gatilho');
+    corpo.hora = v('mm-hora');
+    if (corpo.gatilho === 'dia_do_mes') corpo.diaDoMes = Number(v('mm-dia-mes'));
+    if (corpo.gatilho === 'dia_da_semana') corpo.diaDaSemana = Number(v('mm-dia-semana'));
+  }
+
+  const btn = document.getElementById('mm-salvar');
+  btn.disabled = true;
+  try{
+    if (msgEstado.editando){
+      await api('/mensagens/modelos/'+msgEstado.editando, {method:'PUT', body:JSON.stringify(corpo)});
+    } else {
+      await api('/mensagens/modelos', {method:'POST', body:JSON.stringify(corpo)});
+    }
+    msgEstado.editando = null;
+    avisar('Modelo salvo.');
+    await redesenhar();
+  }catch(e){
+    avisar(e.message, 'erro');
+    btn.disabled = false;
+  }
+}
+
+async function msgExcluirModelo(id){
+  const m = msgEstado.modelos.find(x=>x.id===id);
+  if (!confirm(`Excluir o modelo "${m?m.nome:id}"?`)) return;
+  try{
+    await api('/mensagens/modelos/'+id, {method:'DELETE'});
+    if (msgEstado.editando === id) msgEstado.editando = null;
+    avisar('Modelo excluído.');
+    await redesenhar();
+  }catch(e){ avisar(e.message, 'erro'); }
+}
+
+/* ----------------------------- destinatários ----------------------------- */
+
+/** Prévia por aluno vem do servidor: é o mesmo código que o envio usa. */
+async function msgBuscarDestinatarios({ publico, texto, modeloId, lote }){
+  const r = await api('/mensagens/destinatarios', {
+    method:'POST',
+    body: JSON.stringify({ publico, texto, modeloId, lote }),
+  });
+  msgEstado.alunos = r.alunos || [];
+  msgEstado.resumo = r;
+  return r;
+}
+
+/* --------------------------- disparo individual -------------------------- */
+
+async function msgPainelIndividual(){
+  const alvo = document.getElementById('msg-individual');
+  try{
+    const r = await msgBuscarDestinatarios({ publico:'todos', modeloId: msgEstado.modeloId || null });
+    const comTel = r.alunos.filter(a=>a.temTelefone);
+    alvo.innerHTML = `
+      <p class="ajuda">${comTel.length} aluno(s) ativos com telefone válido.
+        ${r.semTelefone ? `<b>${r.semTelefone} sem telefone</b> não aparecem nesta lista.` : ''}</p>
+      <div class="ficha">
+        <div class="dupla">
+          <div class="campo"><label for="mi-aluno">Aluno</label>
+            <select id="mi-aluno" onchange="msgTrocarIndividual()">
+              <option value="">Escolha o aluno…</option>
+              ${comTel.map(a=>`<option value="${esc(a.matriculaId)}"${
+                msgEstado.alunoId===a.matriculaId?' selected':''}>${esc(a.nome)}</option>`).join('')}
+            </select></div>
+          <div class="campo"><label for="mi-modelo">Modelo</label>
+            <select id="mi-modelo" onchange="msgTrocarModeloIndividual()">
+              <option value="">Escrever na hora…</option>
+              ${msgEstado.modelos.map(m=>`<option value="${esc(m.id)}"${
+                msgEstado.modeloId===m.id?' selected':''}>${esc(m.nome)}</option>`).join('')}
+            </select></div>
+        </div>
+        <div class="campo"><label for="mi-texto">Mensagem</label>
+          <textarea id="mi-texto" rows="8" placeholder="Escolha um modelo ou escreva aqui…"></textarea>
+          <p class="ajuda" id="mi-destino">Escolha o aluno para ver o número.</p></div>
+        <button class="acao" id="mi-enviar">Enviar no WhatsApp</button>
+      </div>`;
+    msgTrocarIndividual();
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+function msgTrocarIndividual(){
+  const sel = document.getElementById('mi-aluno');
+  msgEstado.alunoId = sel ? sel.value : '';
+  const a = msgEstado.alunos.find(x=>x.matriculaId===msgEstado.alunoId);
+  const info = document.getElementById('mi-destino');
+  const ta = document.getElementById('mi-texto');
+  if (info) info.textContent = a
+    ? `Vai para ${a.nome} — ${a.telefoneFormatado}`
+    : 'Escolha o aluno para ver o número.';
+  // Prévia só existe quando há modelo escolhido; texto escrito na hora fica
+  // como está para não apagar o que a pessoa digitou.
+  if (ta && a && a.previa !== null && msgEstado.modeloId) ta.value = a.previa;
+}
+
+async function msgTrocarModeloIndividual(){
+  msgEstado.modeloId = document.getElementById('mi-modelo').value;
+  await msgPainelIndividual();
+}
+
+async function msgEnviarIndividual(){
+  const a = msgEstado.alunos.find(x=>x.matriculaId===msgEstado.alunoId);
+  const texto = (document.getElementById('mi-texto').value||'').trim();
+  if (!a) return avisar('Escolha o aluno.', 'erro');
+  if (!texto) return avisar('A mensagem está vazia.', 'erro');
+  if (!confirm(`Enviar para ${a.nome} (${a.telefoneFormatado})?`)) return;
+
+  const btn = document.getElementById('mi-enviar');
+  btn.disabled = true; btn.textContent = 'Enviando…';
+  try{
+    const modelo = msgEstado.modelos.find(m=>m.id===msgEstado.modeloId);
+    await api('/mensagens/enviar', {method:'POST', body: JSON.stringify({
+      matriculaId: a.matriculaId, texto, origem:'manual',
+      modeloId: modelo?modelo.id:null, modeloNome: modelo?modelo.nome:null,
+    })});
+    avisar('Mensagem enviada.');
+    document.getElementById('mi-texto').value = '';
+  }catch(e){ avisar(e.message, 'erro'); }
+  finally{ btn.disabled = false; btn.textContent = 'Enviar no WhatsApp'; }
+}
+
+/* ----------------------------- disparo em massa -------------------------- */
+
+async function msgPainelMassa(){
+  const alvo = document.getElementById('msg-massa');
+  const modelo = msgEstado.modelos.find(m=>m.id===msgEstado.modeloId);
+  const publico = modelo ? modelo.publico : msgEstado.publico;
+  const texto = (document.getElementById('mx-texto')||{}).value
+    || (modelo ? modelo.texto : '');
+
+  try{
+    const r = await msgBuscarDestinatarios({ publico, texto, lote: msgEstado.lote });
+    msgEstado.publico = publico;
+
+    alvo.innerHTML = `
+      <div class="ficha">
+        <div class="dupla">
+          <div class="campo"><label for="mx-modelo">Modelo</label>
+            <select id="mx-modelo" onchange="msgTrocarModeloMassa()">
+              <option value="">Escrever na hora…</option>
+              ${msgEstado.modelos.filter(m=>m.modo==='manual').map(m=>
+                `<option value="${esc(m.id)}"${msgEstado.modeloId===m.id?' selected':''}>${esc(m.nome)}</option>`).join('')}
+            </select>
+            <p class="ajuda">Só modelos manuais: os programados saem sozinhos.</p></div>
+          <div class="campo"><label for="mx-publico">Quem recebe</label>
+            <select id="mx-publico" onchange="msgTrocarPublicoMassa()" ${modelo?'disabled':''}>
+              ${MSG_PUBLICOS.map(([v,rr])=>
+                `<option value="${v}"${publico===v?' selected':''}>${rr}</option>`).join('')}
+            </select></div>
+        </div>
+        <div class="campo"><label for="mx-texto">Mensagem</label>
+          <textarea id="mx-texto" rows="7" onblur="msgPainelMassa()"
+            placeholder="Oi {{nome}}! …">${esc(texto)}</textarea>
+          <div class="chips-mat">${msgEstado.marcadores.map(x=>
+            `<button class="chip" type="button" data-marcador="${x.chave}"
+              title="${esc(x.descricao)}">{{${x.chave}}}</button>`).join('')}</div></div>
+      </div>
+
+      <div class="ficha">
+        <h3>Destinatários</h3>
+        <p class="ajuda">${r.total} no público <b>${esc(msgRotulo(MSG_PUBLICOS, publico))}</b> ·
+          ${r.comTelefone} com telefone${r.semTelefone?` · <b>${r.semTelefone} sem telefone, não recebem</b>`:''}</p>
+        <div class="dupla" style="margin-bottom:12px">
+          <button class="leve" id="mx-todos">Marcar todos</button>
+          <button class="leve" id="mx-nenhum">Desmarcar</button>
+        </div>
+        <p class="ajuda" id="mx-contagem"></p>
+        <div id="mx-lista" style="max-height:340px;overflow:auto;border:1px solid var(--linha);padding:8px">
+          ${r.alunos.length ? r.alunos.map(a=>`
+            <label class="msg-alvo${a.temTelefone?'':' sem-tel'}">
+              <input type="checkbox" class="mx-chk" value="${esc(a.matriculaId)}"
+                ${a.temTelefone && !a.jaEnviado ? 'checked' : ''} ${a.temTelefone?'':'disabled'}>
+              <span>${esc(a.nome)}</span>
+              <em id="mx-st-${esc(a.matriculaId)}">${
+                !a.temTelefone ? 'sem telefone' : a.jaEnviado ? 'já recebeu' : ''}</em>
+            </label>`).join('') : '<div class="vazio">Ninguém neste público.</div>'}
+        </div>
+      </div>
+
+      <div class="ficha">
+        <button class="acao" id="mx-disparar">Disparar para os marcados</button>
+        <button class="leve" id="mx-parar" style="width:100%;margin-top:10px;display:none">Parar</button>
+        <p class="ajuda" id="mx-progresso" style="margin-top:12px"></p>
+        <div id="mx-log" style="max-height:220px;overflow:auto;font:400 12.5px 'Work Sans',sans-serif"></div>
+      </div>`;
+
+    document.getElementById('mx-lista').addEventListener('change', msgContar);
+    msgContar();
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+async function msgTrocarModeloMassa(){
+  msgEstado.modeloId = document.getElementById('mx-modelo').value;
+  const ta = document.getElementById('mx-texto');
+  const m = msgEstado.modelos.find(x=>x.id===msgEstado.modeloId);
+  if (ta) ta.value = m ? m.texto : '';
+  await msgPainelMassa();
+}
+
+async function msgTrocarPublicoMassa(){
+  msgEstado.publico = document.getElementById('mx-publico').value;
+  await msgPainelMassa();
+}
+
+function msgMarcarTodos(marcar){
+  document.querySelectorAll('#mx-lista .mx-chk:not(:disabled)')
+    .forEach(c => { c.checked = !!marcar; });
+  msgContar();
+}
+
+function msgContar(){
+  const n = document.querySelectorAll('#mx-lista .mx-chk:checked').length;
+  const el = document.getElementById('mx-contagem');
+  if (el) el.textContent = `${n} marcado(s) para envio`;
+}
+
+function msgLog(texto, cor){
+  const el = document.getElementById('mx-log'); if (!el) return;
+  const d = document.createElement('div');
+  if (cor) d.style.color = cor;
+  d.textContent = texto;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+
+function msgPausa(){
+  return MSG_PAUSA_MIN + Math.floor(Math.random() * (MSG_PAUSA_MAX - MSG_PAUSA_MIN + 1));
+}
+
+function msgDispararMassa(){
+  if (msgMassa.rodando) return;
+  const texto = (document.getElementById('mx-texto').value||'').trim();
+  if (!texto) return avisar('A mensagem está vazia.', 'erro');
+
+  const marcados = Array.from(document.querySelectorAll('#mx-lista .mx-chk:checked'))
+    .map(c => msgEstado.alunos.find(a => a.matriculaId === c.value))
+    .filter(a => a && a.temTelefone);
+  if (!marcados.length) return avisar('Ninguém marcado.', 'erro');
+
+  const minutos = Math.ceil(marcados.length * ((MSG_PAUSA_MIN + MSG_PAUSA_MAX)/2) / 60000);
+  if (!confirm(`Enviar para ${marcados.length} aluno(s)?\n\n`
+    + `O envio é um de cada vez, com intervalo de ${MSG_PAUSA_MIN/1000} a ${MSG_PAUSA_MAX/1000} `
+    + `segundos — cerca de ${minutos} min no total.\n\n`
+    + 'Mantenha esta aba aberta até o fim.')) return;
+
+  msgMassa.rodando = true; msgMassa.abortar = false;
+  msgMassa.fila = marcados; msgMassa.i = 0; msgMassa.ok = 0; msgMassa.erro = 0;
+  // O lote é o que permite retomar depois: o servidor registra cada envio com
+  // ele, e reabrir a tela com o mesmo lote traz de volta quem já recebeu.
+  msgEstado.lote = 'LOTE-' + Date.now().toString(36);
+
+  document.getElementById('mx-disparar').disabled = true;
+  document.getElementById('mx-parar').style.display = '';
+  document.getElementById('mx-log').innerHTML = '';
+  msgLog('Lote ' + msgEstado.lote, 'var(--fraco)');
+
+  msgEnviarProximo(texto);
+}
+
+async function msgEnviarProximo(texto){
+  const prog = document.getElementById('mx-progresso');
+  if (msgMassa.abortar || msgMassa.i >= msgMassa.fila.length) return msgFinalizarMassa();
+
+  const a = msgMassa.fila[msgMassa.i];
+  const st = document.getElementById('mx-st-'+a.matriculaId);
+  if (prog) prog.textContent = `Enviando ${msgMassa.i+1} de ${msgMassa.fila.length} — ${a.nome}`;
+  if (st) st.textContent = 'enviando…';
+
+  const modelo = msgEstado.modelos.find(m=>m.id===msgEstado.modeloId);
+  try{
+    await api('/mensagens/enviar', {method:'POST', body: JSON.stringify({
+      matriculaId: a.matriculaId,
+      texto: a.previa || texto,
+      origem: 'massa', lote: msgEstado.lote,
+      modeloId: modelo?modelo.id:null, modeloNome: modelo?modelo.nome:null,
+    })});
+    msgMassa.ok++;
+    if (st) st.textContent = 'enviada';
+    msgLog('✓ ' + a.nome);
+  }catch(e){
+    msgMassa.erro++;
+    if (st) st.textContent = 'falhou';
+    msgLog('✕ ' + a.nome + ' — ' + e.message, 'var(--vermelho)');
+  }
+
+  msgMassa.i++;
+  if (msgMassa.abortar || msgMassa.i >= msgMassa.fila.length) return msgFinalizarMassa();
+
+  const espera = msgPausa();
+  if (prog) prog.textContent = `Aguardando ${Math.round(espera/1000)}s — `
+    + `próximo: ${msgMassa.fila[msgMassa.i].nome} (${msgMassa.i+1} de ${msgMassa.fila.length})`;
+  msgMassa.timer = setTimeout(()=>msgEnviarProximo(texto), espera);
+}
+
+function msgFinalizarMassa(){
+  clearTimeout(msgMassa.timer);
+  msgMassa.rodando = false;
+  const btn = document.getElementById('mx-disparar');
+  if (btn) btn.disabled = false;
+  const parar = document.getElementById('mx-parar');
+  if (parar) parar.style.display = 'none';
+  const falta = msgMassa.fila.length - msgMassa.i;
+  const txt = (msgMassa.abortar ? 'Interrompido — ' : 'Concluído — ')
+    + `${msgMassa.ok} enviada(s), ${msgMassa.erro} com erro`
+    + (falta > 0 ? `, ${falta} não enviada(s)` : '');
+  const prog = document.getElementById('mx-progresso');
+  if (prog) prog.textContent = txt;
+  msgLog('──────────', 'var(--fraco)');
+  msgLog(txt);
+  if (falta > 0) msgLog('Para retomar, dispare de novo: quem já recebeu volta desmarcado.', 'var(--fraco)');
+  avisar(msgMassa.abortar ? 'Disparo interrompido.' : 'Disparo concluído.');
+}
+
+function msgPararMassa(){
+  if (!msgMassa.rodando) return;
+  msgMassa.abortar = true;
+  clearTimeout(msgMassa.timer);
+  const prog = document.getElementById('mx-progresso');
+  if (prog) prog.textContent = 'Parando depois da mensagem atual…';
+}
+
+// Fechar a aba no meio do lote deixa metade da base sem receber. O aviso do
+// navegador é a única chance de segurar isso.
+window.addEventListener('beforeunload', e=>{
+  if (!msgMassa.rodando) return;
+  e.preventDefault(); e.returnValue = '';
+});
+
+/* ------------------------------- histórico ------------------------------- */
+
+async function msgPainelHistorico(){
+  const alvo = document.getElementById('msg-hist');
+  try{
+    const r = await api('/mensagens/historico?limite=200');
+    const h = r.historico || [];
+    alvo.innerHTML = h.length ? `
+      <p class="ajuda">Últimos ${h.length} envios registrados.</p>
+      ${h.map(x=>`
+        <div class="ficha">
+          <b>${esc(x.nome || x.telefone || 'sem destinatário')}</b>
+          <span class="tags">${new Date(x.em).toLocaleString('pt-BR')} · ${esc(x.origem)}${
+            x.modeloNome?' · '+esc(x.modeloNome):''} · ${x.ok?'enviada':'falhou'}</span>
+          ${x.ok ? '' : `<p class="ajuda" style="color:var(--vermelho)">${esc(x.motivo||'')}</p>`}
+          <p class="ajuda" style="white-space:pre-wrap">${esc(x.texto.slice(0,240))}${
+            x.texto.length>240?'…':''}</p>
+        </div>`).join('')}`
+      : '<div class="vazio">Nada enviado ainda.</div>';
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
 async function carregarConfig(){

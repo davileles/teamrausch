@@ -8,6 +8,7 @@ const pollerPortal = require('./poller-portal');
 const checkinsStore = require('./checkins-store');
 const matriculas = require('./matriculas-store');
 const alertasFrequencia = require('./alertas-frequencia');
+const agendadorMensagens = require('./agendador-mensagens');
 const planilhaAlunos = require('./planilha-alunos');
 const configApp = require('./config');
 const { lerCheckin } = require('./payload-map');
@@ -559,4 +560,5 @@ app.listen(PORTA, () => {
   pollerPortal.iniciar(); // poller do portal Wellhub (só roda se POLLER_PORTAL_ATIVO=true)
   alertasFrequencia.iniciar(); // aviso diário de quem está devendo treino
   planilhaAlunos.iniciar(); // cadastro de alunos pela planilha do Google
+  agendadorMensagens.iniciar(); // modelos programados e recorrentes
 });

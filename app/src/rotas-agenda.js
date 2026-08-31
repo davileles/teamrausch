@@ -862,6 +862,12 @@ rotas.get('/admin/backup', exigirLogin, exigirAdmin, (_req, res) => {
 // para reaproveitar a sessão e a checagem de administrador desta rota.
 rotas.use('/matriculas', require('./rotas-matriculas')({ exigirLogin, exigirAdmin }));
 
+/* ---------------------------- mensagens --------------------------------- */
+// Modelos, disparo para o aluno e histórico do que já saiu. Montado aqui pelo
+// mesmo motivo das matrículas: a sessão e a checagem de administrador já
+// existem nesta rota.
+rotas.use('/mensagens', require('./rotas-mensagens')({ exigirLogin, exigirAdmin }));
+
 module.exports = {
   rotas, normalizarTelefone, mostrarTelefone, ehAdmin,
   normalizarAniversario, mostrarAniversario,
