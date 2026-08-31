@@ -754,6 +754,139 @@ function atualizar(id, campos = {}) {
   return { ok: true, matricula: m };
 }
 
+/* -------------------------- planilha de alunos ---------------------------- */
+
+/**
+ * Cadastro por planilha (ver `planilha-alunos.js`): uma linha por aluno, lida
+ * uma vez por dia. Aqui só entra o casamento linha ↔ ficha e a política de
+ * atualização; o download e o parse ficam do outro lado.
+ *
+ * Três regras que valem a pena guardar:
+ *
+ *   NUNCA APAGA. Aluno que sumiu da planilha continua na base. Desligar alguém
+ *   é decisão de gente — coluna Ativo ou painel —, não efeito colateral de uma
+ *   linha deletada sem querer numa planilha compartilhada.
+ *
+ *   O NOME DO WELLHUB MANDA. Depois do primeiro check-in, `renomearDoWellhub`
+ *   grava o nome do cadastro real do aluno. A planilha não desfaz isso: quando
+ *   `nomeWellhub` existe, o nome da linha é guardado em `planilhaNome` e serve
+ *   só para reencontrar a ficha na próxima leitura.
+ *
+ *   CÉLULA VAZIA NÃO APAGA CAMPO. Em branco quer dizer "não preenchi", não
+ *   "limpe". Sem isso, uma planilha preenchida pela metade zeraria telefone e
+ *   aniversário da base inteira na primeira sincronização.
+ */
+
+function chaveNome(nome) {
+  return String(nome || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function soDigitos(texto) {
+  return String(texto || '').replace(/\D/g, '');
+}
+
+/** Últimos 8 dígitos: casa 31 99999-8888 com +55 31 99999-8888 e com 999998888. */
+function fimDoTelefone(texto) {
+  const d = soDigitos(texto);
+  return d.length >= 8 ? d.slice(-8) : '';
+}
+
+/**
+ * Acha a ficha desta linha. A ordem importa: telefone é a identidade mais
+ * estável, `planilhaNome` reencontra quem o Wellhub já rebatizou, e o nome só
+ * entra depois, para as fichas que existiam antes desta rotina.
+ */
+function casarComPlanilha(nome, telefone) {
+  const tel = fimDoTelefone(telefone);
+  if (tel) {
+    const achado = dados.matriculas.find((m) => fimDoTelefone(m.telefone) === tel);
+    if (achado) return achado;
+  }
+  const alvo = chaveNome(nome);
+  if (!alvo) return null;
+  return dados.matriculas.find((m) => m.planilhaNome && chaveNome(m.planilhaNome) === alvo)
+    || dados.matriculas.find((m) => chaveNome(m.nome) === alvo)
+    || dados.matriculas.find((m) => m.nomeOriginal && chaveNome(m.nomeOriginal) === alvo)
+    || null;
+}
+
+/** Ignora `atualizadoEm` para não contar como mudança o carimbo da própria escrita. */
+function retrato(m) {
+  return JSON.stringify({ ...m, atualizadoEm: null });
+}
+
+function sincronizarPlanilha(fichas = [], { seco = false } = {}) {
+  if (!Array.isArray(fichas)) return { criadas: [], atualizadas: [], recusadas: [], semMudanca: 0 };
+
+  const criadas = [];
+  const atualizadas = [];
+  const recusadas = [];
+  let semMudanca = 0;
+  const vistos = new Set();
+
+  for (const ficha of fichas) {
+    const linha = ficha.linha || null;
+    const nome = arrumarCaixa(ficha.nome);
+    if (!nome) { recusadas.push({ linha, motivo: 'sem nome' }); continue; }
+
+    const marca = chaveNome(nome);
+    if (vistos.has(marca)) {
+      recusadas.push({ linha, nome, motivo: 'nome repetido na planilha' });
+      continue;
+    }
+    vistos.add(marca);
+
+    const campos = {};
+    if (String(ficha.telefone || '').trim()) campos.telefone = ficha.telefone;
+    if (String(ficha.aniversario || '').trim()) campos.aniversario = ficha.aniversario;
+    if (String(ficha.vinculo || '').trim()) campos.vinculo = String(ficha.vinculo).toLowerCase();
+    if (String(ficha.ciclo || '').trim()) campos.ciclo = String(ficha.ciclo).toLowerCase();
+    if (String(ficha.diaVencimento || '').trim()) campos.diaVencimento = ficha.diaVencimento;
+    if (ficha.ativo !== undefined) campos.ativo = ficha.ativo;
+    // Grade só entra quando alguma célula de dia foi preenchida. Planilha com a
+    // grade ainda em branco não pode apagar o horário de quem já treina.
+    if (ficha.temGrade) campos.grade = ficha.grade || [];
+
+    const m = casarComPlanilha(nome, ficha.telefone);
+
+    if (!m) {
+      if (seco) { criadas.push({ linha, nome }); continue; }
+      // `vigenteDe` só vale no cadastro: mudar depois reescreveria a projeção
+      // de agenda do passado, que é justamente o que `gradeAnterior` evita.
+      const inicio = String(ficha.vigenteDe || '').trim();
+      const novo = criar({
+        ...campos,
+        nome,
+        ...(/^\d{4}-\d{2}-\d{2}$/.test(inicio) ? { vigenteDe: inicio } : {}),
+      });
+      if (!novo.ok) { recusadas.push({ linha, nome, motivo: novo.motivo }); continue; }
+      novo.matricula.planilhaNome = nome;
+      novo.matricula.origem = 'planilha';
+      gravar();
+      criadas.push({ id: novo.matricula.id, nome, linha });
+      continue;
+    }
+
+    if (seco) { atualizadas.push({ id: m.id, nome, linha, nota: 'simulação' }); continue; }
+
+    // O nome da planilha só reescreve a ficha enquanto o Wellhub não tiver dado
+    // o dele. Depois do primeiro check-in, quem manda é o portal.
+    if (!m.nomeWellhub && chaveNome(m.nome) !== marca) campos.nome = nome;
+
+    const antes = retrato(m);
+    const r = atualizar(m.id, campos);
+    if (!r.ok) { recusadas.push({ linha, nome, motivo: r.motivo }); continue; }
+
+    if (m.planilhaNome !== nome) m.planilhaNome = nome;
+    if (retrato(m) === antes) semMudanca += 1;
+    else { atualizadas.push({ id: m.id, nome, linha }); gravar(); }
+  }
+
+  return { criadas, atualizadas, recusadas, semMudanca };
+}
+
 /** Inativar preserva o histórico. Remover apaga de vez, com as exceções junto. */
 function inativar(id) {
   const m = porId(id);
@@ -1036,7 +1169,8 @@ module.exports = {
   renomearDoWellhub, arrumarCaixa,
   criar, atualizar, inativar, remover, definirContaDe, dependentesDe,
   excecoes, registrarExcecao, apagarExcecao,
-  importar, resumo, backup, normalizarHorarios, normalizarNomes, horaCheia,
+  importar, sincronizarPlanilha, resumo, backup, normalizarHorarios, normalizarNomes,
+  horaCheia,
   complementarTelefones, complementarWellhubIds, complementarInicios,
   VINCULOS, CICLOS,
 };
