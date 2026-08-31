@@ -758,23 +758,27 @@ function atualizar(id, campos = {}) {
 
 /**
  * Cadastro por planilha (ver `planilha-alunos.js`): uma linha por aluno, lida
- * uma vez por dia. Aqui só entra o casamento linha ↔ ficha e a política de
- * atualização; o download e o parse ficam do outro lado.
+ * uma vez por dia. Aqui só entra o casamento linha ↔ ficha e a decisão de
+ * cadastrar ou não; o download e o parse ficam do outro lado.
  *
- * Três regras que valem a pena guardar:
+ * A PLANILHA É SÓ PORTA DE ENTRADA, NÃO FONTE DE VERDADE
+ *   Linha que ainda não tem ficha vira cadastro. Linha que já tem é ignorada —
+ *   sem comparar campo, sem atualizar nada. Depois que o aluno entra, quem
+ *   manda é a base: o nome que o Wellhub gravou no primeiro check-in, o
+ *   telefone corrigido no painel, a grade remontada no meio do mês. Nada disso
+ *   pode ser desfeito por uma célula desatualizada numa planilha compartilhada.
  *
- *   NUNCA APAGA. Aluno que sumiu da planilha continua na base. Desligar alguém
- *   é decisão de gente — coluna Ativo ou painel —, não efeito colateral de uma
- *   linha deletada sem querer numa planilha compartilhada.
+ *   O efeito colateral bom é que a planilha pode crescer para sempre sem
+ *   ninguém precisar limpar as linhas já processadas: reler a planilha inteira
+ *   todo dia custa uma comparação por linha e não muda nada.
  *
- *   O NOME DO WELLHUB MANDA. Depois do primeiro check-in, `renomearDoWellhub`
- *   grava o nome do cadastro real do aluno. A planilha não desfaz isso: quando
- *   `nomeWellhub` existe, o nome da linha é guardado em `planilhaNome` e serve
- *   só para reencontrar a ficha na próxima leitura.
+ * NUNCA APAGA
+ *   Aluno que sumiu da planilha continua na base. Desligar alguém é decisão de
+ *   gente — coluna Ativo na ficha ou painel —, não efeito colateral de uma
+ *   linha deletada sem querer.
  *
- *   CÉLULA VAZIA NÃO APAGA CAMPO. Em branco quer dizer "não preenchi", não
- *   "limpe". Sem isso, uma planilha preenchida pela metade zeraria telefone e
- *   aniversário da base inteira na primeira sincronização.
+ * Para corrigir um aluno já cadastrado, edite a ficha no painel. Mudar a linha
+ * da planilha não tem efeito nenhum, e isso é de propósito.
  */
 
 function chaveNome(nome) {
@@ -812,18 +816,12 @@ function casarComPlanilha(nome, telefone) {
     || null;
 }
 
-/** Ignora `atualizadoEm` para não contar como mudança o carimbo da própria escrita. */
-function retrato(m) {
-  return JSON.stringify({ ...m, atualizadoEm: null });
-}
-
 function sincronizarPlanilha(fichas = [], { seco = false } = {}) {
-  if (!Array.isArray(fichas)) return { criadas: [], atualizadas: [], recusadas: [], semMudanca: 0 };
+  if (!Array.isArray(fichas)) return { criadas: [], ignoradas: [], recusadas: [] };
 
   const criadas = [];
-  const atualizadas = [];
+  const ignoradas = [];
   const recusadas = [];
-  let semMudanca = 0;
   const vistos = new Set();
 
   for (const ficha of fichas) {
@@ -838,6 +836,18 @@ function sincronizarPlanilha(fichas = [], { seco = false } = {}) {
     }
     vistos.add(marca);
 
+    const m = casarComPlanilha(nome, ficha.telefone);
+    if (m) {
+      // Único carimbo feito numa ficha já existente, e só na primeira vez que
+      // ela é reconhecida. Sem ele, o dia em que o Wellhub rebatizar o aluno a
+      // linha deixa de casar pelo nome e a planilha cadastra um duplicado.
+      if (!seco && !m.planilhaNome) { m.planilhaNome = nome; gravar(); }
+      ignoradas.push({ id: m.id, nome: m.nome, linha });
+      continue;
+    }
+
+    if (seco) { criadas.push({ nome, linha }); continue; }
+
     const campos = {};
     if (String(ficha.telefone || '').trim()) campos.telefone = ficha.telefone;
     if (String(ficha.aniversario || '').trim()) campos.aniversario = ficha.aniversario;
@@ -845,46 +855,26 @@ function sincronizarPlanilha(fichas = [], { seco = false } = {}) {
     if (String(ficha.ciclo || '').trim()) campos.ciclo = String(ficha.ciclo).toLowerCase();
     if (String(ficha.diaVencimento || '').trim()) campos.diaVencimento = ficha.diaVencimento;
     if (ficha.ativo !== undefined) campos.ativo = ficha.ativo;
-    // Grade só entra quando alguma célula de dia foi preenchida. Planilha com a
-    // grade ainda em branco não pode apagar o horário de quem já treina.
     if (ficha.temGrade) campos.grade = ficha.grade || [];
 
-    const m = casarComPlanilha(nome, ficha.telefone);
+    // `vigenteDe` vale a data informada quando ela é uma data de verdade; o
+    // resto do sistema conta a frequência do mensalista a partir dela.
+    const inicio = String(ficha.vigenteDe || '').trim();
 
-    if (!m) {
-      if (seco) { criadas.push({ linha, nome }); continue; }
-      // `vigenteDe` só vale no cadastro: mudar depois reescreveria a projeção
-      // de agenda do passado, que é justamente o que `gradeAnterior` evita.
-      const inicio = String(ficha.vigenteDe || '').trim();
-      const novo = criar({
-        ...campos,
-        nome,
-        ...(/^\d{4}-\d{2}-\d{2}$/.test(inicio) ? { vigenteDe: inicio } : {}),
-      });
-      if (!novo.ok) { recusadas.push({ linha, nome, motivo: novo.motivo }); continue; }
-      novo.matricula.planilhaNome = nome;
-      novo.matricula.origem = 'planilha';
-      gravar();
-      criadas.push({ id: novo.matricula.id, nome, linha });
-      continue;
-    }
+    const novo = criar({
+      ...campos,
+      nome,
+      ...(/^\d{4}-\d{2}-\d{2}$/.test(inicio) ? { vigenteDe: inicio } : {}),
+    });
+    if (!novo.ok) { recusadas.push({ linha, nome, motivo: novo.motivo }); continue; }
 
-    if (seco) { atualizadas.push({ id: m.id, nome, linha, nota: 'simulação' }); continue; }
-
-    // O nome da planilha só reescreve a ficha enquanto o Wellhub não tiver dado
-    // o dele. Depois do primeiro check-in, quem manda é o portal.
-    if (!m.nomeWellhub && chaveNome(m.nome) !== marca) campos.nome = nome;
-
-    const antes = retrato(m);
-    const r = atualizar(m.id, campos);
-    if (!r.ok) { recusadas.push({ linha, nome, motivo: r.motivo }); continue; }
-
-    if (m.planilhaNome !== nome) m.planilhaNome = nome;
-    if (retrato(m) === antes) semMudanca += 1;
-    else { atualizadas.push({ id: m.id, nome, linha }); gravar(); }
+    novo.matricula.planilhaNome = nome;
+    novo.matricula.origem = 'planilha';
+    gravar();
+    criadas.push({ id: novo.matricula.id, nome, linha });
   }
 
-  return { criadas, atualizadas, recusadas, semMudanca };
+  return { criadas, ignoradas, recusadas };
 }
 
 /** Inativar preserva o histórico. Remover apaga de vez, com as exceções junto. */
