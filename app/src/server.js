@@ -8,6 +8,7 @@ const pollerPortal = require('./poller-portal');
 const checkinsStore = require('./checkins-store');
 const matriculas = require('./matriculas-store');
 const alertasFrequencia = require('./alertas-frequencia');
+const planilhaAlunos = require('./planilha-alunos');
 const configApp = require('./config');
 const { lerCheckin } = require('./payload-map');
 
@@ -311,6 +312,39 @@ app.all('/wellhub/poller/rodar', async (req, res) => {
   }
 });
 
+/* ---------------------------------------------------------------------------
+   Cadastro de alunos por planilha do Google
+
+   A leitura acontece sozinha uma vez por dia (PLANILHA_ALUNOS_HORA). Estas
+   rotas existem para conferir o estado e para forçar uma leitura sem esperar,
+   quando alguém acabou de cadastrar um aluno e quer ver a ficha na hora.
+--------------------------------------------------------------------------- */
+
+/** Estado do agendador e o resultado da última leitura. */
+app.all('/alunos/planilha', (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  res.json({ ok: true, ...planilhaAlunos.situacao() });
+});
+
+/**
+ * Lê a planilha agora. `?seco=1` só mostra o que aconteceria, sem gravar nada —
+ * é como se confere um link novo antes de deixá-lo mexer na base.
+ */
+app.all('/alunos/planilha/sincronizar', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  const seco = ['1', 'true', 'sim'].includes(String(req.query.seco || '').toLowerCase());
+  try {
+    const r = await planilhaAlunos.rodar({ origem: 'manual', seco });
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
 /**
  * Sonda o serviço de WhatsApp pela rede privada, sem enviar mensagem nenhuma.
  * Existe porque "fetch failed" no envio não distingue nome de serviço errado
@@ -523,4 +557,5 @@ app.listen(PORTA, () => {
   log(`Serviço no ar na porta ${PORTA}${wellhub.SIMULAR ? ' — MODO SIMULAÇÃO' : ''}`);
   pollerPortal.iniciar(); // poller do portal Wellhub (só roda se POLLER_PORTAL_ATIVO=true)
   alertasFrequencia.iniciar(); // aviso diário de quem está devendo treino
+  planilhaAlunos.iniciar(); // cadastro de alunos pela planilha do Google
 });
