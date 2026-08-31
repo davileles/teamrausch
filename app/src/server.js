@@ -329,8 +329,9 @@ app.all('/alunos/planilha', (req, res) => {
 });
 
 /**
- * Lê a planilha agora. `?seco=1` só mostra o que aconteceria, sem gravar nada —
- * é como se confere um link novo antes de deixá-lo mexer na base.
+ * Lê a planilha agora. Só cadastra quem ainda não tem ficha; quem já existe
+ * entra em `ignoradas` e nada é reescrito. `?seco=1` mostra o que aconteceria
+ * sem gravar — é como se confere um link novo antes de soltá-lo na base.
  */
 app.all('/alunos/planilha/sincronizar', async (req, res) => {
   if (!tokenPainelConfere(req)) {
