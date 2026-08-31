@@ -4135,10 +4135,11 @@ function msgPainelModelos(){
       <div class="campo"><label for="mm-texto">Texto</label>
         <textarea id="mm-texto" rows="7"
           placeholder="Oi {{nome}}! Aqui é do TeamRausch…">${esc(m.texto||'')}</textarea>
-        <p class="ajuda">Clique para inserir no ponto do cursor:</p>
+        <p class="ajuda">Clique para inserir no ponto do cursor. Passe o mouse
+          para ver o que cada um vira na mensagem do aluno:</p>
         <div class="chips-mat">${msgEstado.marcadores.map(x=>
           `<button class="chip" type="button" data-marcador="${x.chave}"
-            title="${esc(x.descricao)}">{{${x.chave}}}</button>`).join('')}</div></div>
+            title="${esc(x.descricao)}${x.exemplo?' · vira \''+esc(x.exemplo)+'\'':''}">{{${x.chave}}}</button>`).join('')}</div></div>
 
       <div class="campo"><label for="mm-ativo">Situação</label>
         <select id="mm-ativo"><option value="1"${m.ativo===false?'':' selected'}>Ligado</option>
@@ -4348,7 +4349,7 @@ async function msgPainelMassa(){
             placeholder="Oi {{nome}}! …">${esc(texto)}</textarea>
           <div class="chips-mat">${msgEstado.marcadores.map(x=>
             `<button class="chip" type="button" data-marcador="${x.chave}"
-              title="${esc(x.descricao)}">{{${x.chave}}}</button>`).join('')}</div></div>
+              title="${esc(x.descricao)}${x.exemplo?' · vira \''+esc(x.exemplo)+'\'':''}">{{${x.chave}}}</button>`).join('')}</div></div>
       </div>
 
       <div class="ficha">
