@@ -26,6 +26,9 @@
  *   Ninguém é apagado. Aluno que some da planilha continua na base. Isto separa
  *   a rotina de `matriculas-store.importar`, que troca a base inteira.
  *
+ * Datas na planilha: aniversário em DD/MM (sem ano) e início em DD/MM/AAAA. A
+ * conversão para o formato da base acontece na leitura, não no store.
+ *
  * Variáveis:
  *   PLANILHA_ALUNOS_URL    link da planilha (o link normal de compartilhamento serve)
  *   PLANILHA_ALUNOS_ABA    nome da aba lida            (padrão 'Alunos')
@@ -190,23 +193,84 @@ function horarios(texto) {
   return saida;
 }
 
+const DIAS_NO_MES = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function dataExiste(dia, mes) {
+  return mes >= 1 && mes <= 12 && dia >= 1 && dia <= DIAS_NO_MES[mes - 1];
+}
+
+function doisDigitos(n) {
+  return String(n).padStart(2, '0');
+}
+
 /**
- * Aniversário no formato que o store espera (dia/mês).
+ * Aniversário: a planilha traz DD/MM.
  *
- * O Sheets adora transformar '07/03' em data e devolver o ano junto. Como o
- * cadastro não guarda ano, ele é descartado aqui em vez de fazer a validação
- * recusar a linha inteira.
+ * Aceita o ano junto porque o Sheets insiste em transformar '07/03' em data e
+ * devolver '07/03/2026' — o cadastro não guarda ano, então ele é descartado
+ * aqui em vez de fazer a validação recusar a linha inteira.
+ *
+ * Célula ilegível vira string vazia e o campo simplesmente não é preenchido.
+ * Recusar a linha por causa de um aniversário torto deixaria o aluno de fora da
+ * base inteira, que é um estrago muito maior do que uma data faltando.
  */
 function aniversario(texto) {
   const bruto = String(texto || '').trim();
   if (!bruto) return '';
 
-  const iso = bruto.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (iso) return `${iso[3]}/${iso[2]}`;
+  let dia;
+  let mes;
 
-  const partes = bruto.split(/[/\-.]/).map((p) => p.trim()).filter(Boolean);
-  if (partes.length >= 2) return `${partes[0]}/${partes[1]}`;
-  return bruto;
+  const iso = bruto.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) {
+    mes = Number(iso[2]);
+    dia = Number(iso[3]);
+  } else {
+    const partes = bruto.split(/[/\-.]/).map((p) => p.trim()).filter(Boolean);
+    if (partes.length < 2) return '';
+    if (!/^\d{1,2}$/.test(partes[0]) || !/^\d{1,2}$/.test(partes[1])) return '';
+    dia = Number(partes[0]);
+    mes = Number(partes[1]);
+  }
+
+  if (!dataExiste(dia, mes)) return '';
+  return `${doisDigitos(dia)}/${doisDigitos(mes)}`;
+}
+
+/**
+ * Data de início: a planilha traz DD/MM/AAAA; a base guarda AAAA-MM-DD.
+ *
+ * A conversão é feita aqui, na fronteira, e não no store: quem preenche a
+ * planilha escreve data como se escreve data no Brasil, e o resto do sistema
+ * continua comparando string ISO, que é o que faz `vigenteDe <= hoje` funcionar
+ * sem virar objeto Date.
+ *
+ * AAAA-MM-DD também é aceito, porque é o que o Sheets devolve quando a coluna
+ * escapa de ser texto e ele resolve formatar a data do jeito dele.
+ */
+function dataISO(texto) {
+  const bruto = String(texto || '').trim();
+  if (!bruto) return '';
+
+  const iso = bruto.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    const [, ano, mes, dia] = iso.map(Number);
+    if (!dataExiste(dia, mes)) return '';
+    return `${ano}-${doisDigitos(mes)}-${doisDigitos(dia)}`;
+  }
+
+  const br = bruto.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (!br) return '';
+  const dia = Number(br[1]);
+  const mes = Number(br[2]);
+  // '25' vira 2025: ano de dois dígitos aqui só pode ser deste século, porque
+  // ninguém começou a treinar no estúdio em 1925.
+  const ano = Number(br[3]) < 100 ? 2000 + Number(br[3]) : Number(br[3]);
+
+  if (!dataExiste(dia, mes)) return '';
+  if (mes === 2 && dia === 29 && !(ano % 4 === 0 && (ano % 100 !== 0 || ano % 400 === 0))) return '';
+  if (ano < 2000 || ano > 2100) return '';
+  return `${ano}-${doisDigitos(mes)}-${doisDigitos(dia)}`;
 }
 
 /** Sim/Não em suas muitas formas. Célula vazia devolve undefined: não mexe no campo. */
@@ -295,6 +359,7 @@ async function baixar() {
       continue;
     }
     ficha.aniversario = aniversario(ficha.aniversario);
+    ficha.vigenteDe = dataISO(ficha.vigenteDe);
     ficha.ativo = simNao(ficha.ativo);
     ficha.telefoneDigitos = apenasDigitos(ficha.telefone);
     fichas.push(ficha);
@@ -393,4 +458,6 @@ function situacao() {
   };
 }
 
-module.exports = { iniciar, rodar, baixar, situacao, enderecoCsv, lerCsv, horarios };
+module.exports = {
+  iniciar, rodar, baixar, situacao, enderecoCsv, lerCsv, horarios, aniversario, dataISO,
+};
