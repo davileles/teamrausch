@@ -21,6 +21,7 @@ const alunosLogin = require('./agenda-store');
 const aniversario = require('./aniversario');
 const telefone = require('./telefone');
 const frequencia = require('./frequencia');
+const presencas = require('./presencas');
 const alertas = require('./alertas-frequencia');
 const poller = require('./poller-portal');
 
@@ -413,9 +414,9 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
         // Conta compartilhada: a ficha precisa mostrar a fatia dela, e não a
         // lista inteira do titular nem uma meta que a conta não entrega.
         const fatia = frequencia
-          .dividirContas(store.listar(), checkins.mapaPorMatricula()).get(m.id);
+          .dividirContas(store.listar(), presencas.mapaPorMatricula()).get(m.id);
         return frequencia.avaliar(
-          m, fatia ? fatia.datas : checkins.datasDaMatricula(m.id),
+          m, fatia ? fatia.datas : presencas.datasDaMatricula(m.id),
           store.excecoes({ matriculaId: m.id, de, ate }),
           fatia ? { dias, ate, metaMes: fatia.meta, conta: fatia.conta } : { dias, ate });
       })(),

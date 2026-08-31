@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const matriculas = require('./matriculas-store');
 const checkins = require('./checkins-store');
+const presencas = require('./presencas');
 const frequencia = require('./frequencia');
 const poller = require('./poller-portal');
 const { enviarTexto } = require('./mensageiro');
@@ -72,7 +73,7 @@ function montarPainel(opcoes = {}) {
 
   return frequencia.painel(
     matriculas.listar(),
-    checkins.mapaPorMatricula(),           // histórico inteiro: alimenta o "sem treinar há N dias"
+    presencas.mapaPorMatricula(),          // histórico inteiro: alimenta o "sem treinar há N dias"
     matriculas.excecoes({ de, ate }),
     { dias, ate, vinculo: opcoes.vinculo === undefined ? 'wellhub' : opcoes.vinculo },
   );
@@ -184,7 +185,7 @@ async function cobrar(matriculaId, textoLivre) {
   const ate = frequencia.hojeLocal();
   const de = frequencia.inicioDoMes(ate);
   const situacao = frequencia.avaliar(
-    m, checkins.datasDaMatricula(m.id), matriculas.excecoes({ de, ate, matriculaId: m.id }),
+    m, presencas.datasDaMatricula(m.id), matriculas.excecoes({ de, ate, matriculaId: m.id }),
     { dias, ate });
 
   const texto = String(textoLivre || MODELO_COBRANCA)

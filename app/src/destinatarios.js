@@ -22,6 +22,10 @@ const matriculas = require('./matriculas-store');
 const alertas = require('./alertas-frequencia');
 const frequencia = require('./frequencia');
 const telefone = require('./telefone');
+const presencas = require('./presencas');
+
+/** Dias sem aparecer a partir dos quais o aluno entra no público 'ausentes'. */
+const AUSENTE_DIAS = Number(process.env.PRESENCA_AUSENTE_DIAS || 10);
 
 /** Primeiro nome, que é como se fala com o aluno no WhatsApp. */
 function primeiroNome(nome) {
@@ -36,7 +40,7 @@ function primeiroNome(nome) {
 function indiceDeFrequencia() {
   const mapa = new Map();
   try {
-    const painel = alertas.montarPainel({ vinculo: null });
+    const painel = alertas.montarPainel({ vinculo: presencas.vinculoParaPainel() });
     for (const a of painel.alunos) mapa.set(a.matriculaId, a);
   } catch (e) {
     // Frequência é enfeite aqui: se o cálculo falhar, a mensagem ainda sai —
@@ -70,7 +74,7 @@ function ficha(m, freq) {
     atrasoNoRitmo: f && f.mes ? f.mes.atrasoNoRitmo : null,
     diasRestantes: f && f.mes ? f.mes.diasRestantes : null,
     diasSemTreinar: f ? f.diasSemTreinar : null,
-    motivo: motivoDe(f),
+    motivo: motivoDe(f, m),
   };
 }
 
@@ -85,8 +89,14 @@ const ROTULO = {
   'sem-grade': 'sem grade', experimental: 'experimental',
 };
 
-function motivoDe(f) {
-  if (!f) return null;
+function motivoDe(f, m) {
+  // Sem ficha de frequência não é falha de cálculo: é o mensalista, que não
+  // tem fonte de presença. Dizer isso é melhor do que um traço no lugar.
+  if (!f) {
+    return m && m.vinculo === 'mensalista'
+      ? 'mensalista · sem registro de presença'
+      : 'sem dados de frequência';
+  }
   const partes = [ROTULO[f.situacao] || f.situacao];
   if (f.mes && f.mes.meta) partes.push(`${f.mes.realizado}/${f.mes.esperado} no mês`);
   if (f.ultimoCheckin) {
@@ -105,14 +115,26 @@ function montar(publico = 'todos', opcoes = {}) {
   const freq = indiceDeFrequencia();
   let lista;
 
-  if (publico === 'devedores') {
-    // SÓ WELLHUB, E ISSO NÃO É PREFERÊNCIA — É O LIMITE DO DADO
-    //   Check-in só existe pelo portal do Wellhub. O mensalista treina e nada
-    //   é registrado, então a conta dele fecha em realizado 0 contra a meta da
-    //   grade e ele vira crítico todo mês. Cobrar por isso é acusar quem veio.
-    //   Enquanto não houver check-in de mensalista, esta lista é de Wellhub.
-    const painel = alertas.montarPainel({ vinculo: 'wellhub' });
-    const ids = new Set(frequencia.devedores(painel).map((a) => a.matriculaId));
+  if (publico === 'devedores' || publico === 'ausentes') {
+    // QUEM ENTRA AQUI DEPENDE DE QUEM TEM DADO DE PRESENÇA
+    //   Não é preferência de negócio: sem registro de treino, o realizado do
+    //   aluno fecha em zero contra a meta da grade e ele vira crítico todo
+    //   mês. Cobrar por isso é acusar quem veio. Hoje só o Wellhub registra;
+    //   quando a confirmação de presença no estúdio entrar, `presencas.js`
+    //   passa a incluir o mensalista e estes dois públicos crescem sozinhos.
+    const painel = alertas.montarPainel({ vinculo: presencas.vinculoParaPainel() });
+
+    const ids = publico === 'devedores'
+      ? new Set(frequencia.devedores(painel).map((a) => a.matriculaId))
+      // Ausente é outra pergunta: não "está atrás da meta", e sim "sumiu".
+      // Quem treina 1× por semana pode estar em dia com o pacote e não
+      // aparecer há três semanas — e é essa pessoa que se perde sem ninguém
+      // notar. Nunca ter treinado também conta.
+      : new Set(painel.alunos
+        .filter((a) => a.situacao !== 'experimental' && a.situacao !== 'sem-grade')
+        .filter((a) => a.diasSemTreinar === null || a.diasSemTreinar >= AUSENTE_DIAS)
+        .map((a) => a.matriculaId));
+
     lista = matriculas.listar().filter((m) => m.ativo && ids.has(m.id));
   } else {
     lista = matriculas.listar().filter((m) => {

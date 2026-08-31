@@ -3986,8 +3986,8 @@ async function mostrarBackup(){
 const MSG_PAUSA_MIN = 7000;
 const MSG_PAUSA_MAX = 18000;
 
-const MSG_PUBLICOS = [['devedores','Devendo treino'],['mensalista','Mensalistas'],
-  ['todos','Todos os ativos'],['wellhub','Wellhub']];
+const MSG_PUBLICOS = [['ausentes','Sumidos'],['devedores','Devendo treino'],
+  ['mensalista','Mensalistas'],['todos','Todos os ativos'],['wellhub','Wellhub']];
 const MSG_MODOS = [['manual','Manual — você dispara pela tela'],
   ['programado','Programado — uma data e hora'],
   ['recorrente','Recorrente — repete sempre']];
@@ -4358,9 +4358,11 @@ async function msgPainelMassa(){
           ${r.comTelefone} com telefone${r.semTelefone?` · <b>${r.semTelefone} sem telefone, não recebem</b>`:''}</p>
         ${publico==='devedores'?`<p class="ajuda">${
           r.alunos.filter(a=>a.situacao==='critico').length} crítico(s) ·
-          ${r.alunos.filter(a=>a.situacao==='atrasado').length} atrasado(s).
-          Só alunos Wellhub: mensalista não faz check-in no portal, então a conta
-          dele daria zero e ele cairia aqui sem dever nada.</p>`:''}
+          ${r.alunos.filter(a=>a.situacao==='atrasado').length} atrasado(s).</p>`:''}
+        ${(publico==='devedores'||publico==='ausentes')?`<p class="ajuda">
+          Só alunos Wellhub por enquanto: o mensalista não faz check-in no portal,
+          então a conta dele daria zero e ele cairia aqui sem dever nada. Entra
+          sozinho quando a confirmação de presença no estúdio estiver no ar.</p>`:''}
         <div class="dupla" style="margin-bottom:12px">
           <button class="leve" id="mx-todos">Marcar todos</button>
           <button class="leve" id="mx-nenhum">Desmarcar</button>

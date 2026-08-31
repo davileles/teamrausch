@@ -31,7 +31,7 @@ const backup = backupGithub.criar(CAMINHO_BACKUP, 'Mensagens do estúdio');
 /** Manual sai por decisão sua; os outros dois o agendador dispara sozinho. */
 const MODOS = ['manual', 'programado', 'recorrente'];
 /** Quem recebe. `devedores` é calculado na hora do envio, não fica congelado. */
-const PUBLICOS = ['todos', 'wellhub', 'mensalista', 'devedores'];
+const PUBLICOS = ['todos', 'wellhub', 'mensalista', 'devedores', 'ausentes'];
 /** Só para modo `recorrente`. */
 const GATILHOS = ['aniversario', 'dia_do_mes', 'dia_da_semana'];
 
