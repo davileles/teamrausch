@@ -319,7 +319,10 @@
   .msg-alvo{display:flex;align-items:center;gap:10px;padding:9px 6px;
     border-bottom:1px solid var(--linha);font:400 13.5px 'Work Sans',sans-serif;cursor:pointer}
   .msg-alvo:last-child{border-bottom:none}
-  .msg-alvo span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .msg-alvo span{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .msg-alvo span b{font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .msg-alvo span small{font-size:11.5px;color:var(--fraco);overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
   .msg-alvo em{font-style:normal;font-size:11.5px;color:var(--fraco);white-space:nowrap}
   .msg-alvo.sem-tel{opacity:.5;cursor:not-allowed}
   .subabas{display:flex;gap:0;margin:18px 0 22px;border-bottom:1px solid var(--linha)}
@@ -4278,7 +4281,7 @@ function msgTrocarIndividual(){
   const info = document.getElementById('mi-destino');
   const ta = document.getElementById('mi-texto');
   if (info) info.textContent = a
-    ? `Vai para ${a.nome} — ${a.telefoneFormatado}`
+    ? `Vai para ${a.nome} — ${a.telefoneFormatado}` + (a.motivo ? ` · ${a.motivo}` : '')
     : 'Escolha o aluno para ver o número.';
   // Prévia só existe quando há modelo escolhido; texto escrito na hora fica
   // como está para não apagar o que a pessoa digitou.
@@ -4352,6 +4355,11 @@ async function msgPainelMassa(){
         <h3>Destinatários</h3>
         <p class="ajuda">${r.total} no público <b>${esc(msgRotulo(MSG_PUBLICOS, publico))}</b> ·
           ${r.comTelefone} com telefone${r.semTelefone?` · <b>${r.semTelefone} sem telefone, não recebem</b>`:''}</p>
+        ${publico==='devedores'?`<p class="ajuda">${
+          r.alunos.filter(a=>a.situacao==='critico').length} crítico(s) ·
+          ${r.alunos.filter(a=>a.situacao==='atrasado').length} atrasado(s).
+          Só alunos Wellhub: mensalista não faz check-in no portal, então a conta
+          dele daria zero e ele cairia aqui sem dever nada.</p>`:''}
         <div class="dupla" style="margin-bottom:12px">
           <button class="leve" id="mx-todos">Marcar todos</button>
           <button class="leve" id="mx-nenhum">Desmarcar</button>
@@ -4362,7 +4370,7 @@ async function msgPainelMassa(){
             <label class="msg-alvo${a.temTelefone?'':' sem-tel'}">
               <input type="checkbox" class="mx-chk" value="${esc(a.matriculaId)}"
                 ${a.temTelefone && !a.jaEnviado ? 'checked' : ''} ${a.temTelefone?'':'disabled'}>
-              <span>${esc(a.nome)}</span>
+              <span><b>${esc(a.nome)}</b><small>${esc(a.motivo || '—')}</small></span>
               <em id="mx-st-${esc(a.matriculaId)}">${
                 !a.temTelefone ? 'sem telefone' : a.jaEnviado ? 'já recebeu' : ''}</em>
             </label>`).join('') : '<div class="vazio">Ninguém neste público.</div>'}

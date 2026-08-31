@@ -64,7 +64,31 @@ function ficha(m, freq) {
     mesRealizado: f && f.mes ? f.mes.realizado : null,
     mesEsperado: f && f.mes ? f.mes.esperado : null,
     ultimoCheckin: f ? f.ultimoCheckin : null,
+    motivo: motivoDe(f),
   };
+}
+
+/**
+ * Uma linha explicando por que a pessoa está na lista. Sem isto o disparo é
+ * uma lista de nomes sem contexto, e conferir antes de enviar significaria
+ * abrir a aba Frequência em paralelo, aluno por aluno.
+ */
+const ROTULO = {
+  critico: 'crítico', atrasado: 'atrasado', 'em-dia': 'em dia',
+  quitado: 'pacote fechado', 'sem-aula': 'sem aula prevista',
+  'sem-grade': 'sem grade', experimental: 'experimental',
+};
+
+function motivoDe(f) {
+  if (!f) return null;
+  const partes = [ROTULO[f.situacao] || f.situacao];
+  if (f.mes && f.mes.meta) partes.push(`${f.mes.realizado}/${f.mes.esperado} no mês`);
+  if (f.ultimoCheckin) {
+    partes.push('último em ' + f.ultimoCheckin.split('-').reverse().slice(0, 2).join('/'));
+  } else {
+    partes.push('sem check-in');
+  }
+  return partes.join(' · ');
 }
 
 /**
@@ -76,9 +100,12 @@ function montar(publico = 'todos', opcoes = {}) {
   let lista;
 
   if (publico === 'devedores') {
-    // A lista de cobrança é a mesma do aviso diário: quem está atrasado ou
-    // crítico na janela. Sai do painel pronto para não haver duas contas.
-    const painel = alertas.montarPainel({ vinculo: null });
+    // SÓ WELLHUB, E ISSO NÃO É PREFERÊNCIA — É O LIMITE DO DADO
+    //   Check-in só existe pelo portal do Wellhub. O mensalista treina e nada
+    //   é registrado, então a conta dele fecha em realizado 0 contra a meta da
+    //   grade e ele vira crítico todo mês. Cobrar por isso é acusar quem veio.
+    //   Enquanto não houver check-in de mensalista, esta lista é de Wellhub.
+    const painel = alertas.montarPainel({ vinculo: 'wellhub' });
     const ids = new Set(frequencia.devedores(painel).map((a) => a.matriculaId));
     lista = matriculas.listar().filter((m) => m.ativo && ids.has(m.id));
   } else {
