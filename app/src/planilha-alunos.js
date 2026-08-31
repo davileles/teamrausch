@@ -16,10 +16,15 @@
  *   Como só se LÊ, e os dados são nome/telefone/horário do próprio estúdio, a
  *   troca é boa — mas vale lembrar que quem tiver o link lê a planilha.
  *
- * O que a sincronização NÃO faz:
- *   Nunca apaga ninguém. Aluno que some da planilha continua na base — desligar
- *   alguém é decisão de gente, feita na coluna Ativo ou pelo painel. Isto a
- *   separa de `matriculas-store.importar`, que troca a base inteira.
+ * A planilha é incremental e só acrescenta:
+ *   Linha de aluno que ainda não tem ficha vira cadastro; linha de quem já foi
+ *   cadastrado é ignorada, sem comparar campo nenhum. Depois da entrada, quem
+ *   manda é a base — o nome que o Wellhub gravou no check-in, o telefone
+ *   corrigido no painel, a grade remontada no meio do mês. Para corrigir um
+ *   aluno já cadastrado, edite a ficha no painel: mexer na linha não tem efeito.
+ *
+ *   Ninguém é apagado. Aluno que some da planilha continua na base. Isto separa
+ *   a rotina de `matriculas-store.importar`, que troca a base inteira.
  *
  * Variáveis:
  *   PLANILHA_ALUNOS_URL    link da planilha (o link normal de compartilhamento serve)
@@ -314,8 +319,7 @@ async function rodar({ origem = 'manual', seco = false } = {}) {
     seco,
     lidas: lido.fichas.length,
     criadas: r.criadas.length,
-    atualizadas: r.atualizadas.length,
-    semMudanca: r.semMudanca,
+    ignoradas: r.ignoradas.length,          // já cadastrados: a linha não é relida
     recusadas: [...lido.recusadas, ...r.recusadas],
   };
 
@@ -324,10 +328,10 @@ async function rodar({ origem = 'manual', seco = false } = {}) {
   estado.ultimaRodadaEm = new Date().toISOString();
 
   log(`${origem}${seco ? ' (simulação)' : ''}: ${resumo.lidas} linhas · `
-    + `${resumo.criadas} novas · ${resumo.atualizadas} atualizadas · `
+    + `${resumo.criadas} novas · ${resumo.ignoradas} já cadastradas · `
     + `${resumo.recusadas.length} recusadas.`);
 
-  return { ok: true, ...resumo, detalhes: { criadas: r.criadas, atualizadas: r.atualizadas } };
+  return { ok: true, ...resumo, detalhes: { criadas: r.criadas } };
 }
 
 /* ------------------------------ agendador -------------------------------- */
