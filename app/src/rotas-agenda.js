@@ -110,6 +110,122 @@ function nomeCompleto(texto) {
   return String(texto || '').trim().split(/\s+/).filter((p) => p.length >= 2).length >= 2;
 }
 
+/* --------------------- grade semanal do primeiro acesso ------------------- */
+
+/**
+ * Horários abertos em cada dia da semana, no formato que a tela de entrada
+ * consome. Sai da configuração do estúdio (Configurações → Horários da
+ * semana), então abrir ou fechar um horário lá muda o que o aluno pode
+ * escolher aqui, sem passar por código.
+ */
+function horariosDaSemana() {
+  const c = config.ler();
+  return config.DIAS.map((chave, dia) => ({
+    dia,
+    nome: grade.NOME_DIA[dia],
+    horas: [...new Set((c.agenda.horarios[chave] || []).map((h) => String(h.hora)))]
+      .sort((a, b) => a.localeCompare(b)),
+  })).filter((d) => d.horas.length);
+}
+
+/**
+ * Ainda falta a grade semanal padrão deste telefone.
+ *
+ * A pergunta é feita a quem não tem grade montada na matrícula — não só a quem
+ * nunca entrou. Quem veio da importação sem horário e quem chega hoje sem ficha
+ * caem no mesmo buraco: ninguém sabe em que turma a pessoa treina, e ela não
+ * aparece em lista de presença nenhuma.
+ *
+ * Duas exceções: administrador, que entra para gerir e não para treinar, e
+ * estúdio sem nenhum horário cadastrado — aí não há o que escolher, e travar a
+ * entrada de todo mundo seria pior do que deixar a grade para depois.
+ */
+function precisaDeGrade(telefone) {
+  if (ehAdmin(telefone)) return false;
+  if (!horariosDaSemana().length) return false;
+  const m = matriculas.porTelefone(telefone);
+  return !(m && (m.grade || []).length);
+}
+
+/**
+ * Confere a grade escolhida contra os horários que o estúdio abriu.
+ *
+ * Um horário por dia, como no resto do sistema (ver `grade.conflitosDeGrade`):
+ * a grade é o compromisso de rotina, e dois horários no mesmo dia sempre
+ * significaram "ou um, ou outro", nunca duas aulas.
+ */
+function validarGrade(bruta) {
+  if (!Array.isArray(bruta) || !bruta.length) {
+    return { ok: false, motivo: 'Escolha pelo menos um dia e horário da sua semana.' };
+  }
+  const abertos = new Map(horariosDaSemana().map((d) => [d.dia, d.horas]));
+  const porDia = new Map();
+
+  for (const s of bruta) {
+    const dia = Number(s && s.dia);
+    const hora = String((s && s.hora) || '').trim();
+    if (!abertos.has(dia)) {
+      return { ok: false, motivo: 'Dia da semana sem horário aberto no estúdio.' };
+    }
+    if (!abertos.get(dia).includes(hora)) {
+      return {
+        ok: false,
+        motivo: `${grade.NOME_DIA[dia]}: escolha um dos horários abertos.`,
+      };
+    }
+    if (porDia.has(dia) && porDia.get(dia) !== hora) {
+      return {
+        ok: false,
+        motivo: `${grade.NOME_DIA[dia]}: um horário só por dia da semana.`,
+      };
+    }
+    porDia.set(dia, hora);
+  }
+
+  const limpa = [...porDia.entries()]
+    .map(([dia, hora]) => ({ dia, hora }))
+    .sort((a, b) => a.dia - b.dia);
+  return { ok: true, grade: limpa };
+}
+
+/**
+ * Leva a grade escolhida para a matrícula, que é a base que o estúdio lê.
+ *
+ * Quem já tem ficha recebe a grade nela; quem chegou sem ficha ganha uma,
+ * marcada para conferência — vínculo e cobrança só o estúdio sabe, e inventar
+ * isso seria pior do que deixar o campo pedindo revisão.
+ *
+ * Falha aqui não derruba o login: o código já foi conferido e a pessoa já é
+ * dona do número. Vira aviso no log, e a grade volta a ser pedida na entrada
+ * seguinte — melhor do que trancar o acesso por um homônimo na base.
+ */
+function aplicarGradeNaMatricula(telefone, nome, aniversario, gradeEscolhida) {
+  const mesmoNome = (a, b) =>
+    String(a || '').trim().toLocaleLowerCase('pt-BR')
+    === String(b || '').trim().toLocaleLowerCase('pt-BR');
+
+  const m = matriculas.porTelefone(telefone)
+    || matriculas.listar().find((x) => !x.telefone && mesmoNome(x.nome, nome));
+
+  if (m) {
+    const campos = { grade: gradeEscolhida };
+    if (!m.telefone) campos.telefone = telefone;
+    // Ficha de aula experimental existe justamente por não ter horário fixo
+    // combinado. Combinado agora, a marca não descreve mais a situação.
+    if (m.experimental) campos.experimental = false;
+    return matriculas.atualizar(m.id, campos);
+  }
+
+  return matriculas.criar({
+    nome,
+    telefone,
+    aniversario,
+    vinculo: 'mensalista',
+    grade: gradeEscolhida,
+    observacao: 'Ficha aberta pelo próprio aluno no primeiro acesso — conferir vínculo e cobrança.',
+  });
+}
+
 /* ----------------------------- sessão ------------------------------------ */
 
 function identificar(req, _res, next) {
@@ -166,6 +282,8 @@ rotas.post('/auth/codigo', async (req, res) => {
       telefone: mostrarTelefone(telefone),
       precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
       precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
+      precisaDeGrade: precisaDeGrade(telefone),
+      horarios: horariosDaSemana(),
     });
   }
 
@@ -178,6 +296,8 @@ rotas.post('/auth/codigo', async (req, res) => {
       telefone: mostrarTelefone(telefone),
       precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
       precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
+      precisaDeGrade: precisaDeGrade(telefone),
+      horarios: horariosDaSemana(),
     });
   }
 
@@ -193,6 +313,8 @@ rotas.post('/auth/codigo', async (req, res) => {
     telefone: mostrarTelefone(telefone),
     precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
     precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
+    precisaDeGrade: precisaDeGrade(telefone),
+    horarios: horariosDaSemana(),
   });
 });
 
@@ -248,6 +370,16 @@ rotas.post('/auth/entrar', (req, res) => {
     return res.status(400).json({ erro: 'Informe seu aniversário (dia e mês).' });
   }
 
+  // Grade semanal padrão: os dias e horários em que a pessoa treina de rotina.
+  // Sem isso ela entra no app e não existe em nenhuma lista de presença — o
+  // estúdio teria de descobrir o horário dela por WhatsApp, um a um.
+  let gradeEscolhida = null;
+  if (precisaDeGrade(telefone)) {
+    const conferida = validarGrade(req.body.grade);
+    if (!conferida.ok) return res.status(400).json({ erro: conferida.motivo });
+    gradeEscolhida = conferida.grade;
+  }
+
   const aluno = store.salvarAluno(telefone, {
     nome: nome || (existente && existente.nome) || null,
     aniversario,
@@ -269,6 +401,11 @@ rotas.post('/auth/entrar', (req, res) => {
         if (!r.ok) console.warn(`[acesso] não deu para completar a matrícula ${m.id}: ${r.motivo}`);
       }
     }
+  }
+
+  if (gradeEscolhida) {
+    const r = aplicarGradeNaMatricula(telefone, aluno.nome, aniversario, gradeEscolhida);
+    if (!r.ok) console.warn(`[acesso] grade de ${telefone} não foi gravada: ${r.motivo}`);
   }
 
   const token = store.abrirSessao(telefone, Number(c.acesso.diasDeSessao || 7));
