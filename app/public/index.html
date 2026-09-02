@@ -800,9 +800,9 @@
       <p class="ajuda" style="margin:6px 0 0">Só o dia e o mês. Não pedimos o ano.</p>
     </div>
     <div class="campo" id="campo-grade" hidden>
-      <label>Seus horários da semana</label>
-      <p class="ajuda" style="margin:6px 0 0">Marque os dias em que você treina e escolha
-        o horário de cada um. Depois dá para mudar com o estúdio.</p>
+      <label id="grade-titulo">Seus horários da semana</label>
+      <p class="ajuda" style="margin:6px 0 0" id="grade-ajuda">Marque os dias em que você
+        treina e escolha o horário de cada um. Depois dá para mudar com o estúdio.</p>
       <div class="grade-dias" id="grade-dias"></div>
       <div id="grade-horas"></div>
     </div>
@@ -907,7 +907,7 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
 
     horariosSemana = r.horarios || [];
     document.getElementById('campo-grade').hidden = !r.precisaDeGrade;
-    if (r.precisaDeGrade) montarGradeLogin();
+    if (r.precisaDeGrade) montarGradeLogin(r.gradeAtual || []);
 
     // Três caminhos possíveis: senha (administrador), nenhum (canal aberto)
     // ou código. Só um dos campos fica visível.
@@ -960,22 +960,37 @@ document.getElementById('in-nome').addEventListener('keydown', e=>{
    uma segunda lista aqui para sair de sincronia. */
 let horariosSemana = [];
 
-function montarGradeLogin(){
+function montarGradeLogin(gradeAtual){
+  const marcada = new Map((gradeAtual||[]).map(s=>[Number(s.dia), s.hora]));
   const dias = document.getElementById('grade-dias');
   dias.innerHTML = horariosSemana.map(d=>
-    `<button type="button" class="chip" data-dia="${d.dia}">${esc(d.nome.slice(0,3))}</button>`
+    `<button type="button" class="chip${marcada.has(d.dia)?' sel':''}" data-dia="${d.dia}"`
+    + `>${esc(d.nome.slice(0,3))}</button>`
   ).join('');
-  document.getElementById('grade-horas').innerHTML = '';
   dias.querySelectorAll('.chip').forEach(b=>{
     b.addEventListener('click', ()=>{ b.classList.toggle('sel'); desenharHorasLogin(); });
   });
+
+  // Quem já tem grade não escolhe do zero: vê o que está gravado e confirma ou
+  // corrige. O texto muda junto, senão a tela pediria para montar uma grade que
+  // já aparece montada.
+  const temGrade = marcada.size > 0;
+  document.getElementById('grade-titulo').textContent =
+    temGrade ? 'Confirme seus horários' : 'Seus horários da semana';
+  document.getElementById('grade-ajuda').textContent = temGrade
+    ? 'Estes são os dias e horários que temos para você. Está certo? Ajuste o que mudou.'
+    : 'Marque os dias em que você treina e escolha o horário de cada um. Depois dá para mudar com o estúdio.';
+
+  document.getElementById('grade-horas').innerHTML = '';
+  desenharHorasLogin(marcada);
 }
 
 /* Redesenha as linhas de horário preservando o que já estava escolhido:
    desmarcar a sexta não pode zerar a segunda que a pessoa já ajustou. */
-function desenharHorasLogin(){
+function desenharHorasLogin(inicial){
   const alvo = document.getElementById('grade-horas');
   const antes = {};
+  if (inicial) inicial.forEach((hora, dia)=>{ antes[dia] = hora; });
   alvo.querySelectorAll('select[data-dia]').forEach(s=>{ antes[s.dataset.dia] = s.value; });
   const marcados = [...document.querySelectorAll('#grade-dias .chip.sel')]
     .map(b=>Number(b.dataset.dia));
