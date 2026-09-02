@@ -293,13 +293,28 @@ function horaCheia(h) {
   return ehHora(bruto) ? `${bruto.slice(0, 2)}:00` : bruto;
 }
 
-/** Normaliza a grade e recusa entrada torta em vez de gravar lixo silenciosamente. */
-function limparGrade(bruta) {
+/**
+ * Normaliza a grade e recusa entrada torta em vez de gravar lixo silenciosamente.
+ *
+ * Um horário por dia (ver `grade.conflitosDeGrade`). O que fazer quando o dia
+ * vem repetido depende de quem está mandando:
+ *
+ *   'recusar' — padrão, para a tela e a API: tem gente do outro lado para
+ *               escolher qual horário fica;
+ *   'reduzir' — para a planilha, que roda sozinha de madrugada: fica o mais
+ *               cedo e o outro vira aviso de revisão na ficha, em vez de a
+ *               linha inteira ser recusada e o aluno não entrar;
+ *   'manter'  — para restaurar backup e para reler grade já gravada: aqui o
+ *               arquivo é a verdade, e validar seria apagar o passado.
+ */
+function limparGrade(bruta, { conflito = 'recusar' } = {}) {
   if (bruta === undefined) return { ok: true, grade: undefined };
   if (!Array.isArray(bruta)) return { ok: false, motivo: 'Grade inválida.' };
 
   const vistos = new Set();
+  const porDia = new Map();
   const limpa = [];
+  const descartados = [];
   for (const s of bruta) {
     const dia = Number(s.dia);
     const hora = String(s.hora || '').trim();
@@ -311,10 +326,31 @@ function limparGrade(bruta) {
     const chave = `${dia}|${cheia}`;
     if (vistos.has(chave)) continue;   // repetido é engano de digitação, não erro
     vistos.add(chave);
-    limpa.push({ dia, hora: cheia });
+
+    const anterior = porDia.get(dia);
+    if (anterior === undefined) {
+      porDia.set(dia, cheia);
+      limpa.push({ dia, hora: cheia });
+      continue;
+    }
+    if (conflito === 'manter') { limpa.push({ dia, hora: cheia }); continue; }
+    if (conflito === 'recusar') {
+      return {
+        ok: false,
+        motivo: `${grade.NOME_DIA[dia]} já está com ${anterior}: cada dia da semana `
+          + 'aceita um horário só na grade.',
+      };
+    }
+    // 'reduzir': fica o mais cedo do dia; o outro sai, mas deixa rastro.
+    const fica = cheia < anterior ? cheia : anterior;
+    const sai = cheia < anterior ? anterior : cheia;
+    porDia.set(dia, fica);
+    const alvo = limpa.find((x) => x.dia === dia);
+    if (alvo) alvo.hora = fica;
+    descartados.push({ dia, hora: sai });
   }
   limpa.sort((a, b) => a.dia - b.dia || a.hora.localeCompare(b.hora));
-  return { ok: true, grade: limpa };
+  return { ok: true, grade: limpa, descartados };
 }
 
 function mesmaGrade(a = [], b = []) {
@@ -565,7 +601,7 @@ function comMesmoNome(nome, exceto) {
     m.id !== exceto && String(m.nome).trim().toLocaleLowerCase('pt-BR') === alvo) || null;
 }
 
-function criar(campos = {}) {
+function criar(campos = {}, opcoes = {}) {
   const nome = arrumarCaixa(campos.nome);
   if (!nome) return { ok: false, motivo: 'Informe o nome do aluno.' };
   if (comMesmoNome(nome)) return { ok: false, motivo: 'Já existe um aluno com esse nome.' };
@@ -573,7 +609,7 @@ function criar(campos = {}) {
   const vinculo = String(campos.vinculo || 'mensalista');
   if (!VINCULOS.includes(vinculo)) return { ok: false, motivo: 'Vínculo inválido.' };
 
-  const g = limparGrade(campos.grade === undefined ? [] : campos.grade);
+  const g = limparGrade(campos.grade === undefined ? [] : campos.grade, opcoes);
   if (!g.ok) return { ok: false, motivo: g.motivo };
 
   const registro = {
@@ -609,6 +645,13 @@ function criar(campos = {}) {
   if (vinculo === 'mensalista') {
     const r = aplicarCobranca(registro, campos);
     if (!r.ok) return r;
+  }
+
+  // Horário alternativo que veio junto na célula da planilha: fica escrito na
+  // ficha para alguém confirmar, em vez de sumir sem deixar rastro.
+  if ((g.descartados || []).length) {
+    registro.revisar = g.descartados.map(
+      (d) => `${grade.NOME_DIA[d.dia]}: ${d.hora} não entrou (um horário por dia)`);
   }
 
   dados.matriculas.push(registro);
@@ -727,9 +770,18 @@ function atualizar(id, campos = {}) {
   }
 
   if (campos.grade !== undefined) {
-    const g = limparGrade(campos.grade);
+    // A ficha manda a grade inteira em todo salvamento, inclusive quando a
+    // edição foi o telefone. Sem esta primeira passada tolerante, os alunos que
+    // já estavam gravados com dois horários no mesmo dia — de antes da regra —
+    // ficavam impossíveis de editar em qualquer campo. A regra vale a partir do
+    // momento em que a grade é mexida.
+    const comoEsta = limparGrade(campos.grade, { conflito: 'manter' });
+    if (!comoEsta.ok) return { ok: false, motivo: comoEsta.motivo };
+    const mudou = !mesmaGrade(m.grade || [], comoEsta.grade);
+
+    const g = mudou ? limparGrade(campos.grade) : comoEsta;
     if (!g.ok) return { ok: false, motivo: g.motivo };
-    if (!mesmaGrade(m.grade || [], g.grade)) {
+    if (mudou) {
       // Arquiva a grade que estava valendo até ontem. Sem isto, a tela de um dia
       // passado mostraria o aluno no horário novo, como se sempre tivesse sido.
       const ontem = grade.somarDias(hojeISO(), -1);
@@ -865,7 +917,7 @@ function sincronizarPlanilha(fichas = [], { seco = false } = {}) {
       ...campos,
       nome,
       ...(/^\d{4}-\d{2}-\d{2}$/.test(inicio) ? { vigenteDe: inicio } : {}),
-    });
+    }, { conflito: 'reduzir' });
     if (!novo.ok) { recusadas.push({ linha, nome, motivo: novo.motivo }); continue; }
 
     novo.matricula.planilhaNome = nome;
@@ -1002,6 +1054,17 @@ function normalizarHorarios() {
     console.log(`[matriculas] ${mudou} horários quebrados passaram para a hora cheia.`);
     gravar();
   }
+
+  // Grade com dia repetido não é corrigida aqui de propósito: escolher qual
+  // horário fica é decisão de quem conhece o aluno, não de uma migração. O boot
+  // só avisa quantas fichas ainda estão assim.
+  const emConflito = dados.matriculas.filter(
+    (m) => m.ativo && grade.conflitosDeGrade(m.grade).length);
+  if (emConflito.length) {
+    console.log(`[matriculas] ${emConflito.length} aluno(s) com mais de um horário no `
+      + 'mesmo dia — ajuste a grade na ficha.');
+  }
+
   return mudou;
 }
 
@@ -1032,7 +1095,7 @@ function importar(lista, { substituir = false } = {}) {
     const nome = arrumarCaixa(bruta.nome);
     if (!nome) { recusadas.push({ nome: bruta.nome, motivo: 'sem nome' }); continue; }
 
-    const g = limparGrade(bruta.grade || []);
+    const g = limparGrade(bruta.grade || [], { conflito: 'manter' });
     if (!g.ok) { recusadas.push({ nome, motivo: g.motivo }); continue; }
 
     const vinculo = VINCULOS.includes(bruta.vinculo) ? bruta.vinculo : 'mensalista';
