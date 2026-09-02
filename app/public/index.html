@@ -662,6 +662,14 @@
     padding-bottom:2px}
   .voltar:hover{color:var(--amarelo);border-color:var(--amarelo)}
 
+  /* Grade da semana no primeiro acesso. Fica na entrada porque é ali que o
+     dado falta: sem horário fixo a pessoa entra no app e não aparece em lista
+     de presença nenhuma. */
+  .entrada .grade-dias{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .entrada .grade-linha{display:flex;align-items:center;gap:10px;margin-top:10px}
+  .entrada .grade-linha span{flex:1;font:500 14px 'Work Sans',sans-serif;color:var(--apagado)}
+  .entrada .grade-linha select{flex:0 0 132px;min-height:50px}
+
   /* Telas bem estreitas (iPhone SE e similares) */
   @media (max-width:380px){
     .cab #quem-sou{display:none}
@@ -791,6 +799,13 @@
              placeholder="dia/mês — ex: 07/03" autocomplete="off">
       <p class="ajuda" style="margin:6px 0 0">Só o dia e o mês. Não pedimos o ano.</p>
     </div>
+    <div class="campo" id="campo-grade" hidden>
+      <label>Seus horários da semana</label>
+      <p class="ajuda" style="margin:6px 0 0">Marque os dias em que você treina e escolha
+        o horário de cada um. Depois dá para mudar com o estúdio.</p>
+      <div class="grade-dias" id="grade-dias"></div>
+      <div id="grade-horas"></div>
+    </div>
     <button class="acao" id="btn-entrar">Confirmar</button>
     <button class="voltar" id="btn-voltar">Usar outro telefone</button>
   </div>
@@ -879,7 +894,7 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
 
     // Canal aberto e cadastro completo: não há código, senha, nome nem
     // aniversário a informar. A segunda tela só teria um botão, então entra.
-    if (r.semCodigo && !r.precisaDeNome && !r.precisaDeAniversario){
+    if (r.semCodigo && !r.precisaDeNome && !r.precisaDeAniversario && !r.precisaDeGrade){
       semCodigo = true; porSenha = false;
       if (await entrar(b)) return;
       return;   // deu erro: a mensagem já apareceu e o telefone segue na tela
@@ -889,6 +904,10 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
     document.getElementById('passo-codigo').hidden = false;
     document.getElementById('campo-nome').hidden = !r.precisaDeNome;
     document.getElementById('campo-aniversario').hidden = !r.precisaDeAniversario;
+
+    horariosSemana = r.horarios || [];
+    document.getElementById('campo-grade').hidden = !r.precisaDeGrade;
+    if (r.precisaDeGrade) montarGradeLogin();
 
     // Três caminhos possíveis: senha (administrador), nenhum (canal aberto)
     // ou código. Só um dos campos fica visível.
@@ -901,7 +920,8 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
 
     document.getElementById('sub-login').textContent =
       porSenha    ? 'Acesso de administrador. Informe a senha.'
-      : semCodigo ? (r.precisaDeNome ? 'Só completar o cadastro e entrar.' : 'É só entrar.')
+      : semCodigo ? (r.precisaDeNome || r.precisaDeGrade
+                       ? 'Só completar o cadastro e entrar.' : 'É só entrar.')
       : r.canal === 'log' ? 'Modo de teste: o código está no log do servidor.'
                           : `Código enviado para ${r.telefone}.`;
 
@@ -934,6 +954,43 @@ document.getElementById('in-nome').addEventListener('keydown', e=>{
   else document.getElementById('btn-entrar').click();
 });
 
+/* -------------------- grade semanal do primeiro acesso ------------------ */
+/* Os horários abertos vêm do próprio servidor, na resposta de /auth/codigo:
+   é a mesma configuração que o estúdio edita em Configurações, então não há
+   uma segunda lista aqui para sair de sincronia. */
+let horariosSemana = [];
+
+function montarGradeLogin(){
+  const dias = document.getElementById('grade-dias');
+  dias.innerHTML = horariosSemana.map(d=>
+    `<button type="button" class="chip" data-dia="${d.dia}">${esc(d.nome.slice(0,3))}</button>`
+  ).join('');
+  document.getElementById('grade-horas').innerHTML = '';
+  dias.querySelectorAll('.chip').forEach(b=>{
+    b.addEventListener('click', ()=>{ b.classList.toggle('sel'); desenharHorasLogin(); });
+  });
+}
+
+/* Redesenha as linhas de horário preservando o que já estava escolhido:
+   desmarcar a sexta não pode zerar a segunda que a pessoa já ajustou. */
+function desenharHorasLogin(){
+  const alvo = document.getElementById('grade-horas');
+  const antes = {};
+  alvo.querySelectorAll('select[data-dia]').forEach(s=>{ antes[s.dataset.dia] = s.value; });
+  const marcados = [...document.querySelectorAll('#grade-dias .chip.sel')]
+    .map(b=>Number(b.dataset.dia));
+  alvo.innerHTML = horariosSemana.filter(d=>marcados.includes(d.dia)).map(d=>
+    `<div class="grade-linha"><span>${esc(d.nome)}</span><select data-dia="${d.dia}">`
+    + d.horas.map(h=>`<option value="${esc(h)}"${antes[d.dia]===h?' selected':''}>${esc(h)}</option>`).join('')
+    + `</select></div>`
+  ).join('');
+}
+
+function gradeDoLogin(){
+  return [...document.querySelectorAll('#grade-horas select[data-dia]')]
+    .map(s=>({ dia:Number(s.dataset.dia), hora:s.value }));
+}
+
 /**
  * Faz a entrada de fato. Fica em função própria porque no canal aberto, para
  * quem já tem cadastro, ela é chamada direto do primeiro passo — sem passar
@@ -951,6 +1008,7 @@ async function entrar(botao){
       senha: document.getElementById('in-senha').value,
       nome: document.getElementById('in-nome').value,
       aniversario: document.getElementById('in-aniversario').value,
+      grade: gradeDoLogin(),
     })});
     cofre.set(r.token);
     await comecar();
@@ -970,6 +1028,9 @@ document.getElementById('btn-voltar').addEventListener('click', ()=>{
   document.getElementById('campo-codigo').hidden = false;
   document.getElementById('campo-senha').hidden = true;
   document.getElementById('in-senha').value = '';
+  document.getElementById('campo-grade').hidden = true;
+  document.getElementById('grade-dias').innerHTML = '';
+  document.getElementById('grade-horas').innerHTML = '';
   semCodigo = false; porSenha = false;
   document.getElementById('btn-codigo').textContent = 'Entrar';
 });
