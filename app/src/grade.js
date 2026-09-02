@@ -187,6 +187,30 @@ function gradeEmTexto(matricula) {
     .join('  |  ');
 }
 
+const NOME_DIA = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira',
+  'quinta-feira', 'sexta-feira', 'sábado'];
+
+/**
+ * Dias que aparecem com mais de um horário na grade.
+ *
+ * A grade é o compromisso semanal do aluno, e um dia carrega um horário só.
+ * "Segunda às 09:00 e às 18:00" nunca foi alguém que treina duas vezes na
+ * segunda: é a célula da planilha com o horário alternativo escrito junto.
+ * Contando os dois, o mesmo aluno ocupava duas vagas na lotação do dia e a
+ * meta do mês crescia sozinha.
+ */
+function conflitosDeGrade(lista = []) {
+  const porDia = new Map();
+  for (const s of lista || []) {
+    if (!porDia.has(s.dia)) porDia.set(s.dia, []);
+    porDia.get(s.dia).push(s.hora);
+  }
+  return [...porDia.entries()]
+    .filter(([, horas]) => horas.length > 1)
+    .map(([dia, horas]) => ({ dia, horas: [...horas].sort() }))
+    .sort((a, b) => a.dia - b.dia);
+}
+
 /** Ocupação de cada slot da semana — alimenta o mapa de lotação. */
 function ocupacaoSemanal(matriculas) {
   const mapa = new Map();
@@ -212,4 +236,5 @@ module.exports = {
   diaDaSemana, somarDias, gradeVigente,
   agendaDoDia, agendaPorHorario, proximasDaMatricula,
   diasPorSemana, gradeEmTexto, ocupacaoSemanal,
+  conflitosDeGrade, NOME_DIA,
 };
