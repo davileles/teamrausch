@@ -253,6 +253,21 @@ app.get('/matriculas/telefones/aplicar', async (req, res) => {
   }
 });
 
+/* Resolve as grades antigas que ficaram com dois horários no mesmo dia: fica o
+   mais cedo do dia. Mostra o que faria; só mexe com `?aplicar=1`. Protegido por
+   PANEL_TOKEN. Vale a pena rodar seco antes e conferir a lista. */
+app.all('/matriculas/grade/reduzir', (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  const aplicar = String(req.query.aplicar || req.body?.aplicar || '') === '1';
+  try {
+    res.json(matriculas.reduzirGradesEmConflito({ seco: !aplicar }));
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
 /* Reaplica `teamrausch/wellhub-ids.json` (repo privado) nas fichas que ainda
    estão sem Wellhub ID. Nunca sobrescreve vínculo existente. Roda sozinho no
    boot; isto é para rodar de novo depois de acrescentar IDs ao arquivo, sem
