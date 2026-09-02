@@ -129,22 +129,48 @@ function horariosDaSemana() {
 }
 
 /**
- * Ainda falta a grade semanal padrão deste telefone.
+ * A grade semanal precisa passar pelas mãos deste telefone.
  *
- * A pergunta é feita a quem não tem grade montada na matrícula — não só a quem
- * nunca entrou. Quem veio da importação sem horário e quem chega hoje sem ficha
- * caem no mesmo buraco: ninguém sabe em que turma a pessoa treina, e ela não
- * aparece em lista de presença nenhuma.
+ * Dois casos, e o segundo é o que justifica a tela existir mesmo para quem já
+ * tem horário montado:
+ *
+ *   1. Não há grade nenhuma — nem ficha, ou ficha que veio da importação sem
+ *      horário. Ninguém sabe em que turma a pessoa treina.
+ *   2. Há grade, mas este telefone nunca abriu o app. O horário foi digitado
+ *      por outra pessoa, a partir de uma planilha que envelheceu. Mostrar o que
+ *      está gravado e pedir confirmação é a única hora em que o dono do número
+ *      olha para aquilo — depois disso ninguém mais confere.
  *
  * Duas exceções: administrador, que entra para gerir e não para treinar, e
  * estúdio sem nenhum horário cadastrado — aí não há o que escolher, e travar a
  * entrada de todo mundo seria pior do que deixar a grade para depois.
  */
-function precisaDeGrade(telefone) {
+function precisaDeGrade(cadastrado, telefone) {
   if (ehAdmin(telefone)) return false;
   if (!horariosDaSemana().length) return false;
+  if (primeiroAcesso(cadastrado)) return true;
   const m = matriculas.porTelefone(telefone);
   return !(m && (m.grade || []).length);
+}
+
+/**
+ * A grade que já está gravada, para a tela abrir marcada em vez de em branco.
+ *
+ * Horário que saiu da configuração desde que a ficha foi montada não pode ser
+ * pré-selecionado — a lista de opções não o tem mais. O dia continua marcado
+ * e cai no primeiro horário aberto, que é justamente o caso em que a
+ * confirmação do aluno vale mais.
+ */
+function gradeGravada(telefone) {
+  const m = matriculas.porTelefone(telefone);
+  if (!m) return [];
+  const abertos = new Map(horariosDaSemana().map((d) => [d.dia, d.horas]));
+  return (m.grade || [])
+    .filter((s) => abertos.has(s.dia))
+    .map((s) => ({
+      dia: s.dia,
+      hora: abertos.get(s.dia).includes(s.hora) ? s.hora : abertos.get(s.dia)[0],
+    }));
 }
 
 /**
@@ -282,7 +308,8 @@ rotas.post('/auth/codigo', async (req, res) => {
       telefone: mostrarTelefone(telefone),
       precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
       precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
-      precisaDeGrade: precisaDeGrade(telefone),
+      precisaDeGrade: precisaDeGrade(cadastrado, telefone),
+      gradeAtual: gradeGravada(telefone),
       horarios: horariosDaSemana(),
     });
   }
@@ -296,7 +323,8 @@ rotas.post('/auth/codigo', async (req, res) => {
       telefone: mostrarTelefone(telefone),
       precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
       precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
-      precisaDeGrade: precisaDeGrade(telefone),
+      precisaDeGrade: precisaDeGrade(cadastrado, telefone),
+      gradeAtual: gradeGravada(telefone),
       horarios: horariosDaSemana(),
     });
   }
@@ -313,7 +341,8 @@ rotas.post('/auth/codigo', async (req, res) => {
     telefone: mostrarTelefone(telefone),
     precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
     precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
-    precisaDeGrade: precisaDeGrade(telefone),
+    precisaDeGrade: precisaDeGrade(cadastrado, telefone),
+    gradeAtual: gradeGravada(telefone),
     horarios: horariosDaSemana(),
   });
 });
@@ -372,9 +401,11 @@ rotas.post('/auth/entrar', (req, res) => {
 
   // Grade semanal padrão: os dias e horários em que a pessoa treina de rotina.
   // Sem isso ela entra no app e não existe em nenhuma lista de presença — o
-  // estúdio teria de descobrir o horário dela por WhatsApp, um a um.
+  // estúdio teria de descobrir o horário dela por WhatsApp, um a um. Quem já
+  // tem grade também passa por aqui na primeira entrada: a tela vem marcada e
+  // o que volta é a confirmação do dono do número, não um palpite da planilha.
   let gradeEscolhida = null;
-  if (precisaDeGrade(telefone)) {
+  if (precisaDeGrade(existente, telefone)) {
     const conferida = validarGrade(req.body.grade);
     if (!conferida.ok) return res.status(400).json({ erro: conferida.motivo });
     gradeEscolhida = conferida.grade;
