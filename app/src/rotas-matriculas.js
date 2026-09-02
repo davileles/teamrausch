@@ -106,6 +106,9 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     return {
       ...m,
       diasSemana: grade.diasPorSemana(m),
+      // Dias com mais de um horário — só as fichas antigas, de antes de a grade
+      // passar a aceitar um horário por dia. A tela marca para serem resolvidas.
+      gradeConflito: grade.conflitosDeGrade(m.grade),
       // Quem treina na conta desta ficha — a tela usa para avisar antes de
       // desvincular o Wellhub e deixar os dependentes sem cota.
       dependentes: store.dependentesDe(m.id).map((d) => ({ id: d.id, nome: d.nome })),
