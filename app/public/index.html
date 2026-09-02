@@ -355,6 +355,10 @@
      horário aparece cortado no celular. */
   .slot-grade input,.slot-grade select{background:var(--preto);min-width:0}
   .slot-grade .sg-remover{padding:9px 10px;font-size:11px;white-space:nowrap}
+  /* Dia repetido: marca as duas linhas em vez de só recusar na hora de salvar,
+     senão a pessoa procura qual das sete está errada. */
+  .slot-grade.dup select,.slot-grade.dup input{border-color:var(--vermelho)}
+  .sg-aviso{color:var(--vermelho);margin:8px 0 0}
   .grupo-filtro{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}
   .grupo-filtro > span{font:600 10px 'Work Sans',sans-serif;letter-spacing:.12em;
     text-transform:uppercase;color:var(--fraco);min-width:58px}
@@ -1632,8 +1636,13 @@ function gradeEmTexto(grade){
   if (!grade || !grade.length) return 'sem horário definido';
   const porHora = new Map();
   grade.forEach(s=>{ if(!porHora.has(s.hora)) porHora.set(s.hora,[]); porHora.get(s.hora).push(s.dia); });
-  return [...porHora.entries()].sort((a,b)=>a[0].localeCompare(b[0]))
+  const texto = [...porHora.entries()].sort((a,b)=>a[0].localeCompare(b[0]))
     .map(([hora,dias])=>`${hora} · ${dias.sort().map(d=>NOME_DIA[d]).join(', ')}`).join('  |  ');
+  // Ficha antiga com dois horários no mesmo dia: sem esta marca ela some no meio
+  // da lista, porque o texto por si só parece uma grade normal.
+  const conta = {};
+  grade.forEach(s=>{ conta[s.dia] = (conta[s.dia]||0)+1; });
+  return Object.values(conta).some(n=>n>1) ? `⚠︎ dia repetido · ${texto}` : texto;
 }
 
 function linhaSlot(dia=1, hora=''){
@@ -1721,6 +1730,7 @@ function fichaMatricula(m){
     <p class="ajuda" style="margin:14px 0 6px">Horários fixos da semana</p>
     <div class="lista-slots">${(m.grade||[]).map(s=>linhaSlot(s.dia,s.hora)).join('')}</div>
     <button class="leve mf-add" style="margin-top:8px">+ Adicionar horário</button>
+    <p class="ajuda sg-aviso" hidden></p>
     <div class="campos" style="margin-top:12px">
       <input class="mf-obs" value="${esc(m.observacao||'')}" maxlength="140" placeholder="Observação (opcional)">
     </div>
@@ -1899,12 +1909,47 @@ function ligarFicha(el, id){
     const n = nasc.value.replace(/\D/g,'').slice(0,4);
     nasc.value = n.length > 2 ? `${n.slice(0,2)}/${n.slice(2)}` : n;
   });
+  /**
+   * Um horário por dia. O dia já usado sai da lista das outras linhas, então o
+   * caso normal nem chega a virar erro: não há como escolher segunda duas vezes.
+   * A ficha antiga que já veio com o dia repetido continua desenhada como está
+   * — marcada em vermelho e barrando o salvamento até alguém decidir qual dos
+   * dois horários fica.
+   */
+  function arrumarDias(){
+    const linhas = [...el.querySelectorAll('.slot-grade')];
+    const conta = {};
+    linhas.forEach(l=>{ const d = l.querySelector('.sg-dia').value; conta[d] = (conta[d]||0)+1; });
+    linhas.forEach(l=>{
+      const sel = l.querySelector('.sg-dia');
+      [...sel.options].forEach(o=>{ o.disabled = o.value !== sel.value && conta[o.value] > 0; });
+      l.classList.toggle('dup', conta[sel.value] > 1);
+    });
+    const repetidos = Object.keys(conta).filter(d=>conta[d] > 1);
+    const aviso = el.querySelector('.sg-aviso');
+    aviso.hidden = !repetidos.length;
+    aviso.textContent = repetidos.length
+      ? `Cada dia da semana aceita um horário só. Ajuste ${
+          repetidos.map(d=>NOME_DIA[d]).join(', ')} antes de salvar.`
+      : '';
+    const livres = DIAS_SEM.filter(([v])=>!conta[v]);
+    const add = el.querySelector('.mf-add');
+    add.disabled = !livres.length;
+    add.title = livres.length ? '' : 'Todos os dias da semana já têm horário.';
+    return { repetidos, livres };
+  }
+
   el.querySelector('.mf-add').addEventListener('click', ()=>{
-    el.querySelector('.lista-slots').insertAdjacentHTML('beforeend', linhaSlot());
+    const { livres } = arrumarDias();
+    if (!livres.length) return;
+    el.querySelector('.lista-slots').insertAdjacentHTML('beforeend', linhaSlot(livres[0][0]));
+    arrumarDias();
   });
   el.querySelector('.lista-slots').addEventListener('click', e=>{
-    if (e.target.closest('.sg-remover')) e.target.closest('.slot-grade').remove();
+    if (e.target.closest('.sg-remover')){ e.target.closest('.slot-grade').remove(); arrumarDias(); }
   });
+  el.querySelector('.lista-slots').addEventListener('change', arrumarDias);
+  arrumarDias();
   el.querySelector('.mf-vinculo').addEventListener('change', e=>{
     el.querySelector('.mf-cobranca').hidden = e.target.value !== 'mensalista';
     el.querySelector('.mf-bloco-wellhub').hidden = e.target.value === 'mensalista';
@@ -1917,6 +1962,9 @@ function ligarFicha(el, id){
   });
   el.querySelector('.mf-salvar').addEventListener('click', async ()=>{
     const b = el.querySelector('.mf-salvar');
+    if (arrumarDias().repetidos.length){
+      avisar('Cada dia da semana aceita um horário só na grade.','erro'); return;
+    }
     // Trocar o telefone move a ficha de login inteira e derruba a sessão aberta:
     // é a única edição desta tela que o aluno sente do outro lado.
     const telAntes = b.closest('.mat-form').dataset.telefone || '';
