@@ -1068,6 +1068,57 @@ function normalizarHorarios() {
   return mudou;
 }
 
+/**
+ * Resolve as grades que ficaram com mais de um horário no mesmo dia: fica o
+ * mais cedo do dia e o outro sai.
+ *
+ * Fora da migração de boot de propósito — apagar horário de aluno não é coisa
+ * que deva acontecer sozinha num deploy. Roda por chamada explícita, e com
+ * `seco` mostra o que faria antes de fazer.
+ *
+ * Não arquiva em `gradeAnterior` nem mexe em `vigenteDe`: isto não é aluno que
+ * mudou de horário, é célula de planilha que trouxe o horário alternativo junto.
+ * Arquivar carimbaria a correção como mudança de hoje e a contagem do mês do
+ * mensalista recomeçaria do zero.
+ *
+ * Check-ins e exceções ficam como estão: o que já aconteceu aconteceu, e uma
+ * aula extra marcada naquele horário é avulsa de verdade, não veio da grade.
+ */
+function reduzirGradesEmConflito({ seco = false } = {}) {
+  const ajustadas = [];
+
+  const reduzir = (lista) => {
+    const r = limparGrade(lista || [], { conflito: 'reduzir' });
+    return r.ok ? r : { grade: lista || [], descartados: [] };
+  };
+
+  for (const m of dados.matriculas) {
+    const conflitos = grade.conflitosDeGrade(m.grade);
+    const noHistorico = (m.gradeAnterior || [])
+      .some((h) => grade.conflitosDeGrade(h.grade).length);
+    if (!conflitos.length && !noHistorico) continue;
+
+    const nova = reduzir(m.grade);
+    const registro = {
+      id: m.id,
+      nome: m.nome,
+      ativo: Boolean(m.ativo),
+      // O que sai da grade atual; o histórico é arrumado junto, mas em silêncio.
+      removidos: nova.descartados.map((d) => ({ dia: d.dia, hora: d.hora })),
+      ficaram: nova.grade.map((s) => ({ dia: s.dia, hora: s.hora })),
+    };
+    ajustadas.push(registro);
+
+    if (seco) continue;
+    m.grade = nova.grade;
+    for (const h of m.gradeAnterior || []) h.grade = reduzir(h.grade).grade;
+    m.atualizadoEm = new Date().toISOString();
+  }
+
+  if (!seco && ajustadas.length) gravar();
+  return { ok: true, seco, total: ajustadas.length, ajustadas };
+}
+
 /* ------------------------------ importação ------------------------------- */
 
 /**
@@ -1223,6 +1274,7 @@ module.exports = {
   criar, atualizar, inativar, remover, definirContaDe, dependentesDe,
   excecoes, registrarExcecao, apagarExcecao,
   importar, sincronizarPlanilha, resumo, backup, normalizarHorarios, normalizarNomes,
+  reduzirGradesEmConflito,
   horaCheia,
   complementarTelefones, complementarWellhubIds, complementarInicios,
   VINCULOS, CICLOS,
