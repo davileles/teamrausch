@@ -403,6 +403,12 @@ rotas.post('/auth/entrar', (req, res) => {
   const existente = store.aluno(telefone);
   const primeiraVez = primeiroAcesso(existente);
 
+  // Quem tem Wellhub tem o nome do próprio cadastro lá, completo e escrito
+  // direito. Ele manda: o que a pessoa digitou aqui pode ser apelido, primeiro
+  // nome só ou pressa, e deixar isso entrar faria a base divergir da fila do
+  // portal já na primeira gravação.
+  const doWellhub = nomeDoWellhub(telefone);
+
   // Primeiro acesso deste telefone: nome completo e aniversário são obrigatórios,
   // mesmo quando a ficha já existe. O que veio da importação entra como rascunho
   // — quem confirma é o dono do número, na primeira vez que entra.
@@ -440,7 +446,7 @@ rotas.post('/auth/entrar', (req, res) => {
   }
 
   const aluno = store.salvarAluno(telefone, {
-    nome: nome || (existente && existente.nome) || null,
+    nome: doWellhub || nome || (existente && existente.nome) || null,
     aniversario,
     ultimoAcesso: new Date().toISOString(),
   });
@@ -453,7 +459,9 @@ rotas.post('/auth/entrar', (req, res) => {
     const m = matriculas.porTelefone(telefone);
     if (m) {
       const campos = {};
-      if (nome && !nomeCompleto(m.nome)) campos.nome = nome;
+      // Ficha com Wellhub não recebe o nome digitado: lá o nome já veio do
+      // portal e é ele que vale.
+      if (!doWellhub && nome && !nomeCompleto(m.nome)) campos.nome = nome;
       if (!m.aniversario) campos.aniversario = aniversario;
       if (Object.keys(campos).length) {
         const r = matriculas.atualizar(m.id, campos);
@@ -492,6 +500,7 @@ rotas.get('/auth/eu', (req, res) => {
       nome: req.aluno.nome,
       telefone: mostrarTelefone(req.aluno.telefone),
       aniversario: mostrarAniversario(req.aluno.aniversario),
+      nomeDoWellhub: Boolean(nomeDoWellhub(req.aluno.telefone)),
       admin: req.admin,
     },
     config: config.publica(),
@@ -579,6 +588,9 @@ rotas.get('/perfil', exigirLogin, (req, res) => {
     nome: req.aluno.nome,
     telefone: mostrarTelefone(req.aluno.telefone),
     aniversario: mostrarAniversario(req.aluno.aniversario),
+    // A tela usa isto para travar o campo de nome: com Wellhub, quem nomeia é
+    // o portal, e um campo editável que não guarda seria só frustração.
+    nomeDoWellhub: Boolean(nomeDoWellhub(req.aluno.telefone)),
     desde: req.aluno.criadoEm || null,
     numeros: numerosDoAluno(req.aluno.telefone),
   });
@@ -591,8 +603,12 @@ rotas.get('/perfil', exigirLogin, (req, res) => {
  */
 rotas.put('/perfil', exigirLogin, (req, res) => {
   const campos = {};
+  // Nome de quem tem Wellhub não se edita aqui: o portal reescreveria no
+  // check-in seguinte, e a pessoa acharia que o sistema perdeu o que ela
+  // salvou. Melhor não aceitar do que aceitar e desfazer sozinho.
+  const doWellhub = nomeDoWellhub(req.aluno.telefone);
 
-  if (req.body.nome !== undefined) {
+  if (req.body.nome !== undefined && !doWellhub) {
     const nome = String(req.body.nome).trim();
     if (!nome) return res.status(400).json({ erro: 'Informe como você quer ser chamado.' });
     if (nome.length > 60) return res.status(400).json({ erro: 'Nome muito longo.' });
@@ -605,11 +621,14 @@ rotas.put('/perfil', exigirLogin, (req, res) => {
     campos.aniversario = limpo;
   }
 
+  if (doWellhub && doWellhub !== req.aluno.nome) campos.nome = doWellhub;
+
   const aluno = store.salvarAluno(req.aluno.telefone, campos);
   res.json({
     nome: aluno.nome,
     telefone: mostrarTelefone(aluno.telefone),
     aniversario: mostrarAniversario(aluno.aniversario),
+    nomeDoWellhub: Boolean(doWellhub),
     desde: aluno.criadoEm || null,
     numeros: numerosDoAluno(aluno.telefone),
   });
