@@ -14,13 +14,16 @@
  *   lembrar dos quatro — e o que fosse esquecido continuaria cobrando alguém
  *   que apareceu. Agora é um lugar só.
  *
- * O QUE FALTA PARA LIGAR (checklist do módulo futuro)
- *   1. Registrar a confirmação: `agenda-store` ganha presença por agendamento
- *      ('compareceu' | 'faltou'), marcada na aba Lista do dia.
- *   2. Devolver essas datas em `deConfirmacao()`, abaixo — hoje ela devolve um
- *      mapa vazio e é o único ponto a mexer.
- *   3. Trocar CONFIRMACAO_ATIVA para true. `vinculosComDado()` passa a incluir
- *      mensalista sozinho, e as cobranças param de excluí-lo.
+ * COMO A SEGUNDA FONTE FICOU
+ *   O tablet da entrada grava em `agenda-store.presencas` — registro próprio,
+ *   não um campo do agendamento, porque quem treina na grade fixa da matrícula
+ *   não tem agendamento nenhum para marcar. `deConfirmacao()` traduz telefone
+ *   em matrícula e devolve as datas.
+ *
+ *   Falta só ligar: `PRESENCA_CONFIRMACAO_ATIVA=true` no Railway. Enquanto for
+ *   false, o tablet registra e nada mais muda — dá para acumular alguns dias de
+ *   confirmação e conferir contra o Wellhub antes de deixar isso valer nas
+ *   cobranças de frequência.
  *
  * DIA, NÃO APARIÇÃO
  *   As duas fontes podem falar do mesmo treino: o aluno passa o QR do Wellhub
@@ -29,6 +32,8 @@
  */
 
 const checkins = require('./checkins-store');
+const agendaStore = require('./agenda-store');
+const matriculas = require('./matriculas-store');
 
 /**
  * Vira true quando o módulo de confirmação estiver no ar. Enquanto for false,
@@ -44,13 +49,32 @@ const CONFIRMACAO_ATIVA = String(process.env.PRESENCA_CONFIRMACAO_ATIVA || 'fals
  *
  * @returns {Map<string, string[]>} matriculaId → ['AAAA-MM-DD', …]
  */
-function deConfirmacao(/* { de, ate } = {} */) {
+function deConfirmacao(janela = {}) {
   if (!CONFIRMACAO_ATIVA) return new Map();
-  // TODO(confirmação de presença): ler os agendamentos marcados como
-  // 'compareceu' no `agenda-store` e devolver as datas por matrícula. O
-  // agendamento guarda telefone; a ponte com a matrícula é a mesma de
-  // `rotas-matriculas.fichaDeLogin` — os 8 dígitos finais do número.
-  return new Map();
+
+  // A presença guarda telefone, que é a chave do cadastro de login; a
+  // frequência conta por matrícula. `matriculas.porTelefone` é a mesma ponte
+  // usada no resto do sistema — compara os 8 dígitos finais, então DDI e nono
+  // dígito digitados de formas diferentes continuam sendo a mesma pessoa.
+  //
+  // Presença de quem não tem ficha simplesmente não entra: não há a quem
+  // creditar, e inventar uma matrícula aqui poluiria a base de cobrança.
+  const porMatricula = new Map();
+  const cache = new Map();
+
+  for (const p of agendaStore.listarPresencas(janela)) {
+    if (!cache.has(p.telefone)) {
+      const m = matriculas.porTelefone(p.telefone);
+      cache.set(p.telefone, m ? m.id : null);
+    }
+    const id = cache.get(p.telefone);
+    if (!id) continue;
+    const datas = porMatricula.get(id) || new Set();
+    datas.add(p.data);
+    porMatricula.set(id, datas);
+  }
+
+  return new Map([...porMatricula].map(([id, datas]) => [id, [...datas].sort()]));
 }
 
 /** Junta duas fontes sem repetir data. */
