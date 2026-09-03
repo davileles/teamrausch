@@ -792,6 +792,8 @@
       <label for="in-nome">Nome completo</label>
       <input id="in-nome" type="text" placeholder="Nome e sobrenome" autocomplete="name"
              enterkeyhint="next">
+      <p class="ajuda" style="margin:6px 0 0" id="nome-ajuda" hidden>Este é o nome do seu
+        cadastro no Wellhub. Confira se está certo e corrija se precisar.</p>
     </div>
     <div class="campo" id="campo-aniversario" hidden>
       <label for="in-aniversario">Seu aniversário</label>
@@ -801,8 +803,9 @@
     </div>
     <div class="campo" id="campo-grade" hidden>
       <label id="grade-titulo">Seus horários da semana</label>
-      <p class="ajuda" style="margin:6px 0 0" id="grade-ajuda">Marque os dias em que você
-        treina e escolha o horário de cada um. Depois dá para mudar com o estúdio.</p>
+      <p class="ajuda" style="margin:6px 0 0" id="grade-ajuda">Marque todos os dias e
+        horários que você pretende treinar toda semana. É por essa rotina que você entra
+        nas listas de presença — depois dá para mudar com o estúdio.</p>
       <div class="grade-dias" id="grade-dias"></div>
       <div id="grade-horas"></div>
     </div>
@@ -856,6 +859,7 @@ const cofre = {
 let eu = null, configAtual = null, abaAtiva = 'agendar';
 let semCodigo = false;   // canal aberto: entra só com o telefone
 let porSenha  = false;   // administrador com senha definida
+let nomeVeioDoWellhub = false;  // campo de nome abriu preenchido pelo portal
 
 async function api(caminho, opcoes={}){
   const cab = {'Content-Type':'application/json'};
@@ -905,6 +909,13 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
     document.getElementById('campo-nome').hidden = !r.precisaDeNome;
     document.getElementById('campo-aniversario').hidden = !r.precisaDeAniversario;
 
+    // Quem já usa o Wellhub tem o nome completo escrito direito lá — o servidor
+    // manda esse nome e o campo abre preenchido. A pessoa só confere em vez de
+    // digitar tudo de novo, e o cadastro para de nascer com apelido.
+    nomeVeioDoWellhub = Boolean(r.precisaDeNome && r.nomeSugerido);
+    if (nomeVeioDoWellhub) document.getElementById('in-nome').value = r.nomeSugerido;
+    document.getElementById('nome-ajuda').hidden = !nomeVeioDoWellhub;
+
     horariosSemana = r.horarios || [];
     document.getElementById('campo-grade').hidden = !r.precisaDeGrade;
     if (r.precisaDeGrade) montarGradeLogin(r.gradeAtual || []);
@@ -925,9 +936,14 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
       : r.canal === 'log' ? 'Modo de teste: o código está no log do servidor.'
                           : `Código enviado para ${r.telefone}.`;
 
+    // Foco no primeiro campo que ainda está vazio: nome preenchido pelo Wellhub
+    // deixa o aniversário como o próximo buraco a fechar.
+    const pendente = (r.precisaDeNome && !nomeVeioDoWellhub) ? document.getElementById('in-nome')
+      : r.precisaDeAniversario ? inAniversario
+      : document.getElementById('btn-entrar');
+
     (porSenha    ? document.getElementById('in-senha')
-     : semCodigo ? (r.precisaDeNome ? document.getElementById('in-nome')
-                                    : document.getElementById('btn-entrar'))
+     : semCodigo ? pendente
      : document.getElementById('in-codigo')).focus();
   }catch(e){ avisar(e.message, 'erro'); }
   finally{
@@ -978,8 +994,10 @@ function montarGradeLogin(gradeAtual){
   document.getElementById('grade-titulo').textContent =
     temGrade ? 'Confirme seus horários' : 'Seus horários da semana';
   document.getElementById('grade-ajuda').textContent = temGrade
-    ? 'Estes são os dias e horários que temos para você. Está certo? Ajuste o que mudou.'
-    : 'Marque os dias em que você treina e escolha o horário de cada um. Depois dá para mudar com o estúdio.';
+    ? 'Estes são os dias e horários que temos para você. Estão certos? '
+      + 'Ajuste para os horários em que você realmente treina.'
+    : 'Marque todos os dias e horários que você pretende treinar toda semana. '
+      + 'É por essa rotina que você entra nas listas de presença — depois dá para mudar com o estúdio.';
 
   document.getElementById('grade-horas').innerHTML = '';
   desenharHorasLogin(marcada);
@@ -1046,6 +1064,11 @@ document.getElementById('btn-voltar').addEventListener('click', ()=>{
   document.getElementById('campo-grade').hidden = true;
   document.getElementById('grade-dias').innerHTML = '';
   document.getElementById('grade-horas').innerHTML = '';
+  // O nome sugerido é de outro telefone: some junto, senão o próximo número
+  // entraria com o nome de quem estava aqui antes.
+  if (nomeVeioDoWellhub) document.getElementById('in-nome').value = '';
+  document.getElementById('nome-ajuda').hidden = true;
+  nomeVeioDoWellhub = false;
   semCodigo = false; porSenha = false;
   document.getElementById('btn-codigo').textContent = 'Entrar';
 });
