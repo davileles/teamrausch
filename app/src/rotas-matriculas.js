@@ -489,6 +489,19 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     // como titular, e não vira o nome do aluno.
     if (req.body.comoTitular && req.body.nomePortal) {
       store.definirTitular(m.id, String(req.body.nomePortal));
+    } else {
+      // Vínculo feito: o nome do portal passa a valer, mesmo que a ficha já
+      // tivesse nome. É o mesmo que acontece quando o check-in casa sozinho —
+      // só que aqui o casamento foi na mão, e sem isto a ficha ficaria com a
+      // grafia da planilha enquanto a fila do Wellhub mostra outra.
+      const ultimo = checkins.ultimoDaMatricula(m.id);
+      const nomePortal = String(req.body.nomePortal || (ultimo && ultimo.nome) || '').trim();
+      if (nomePortal) {
+        const troca = store.renomearDoWellhub(m.id, nomePortal);
+        if (troca.ok === false) {
+          console.warn(`[matriculas] nome do portal não aplicado em ${m.id}: ${troca.motivo}`);
+        }
+      }
     }
     res.json({
       ok: true, matricula: ficha(store.porId(m.id)),
