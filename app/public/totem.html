@@ -166,7 +166,7 @@
       <div class="opcoes">
         <button class="principal" data-ir="presenca">Confirmar presença
           <small>Já tem cadastro e aula marcada para hoje</small></button>
-        <button data-ir="cadastro">Criar cadastro
+        <button id="btn-cadastro">Criar cadastro
           <small>Primeira vez no estúdio</small></button>
       </div>
       <button class="discreto" data-ir="wellhub">Check-in pelo código do Wellhub</button>
@@ -195,32 +195,6 @@
       <button class="voltar-totem" data-ir="presenca">Voltar</button>
     </section>
 
-    <!-- -------------------------- cadastro --------------------------- -->
-    <section class="tela" id="tela-cadastro">
-      <div class="rotulo">Criar cadastro</div>
-      <div class="chamada">Seus dados</div>
-      <div class="form">
-        <div>
-          <label for="c-nome">Nome completo</label>
-          <input id="c-nome" type="text" autocomplete="off" autocapitalize="words"
-                 placeholder="Nome e sobrenome">
-        </div>
-        <div>
-          <label for="c-tel">Telefone com DDD</label>
-          <input id="c-tel" type="tel" inputmode="numeric" autocomplete="off"
-                 placeholder="(31) 98888-7777">
-        </div>
-        <div>
-          <label for="c-aniv">Aniversário — só dia e mês</label>
-          <input id="c-aniv" type="text" inputmode="numeric" maxlength="5"
-                 autocomplete="off" placeholder="07/03">
-        </div>
-        <button class="enviar" id="c-enviar">Criar cadastro</button>
-      </div>
-      <div class="aviso-totem" id="c-aviso"></div>
-      <button class="voltar-totem" data-ir="menu">Voltar</button>
-    </section>
-
     <!-- ----------------------- código Wellhub ------------------------ -->
     <section class="tela" id="tela-wellhub">
       <div class="rotulo">Wellhub</div>
@@ -246,13 +220,16 @@
    código do Wellhub, que continua existindo porque o leitor de QR e o app
    do Wellhub não mudaram.
 
+   O cadastro sai daqui: o botão abre a tela de entrada do app em modo totem,
+   que é o mesmo fluxo do site.
+
    `tela` guarda onde estamos porque o leitor de QR se comporta como teclado:
-   sem saber a tela atual, um bipe de QR entraria no campo de nome do
-   cadastro. Aqui ele acorda a tela do Wellhub e digita lá.              */
+   sem saber a tela atual, um bipe de QR digitaria no lugar errado. Aqui ele
+   acorda a tela do Wellhub e escreve lá.                                */
 
 // Só o check-in do Wellhub usa token de dispositivo, porque a rota /acesso é a
-// mesma da catraca. Presença e cadastro são abertos: o tablet é só um atalho no
-// navegador, sem nada para configurar.
+// mesma da catraca. A confirmação de presença é aberta: o tablet é só um atalho
+// no navegador, sem nada para configurar.
 const TOKEN_DISPOSITIVO = ''; // preencha com DEVICE_TOKEN se você configurou um
 let tela = 'menu';
 let codigo = '';   // código do Wellhub
@@ -285,7 +262,6 @@ function ir(destino){
 
   if (destino !== 'presenca' && destino !== 'nomes'){ final = ''; pintarFinal(); }
   if (destino !== 'wellhub'){ codigo = ''; pintarWellhub(); }
-  if (destino === 'cadastro') document.getElementById('c-aviso').textContent = '';
   reiniciarOcio();
 }
 
@@ -294,7 +270,7 @@ function ir(destino){
 function reiniciarOcio(){
   clearTimeout(ocioso);
   if (tela === 'menu') return;
-  ocioso = setTimeout(()=>{ limparCadastro(); ir('menu'); }, 60000);
+  ocioso = setTimeout(()=>ir('menu'), 60000);
 }
 document.addEventListener('touchstart', reiniciarOcio, {passive:true});
 document.addEventListener('click', reiniciarOcio);
@@ -374,37 +350,18 @@ document.getElementById('teclas-final').addEventListener('click', e=>{
 
 /* ---------------------------- cadastro --------------------------------- */
 
-const cNome = document.getElementById('c-nome');
-const cTel = document.getElementById('c-tel');
-const cAniv = document.getElementById('c-aniv');
-
-cTel.addEventListener('input', ()=>{
-  const n = cTel.value.replace(/\D/g,'').slice(0,11);
-  cTel.value = n.length > 7 ? `(${n.slice(0,2)}) ${n.slice(2,7)}-${n.slice(7)}`
-    : n.length > 2 ? `(${n.slice(0,2)}) ${n.slice(2)}` : n;
-});
-cAniv.addEventListener('input', ()=>{
-  const n = cAniv.value.replace(/\D/g,'').slice(0,4);
-  cAniv.value = n.length > 2 ? `${n.slice(0,2)}/${n.slice(2)}` : n;
+/* Cadastro é o mesmo fluxo do site — telefone, código, nome, aniversário e os
+   horários da semana. Em vez de reescrever isso aqui e ter duas versões para
+   manter, o tablet abre a própria tela de entrada do app em modo totem: lá o
+   token não fica guardado e, terminado o cadastro, a pessoa volta para cá. */
+document.getElementById('btn-cadastro').addEventListener('click', ()=>{
+  location.href = '/?totem=1';
 });
 
-function limparCadastro(){ cNome.value = ''; cTel.value = ''; cAniv.value = ''; }
-
-document.getElementById('c-enviar').addEventListener('click', async ()=>{
-  const b = document.getElementById('c-enviar');
-  const aviso = document.getElementById('c-aviso');
-  aviso.textContent = '';
-  b.disabled = true; b.textContent = 'Criando…';
-  try{
-    const r = await chamar('/cadastro', {
-      nome: cNome.value, telefone: cTel.value, aniversario: cAniv.value,
-    });
-    limparCadastro();
-    responder(true, 'Cadastro criado',
-      `${r.nome.split(' ')[0]}, agora abra o app no seu celular e escolha os horários da semana.`, 6);
-  }catch(e){ aviso.textContent = e.message; }
-  finally{ b.disabled = false; b.textContent = 'Criar cadastro'; }
-});
+if (new URLSearchParams(location.search).has('cadastro')){
+  history.replaceState(null, '', '/totem.html');
+  responder(true, 'Cadastro criado', 'Pronto! Agora é só entrar pelo seu celular.', 6);
+}
 
 /* ------------------------- código Wellhub ------------------------------ */
 
@@ -435,10 +392,8 @@ document.getElementById('teclas').addEventListener('click', e=>{
 
 /* Leitor de QR/código de barras funciona como teclado: digita e manda Enter.
    Do menu, o primeiro caractere já leva para a tela do Wellhub — ninguém vai
-   tocar em "check-in pelo código" antes de bipar. No cadastro o teclado é da
-   pessoa, então ali isto não se mete. */
+   tocar em "check-in pelo código" antes de bipar. */
 document.addEventListener('keydown', e=>{
-  if (tela === 'cadastro') return;
   if (tela === 'presenca' || tela === 'nomes'){
     if (e.key === 'Enter') buscarFinal();
     else if (e.key === 'Backspace'){ final = final.slice(0,-1); pintarFinal(); }
