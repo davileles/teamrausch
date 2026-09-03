@@ -648,6 +648,10 @@ function criar(campos = {}, opcoes = {}) {
     atualizadoEm: new Date().toISOString(),
   };
 
+  // Ficha aberta pelo próprio aluno no primeiro acesso: a grade já nasce
+  // conferida por quem treina nela.
+  if (campos.gradeConfirmada) registro.gradeConfirmadaEm = new Date().toISOString();
+
   if (campos.aniversario !== undefined) {
     const r = aplicarAniversario(registro, campos.aniversario);
     if (!r.ok) return r;
@@ -786,6 +790,7 @@ function atualizar(id, campos = {}) {
     delete m.obsVencimento;
   }
 
+  let gradeMudou = false;
   if (campos.grade !== undefined) {
     // A ficha manda a grade inteira em todo salvamento, inclusive quando a
     // edição foi o telefone. Sem esta primeira passada tolerante, os alunos que
@@ -795,6 +800,7 @@ function atualizar(id, campos = {}) {
     const comoEsta = limparGrade(campos.grade, { conflito: 'manter' });
     if (!comoEsta.ok) return { ok: false, motivo: comoEsta.motivo };
     const mudou = !mesmaGrade(m.grade || [], comoEsta.grade);
+    gradeMudou = mudou;
 
     const g = mudou ? limparGrade(campos.grade) : comoEsta;
     if (!g.ok) return { ok: false, motivo: g.motivo };
@@ -812,6 +818,17 @@ function atualizar(id, campos = {}) {
       m.grade = g.grade;
       m.vigenteDe = hojeISO();
     }
+  }
+
+  // Horário trocado pela ficha do estúdio volta a ser decisão de escritório: a
+  // confirmação de quem treina nele não vale mais para o horário novo. Quando é
+  // o próprio aluno que está salvando, `gradeConfirmada` vem junto e repõe a
+  // marca logo abaixo.
+  if (gradeMudou) delete m.gradeConfirmadaEm;
+
+  if (campos.gradeConfirmada !== undefined) {
+    if (campos.gradeConfirmada) m.gradeConfirmadaEm = new Date().toISOString();
+    else delete m.gradeConfirmadaEm;
   }
 
   // "Revisar" é a marca dos registros importados com ambiguidade na planilha.
@@ -1051,7 +1068,7 @@ function mesclar(idFica, idSai, opcoes = {}) {
   // Campo vazio aqui, preenchido lá: vem para cá.
   const SIMPLES = ['telefone', 'gympassId', 'aniversario', 'titularWellhub', 'observacao',
     'ciclo', 'diaVencimento', 'obsVencimento', 'nomeWellhub', 'nomeOriginal',
-    'planilhaNome', 'freqOriginal', 'origem'];
+    'planilhaNome', 'freqOriginal', 'origem', 'gradeConfirmadaEm'];
   for (const campo of SIMPLES) {
     const vazio = fica[campo] === undefined || fica[campo] === null || fica[campo] === '';
     const tem = sai[campo] !== undefined && sai[campo] !== null && sai[campo] !== '';
@@ -1455,6 +1472,72 @@ function normalizarNomes() {
   return { ok: true, trocas, login };
 }
 
+/* ---------------- grade confirmada pelo próprio aluno --------------------- */
+
+/**
+ * `gradeConfirmadaEm` — quando o aluno olhou a própria grade na tela e disse
+ * que aquilo está certo.
+ *
+ * A base entrou de uma planilha: o horário da maior parte das fichas é o que
+ * alguém digitou numa célula, não o que a pessoa confirmou. Sem esta marca as
+ * duas coisas ficam indistinguíveis, e a lotação do estúdio é lida como se
+ * tudo ali fosse dado conferido.
+ *
+ * POR QUE NÃO DEDUZIR DA DATA DE ACESSO
+ *   A tela que pede a grade no primeiro acesso só existe desde 02/09
+ *   (`CORTE_TELA_DE_GRADE`). Quem entrou no app antes disso passou direto e
+ *   contaria como confirmado para sempre. A regra por data serve uma vez, para
+ *   marcar quem já passou pela tela; daí em diante quem grava é o próprio
+ *   fluxo de primeiro acesso.
+ */
+const CORTE_TELA_DE_GRADE = '2026-09-02T13:42:43Z';
+
+/**
+ * Fichas conferidas com o aluno fora do app, antes de a marca existir. Lista
+ * curta e pontual — quem entrar daqui para frente é marcado sozinho.
+ */
+const GRADE_CONFIRMADA_A_MAO = ['m002', 'm030', 'm035'];
+
+/**
+ * Roda no boot e é idempotente: só toca em ficha que ainda não tem a marca.
+ */
+function marcarGradesConfirmadas() {
+  let marcadas = 0;
+  const marcar = (m, quando) => {
+    if (!m || m.gradeConfirmadaEm) return;
+    m.gradeConfirmadaEm = quando || new Date().toISOString();
+    m.atualizadoEm = new Date().toISOString();
+    marcadas += 1;
+  };
+
+  // `require` aqui dentro pelo mesmo motivo de `normalizarNomes`: o cadastro
+  // de login é outra base e não precisa subir amarrada a esta.
+  let fichasLogin = [];
+  try {
+    fichasLogin = require('./agenda-store').listarAlunos();
+  } catch (erro) {
+    console.error('[matriculas] não consegui ler o cadastro de login:', erro.message);
+  }
+
+  for (const a of fichasLogin) {
+    if (!a.criadoEm || a.criadoEm < CORTE_TELA_DE_GRADE) continue;
+    marcar(porTelefone(a.telefone), a.criadoEm);
+  }
+
+  for (const id of GRADE_CONFIRMADA_A_MAO) {
+    const m = porId(id);
+    if (!m) continue;
+    const ficha = fichasLogin.find((a) => mesmoTelefone(a.telefone, m.telefone));
+    marcar(m, (ficha && (ficha.ultimoAcesso || ficha.criadoEm)) || undefined);
+  }
+
+  if (marcadas) {
+    gravar();
+    console.log(`[matriculas] grade confirmada pelo aluno: ${marcadas} ficha(s) marcada(s).`);
+  }
+  return { ok: true, marcadas };
+}
+
 /* -------------------------------- resumo --------------------------------- */
 
 function resumo() {
@@ -1472,6 +1555,12 @@ function resumo() {
     contasDeTerceiro: ativas.filter((m) => m.titularWellhub).length,
     semAniversario: ativas.filter((m) => !m.aniversario).length,
     aRevisar: dados.matriculas.filter((m) => (m.revisar || []).length).length,
+    // Quantas grades já passaram pelos olhos de quem treina nelas — o resto
+    // ainda é o horário que veio da planilha de importação.
+    gradeConfirmada: ativas.filter((m) => m.gradeConfirmadaEm).length,
+    gradeConfirmadaSlots: ativas.reduce(
+      (t, m) => t + (m.gradeConfirmadaEm ? (m.grade || []).length : 0), 0),
+    gradeSlots: ativas.reduce((t, m) => t + (m.grade || []).length, 0),
     excecoes: dados.excecoes.length,
   };
 }
@@ -1486,6 +1575,7 @@ semear()
   }))
   // Depois do semeio: normalizar antes dele arrumaria uma base ainda vazia.
   .then(() => normalizarNomes())
+  .then(() => marcarGradesConfirmadas())
   .catch((erro) => console.error('[matriculas] falha ao preparar a base:', erro.message));
 setInterval(() => limparAntigas(), 24 * 3600000).unref();
 
@@ -1499,5 +1589,6 @@ module.exports = {
   reduzirGradesEmConflito,
   horaCheia,
   complementarTelefones, complementarWellhubIds, complementarInicios,
+  marcarGradesConfirmadas,
   VINCULOS, CICLOS,
 };
