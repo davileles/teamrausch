@@ -250,6 +250,9 @@
    sem saber a tela atual, um bipe de QR entraria no campo de nome do
    cadastro. Aqui ele acorda a tela do Wellhub e digita lá.              */
 
+// Só o check-in do Wellhub usa token de dispositivo, porque a rota /acesso é a
+// mesma da catraca. Presença e cadastro são abertos: o tablet é só um atalho no
+// navegador, sem nada para configurar.
 const TOKEN_DISPOSITIVO = ''; // preencha com DEVICE_TOKEN se você configurou um
 let tela = 'menu';
 let codigo = '';   // código do Wellhub
@@ -259,7 +262,7 @@ let ocioso = null;
 const visorWellhub = document.getElementById('visor');
 const visorFinal = document.getElementById('visor-final');
 
-function cab(){
+function cabWellhub(){
   const h = {'Content-Type':'application/json'};
   if (TOKEN_DISPOSITIVO) h['X-Device-Token'] = TOKEN_DISPOSITIVO;
   return h;
@@ -267,7 +270,7 @@ function cab(){
 
 async function chamar(caminho, corpo){
   const r = await fetch('/totem-api'+caminho,
-    {method:'POST', headers:cab(), body:JSON.stringify(corpo)});
+    {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corpo)});
   const dados = await r.json().catch(()=>({}));
   if (!r.ok) throw new Error(dados.erro || 'Não consegui completar.');
   return dados;
@@ -412,7 +415,7 @@ async function entrarWellhub(){
   const atual = codigo;
   codigo = ''; pintarWellhub();
   try{
-    const r = await fetch('/acesso', {method:'POST', headers:cab(),
+    const r = await fetch('/acesso', {method:'POST', headers:cabWellhub(),
       body:JSON.stringify({codigo:atual})}).then(x=>x.json());
     responder(r.abrir, r.abrir ? 'Pode entrar' : 'Acesso negado',
       r.abrir ? (r.nome||'') : r.mensagem);
