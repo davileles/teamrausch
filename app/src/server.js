@@ -28,6 +28,9 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // Agendamento de horários: login por telefone, reserva e configurações
 app.use('/agenda-api', require('./rotas-agenda').rotas);
 
+// Tablet da entrada: confirmação de presença e cadastro, sem login
+app.use('/totem-api', require('./rotas-totem').rotas);
+
 function log(...args) { console.log(new Date().toISOString(), ...args); }
 
 /* ---------------------------------------------------------------------------
