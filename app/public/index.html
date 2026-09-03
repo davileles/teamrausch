@@ -768,6 +768,13 @@
   <img src="/logo.png" alt="Team Rausch Studio" class="logo-login">
   <div class="marca" id="marca-login">Reserve<br>seu <span style="color:var(--vermelho)">horário</span></div>
   <div class="sub" id="sub-login">Seu telefone é sua conta. Sem senha, sem cadastro longo.</div>
+  <script>
+    // Tablet da entrada: o título diz cadastro, não "reserve seu horário".
+    if (new URLSearchParams(location.search).has('totem')){
+      document.getElementById('marca-login').innerHTML =
+        'Criar<br>seu <span style="color:var(--vermelho)">cadastro</span>';
+    }
+  </script>
 
   <div id="passo-telefone">
     <div class="campo">
@@ -850,10 +857,20 @@
 
 <script>
 /* --------------------------- infraestrutura ---------------------------- */
+/* Aberto pelo tablet da entrada (`/?totem=1`), e não pelo celular da pessoa.
+   O fluxo de cadastro é o mesmo — telefone, código, nome, aniversário e grade
+   da semana —, mas o que acontece no fim muda: em vez de abrir o app, a sessão
+   é encerrada e o tablet volta para a tela de entrada. Sem isso o aparelho do
+   estúdio ficaria logado na conta do último aluno que se cadastrou. */
+const MODO_TOTEM = new URLSearchParams(location.search).has('totem');
+
 const cofre = {
   _m:null,
-  get(){ try{ return localStorage.getItem('agenda-token') }catch{ return this._m } },
-  set(v){ this._m=v; try{ v ? localStorage.setItem('agenda-token',v) : localStorage.removeItem('agenda-token') }catch{} }
+  // No tablet o token nunca encosta no localStorage: ele morre com a aba.
+  get(){ if (MODO_TOTEM) return this._m;
+         try{ return localStorage.getItem('agenda-token') }catch{ return this._m } },
+  set(v){ this._m=v; if (MODO_TOTEM) return;
+          try{ v ? localStorage.setItem('agenda-token',v) : localStorage.removeItem('agenda-token') }catch{} }
 };
 
 let eu = null, configAtual = null, abaAtiva = 'agendar';
@@ -1044,6 +1061,16 @@ async function entrar(botao){
       grade: gradeDoLogin(),
     })});
     cofre.set(r.token);
+
+    // No tablet o cadastro termina aqui: fecha a sessão e devolve a tela de
+    // entrada para a próxima pessoa. A pessoa segue no celular dela.
+    if (MODO_TOTEM){
+      try{ await api('/auth/sair', {method:'POST'}); }catch{}
+      cofre.set(null);
+      location.replace('/totem.html?cadastro=ok');
+      return true;
+    }
+
     await comecar();
     return true;
   }catch(e){ avisar(e.message, 'erro'); return false; }
