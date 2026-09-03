@@ -12,10 +12,10 @@
  *   atrás, é o tipo de atrito que faz todo mundo desistir e a recepção voltar a
  *   anotar em papel. A porta de entrada aqui é física.
  *
- *   O que protege é o `DEVICE_TOKEN`: definido, só o tablet configurado com ele
- *   fala com estas rotas — a mesma proteção que a catraca já usa em `/acesso`.
- *   Sem ele, qualquer um na internet consegue listar nomes por final de
- *   telefone, então em produção vale a pena defini-lo.
+ *   Estas rotas são abertas de propósito: nenhum token de dispositivo, para o
+ *   tablet ser só um atalho no navegador e não ter configuração para dar errado
+ *   num domingo de manhã. O que sobra de proteção é o freio por IP mais abaixo
+ *   e o fato de a busca devolver nome e nada mais.
  *
  * QUATRO DÍGITOS, NÃO O TELEFONE INTEIRO
  *   A busca é pelos quatro últimos dígitos e devolve nome e mais nada. O
@@ -37,8 +37,6 @@ const rotasAgenda = require('./rotas-agenda');
 const rotas = express.Router();
 rotas.use(express.json());
 
-const TOKEN_DISPOSITIVO = process.env.DEVICE_TOKEN || '';
-
 /**
  * Janela em que a confirmação vale, em minutos ao redor do horário da aula.
  *
@@ -50,13 +48,6 @@ const MINUTOS_ANTES = Number(process.env.TOTEM_MINUTOS_ANTES || 45);
 const MINUTOS_DEPOIS = Number(process.env.TOTEM_MINUTOS_DEPOIS || 30);
 
 /* ---------------------------- proteção ----------------------------------- */
-
-function doTablet(req, res, next) {
-  if (TOKEN_DISPOSITIVO && req.get('X-Device-Token') !== TOKEN_DISPOSITIVO) {
-    return res.status(403).json({ erro: 'Tablet não autorizado.' });
-  }
-  next();
-}
 
 /**
  * Freio simples por IP. Não é defesa contra ataque — é o que impede que alguém
@@ -154,7 +145,7 @@ function horarioDeAgora(meus, data, fuso) {
  * a recepção em vez de sugerir que o número está errado — pode ser que ela
  * ainda não tenha cadastro, e esse é o outro botão da tela inicial.
  */
-rotas.post('/buscar', doTablet, comFreio(20), (req, res) => {
+rotas.post('/buscar', comFreio(20), (req, res) => {
   const final = String(req.body.final || '').replace(/\D/g, '');
   if (final.length !== 4) {
     return res.status(400).json({ erro: 'Digite os 4 últimos dígitos do seu telefone.' });
@@ -181,7 +172,7 @@ rotas.post('/buscar', doTablet, comFreio(20), (req, res) => {
  * marcado vira número errado na frequência, e o aluno descobre no fim do mês,
  * quando não dá mais para reconstruir o que aconteceu.
  */
-rotas.post('/confirmar', doTablet, comFreio(30), (req, res) => {
+rotas.post('/confirmar', comFreio(30), (req, res) => {
   const telefone = lerBilhete(req.body.bilhete);
   if (!telefone) {
     return res.status(400).json({ erro: 'Sua escolha expirou. Digite os 4 dígitos de novo.' });
@@ -243,7 +234,7 @@ rotas.post('/confirmar', doTablet, comFreio(30), (req, res) => {
  *   presença nenhuma — e sem aparecer, não conseguiria confirmar presença
  *   aqui. Pedir a grade inteira de pé no tablet seria pior.
  */
-rotas.post('/cadastro', doTablet, comFreio(10), (req, res) => {
+rotas.post('/cadastro', comFreio(10), (req, res) => {
   const c = config.ler();
   const telefone = rotasAgenda.normalizarTelefone(req.body.telefone);
   if (!telefone) {
