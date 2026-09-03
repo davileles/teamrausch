@@ -8,7 +8,7 @@ const backup = require('./alunos-github');
 const DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const ARQUIVO = path.join(DIR, 'agenda.json');
 
-let dados = { alunos: {}, sessoes: {}, codigos: {}, agendamentos: [] };
+let dados = { alunos: {}, sessoes: {}, codigos: {}, agendamentos: [], presencas: [] };
 let pendente = null;
 
 function carregar() {
@@ -83,6 +83,24 @@ function trocarTelefone(antigo, novo) {
   gravar();
   backup.sincronizar(listarAlunos);
   return { ok: true, aluno: dados.alunos[novo] };
+}
+
+/**
+ * Alunos cujo telefone termina nestes dígitos.
+ *
+ * É como o totem da entrada encontra quem está chegando: quatro dígitos são
+ * rápidos de digitar de pé e com a bolsa na mão, e a colisão — duas pessoas com
+ * o mesmo final — é resolvida na tela seguinte, escolhendo o nome. Menos de
+ * quatro dígitos não busca nada: com dois ou três a lista viraria meia turma.
+ *
+ * Aluno bloqueado fica de fora: se o acesso dele está suspenso, aparecer no
+ * totem só produziria uma recusa constrangedora na frente de quem espera.
+ */
+function alunosPorFinal(final) {
+  const digitos = String(final || '').replace(/\D/g, '');
+  if (digitos.length < 4) return [];
+  return listarAlunos().filter((a) =>
+    !a.bloqueado && String(a.telefone || '').endsWith(digitos));
 }
 
 function listarAlunos() {
@@ -227,10 +245,56 @@ function porId(id) {
   return dados.agendamentos.find((x) => x.id === id) || null;
 }
 
+/* ---------------------------- presenças ---------------------------------- *
+ * A confirmação feita no tablet da entrada. Vive num array próprio, e não como
+ * um campo do agendamento, porque a maior parte das aulas não tem agendamento
+ * nenhum: quem treina na grade fixa da matrícula aparece na lista do dia sem
+ * nunca ter reservado. Um campo em `agendamentos` cobriria só as reservas
+ * avulsas e deixaria o mensalista de fora — que é justamente quem esta tela
+ * existe para registrar.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Registra que a pessoa apareceu. Idempotente por telefone + dia + hora: dois
+ * toques no botão, ou a pessoa que volta ao tablet achando que não confirmou,
+ * não viram duas presenças no mesmo treino.
+ */
+function registrarPresenca({ telefone, nome, data, hora, agendamentoId = null, origem = 'totem' }) {
+  const jaTem = presencaDe(telefone, data, hora);
+  if (jaTem) return { ok: true, repetida: true, presenca: jaTem };
+
+  const registro = {
+    id: crypto.randomBytes(8).toString('hex'),
+    telefone, nome: nome || null, data, hora,
+    agendamentoId,
+    origem,
+    criadoEm: new Date().toISOString(),
+  };
+  dados.presencas.push(registro);
+  gravar();
+  return { ok: true, repetida: false, presenca: registro };
+}
+
+function presencaDe(telefone, data, hora) {
+  return dados.presencas.find((p) =>
+    p.telefone === telefone && p.data === data && p.hora === hora) || null;
+}
+
+function presencasDaData(data) {
+  return dados.presencas.filter((p) => p.data === data);
+}
+
+/** Todas as presenças confirmadas, opcionalmente dentro de uma janela de datas. */
+function listarPresencas({ de, ate } = {}) {
+  return dados.presencas.filter((p) =>
+    (!de || p.data >= de) && (!ate || p.data <= ate));
+}
+
 function limparAntigos(diasParaGuardar = 180) {
   const corte = new Date(Date.now() - diasParaGuardar * 86400000).toISOString().slice(0, 10);
   const antes = dados.agendamentos.length;
   dados.agendamentos = dados.agendamentos.filter((a) => a.data >= corte);
+  dados.presencas = (dados.presencas || []).filter((p) => p.data >= corte);
   for (const [t, s] of Object.entries(dados.sessoes)) {
     if (Date.now() > s.expiraEm) delete dados.sessoes[t];
   }
@@ -245,4 +309,5 @@ module.exports = {
   guardarCodigo, conferirCodigo, pedidosNaUltimaHora,
   abrirSessao, sessao, fecharSessao,
   daData, doHorario, doAluno, historicoDoAluno, jaTem, contarNoDia, reservar, cancelar, porId,
+  alunosPorFinal, registrarPresenca, presencaDe, presencasDaData, listarPresencas,
 };
