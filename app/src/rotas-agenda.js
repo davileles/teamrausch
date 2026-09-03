@@ -262,7 +262,9 @@ function aplicarGradeNaMatricula(telefone, nome, aniversario, gradeEscolhida) {
     || matriculas.listar().find((x) => !x.telefone && mesmoNome(x.nome, nome));
 
   if (m) {
-    const campos = { grade: gradeEscolhida };
+    // A grade passou pelos olhos de quem treina nela — é isso que separa o
+    // horário conferido do que veio digitado na planilha de importação.
+    const campos = { grade: gradeEscolhida, gradeConfirmada: true };
     if (!m.telefone) campos.telefone = telefone;
     // Ficha de aula experimental existe justamente por não ter horário fixo
     // combinado. Combinado agora, a marca não descreve mais a situação.
@@ -282,6 +284,7 @@ function aplicarGradeNaMatricula(telefone, nome, aniversario, gradeEscolhida) {
     aniversario,
     vinculo: 'mensalista',
     grade: gradeEscolhida,
+    gradeConfirmada: true,
     observacao: 'Ficha aberta pelo próprio aluno no primeiro acesso — conferir vínculo e cobrança.',
     revisar: parecidas.length
       ? [`Pode ser a mesma pessoa de ${parecidas.map((x) => x.nome).join(', ')}`
