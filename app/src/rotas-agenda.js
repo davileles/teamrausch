@@ -8,6 +8,9 @@ const agenda = require('./agenda');
 const matriculas = require('./matriculas-store');
 const grade = require('./grade');
 const { enviarCodigo } = require('./mensageiro');
+// Só pelos destinatários e pelo canal de e-mail: o aviso de primeiro acesso
+// reaproveita a mesma lista dos avisos do Wellhub em vez de abrir uma segunda.
+const poller = require('./poller-portal');
 
 const rotas = express.Router();
 
@@ -375,6 +378,65 @@ rotas.post('/auth/codigo', async (req, res) => {
   });
 });
 
+/**
+ * Avisa o estúdio, por e-mail, quando alguém entra no app pela primeira vez.
+ *
+ * O cadastro aqui é auto-serviço: nome, aniversário e grade da semana chegam
+ * pela mão do próprio aluno, sem ninguém do estúdio na frente. Sem aviso, a
+ * única forma de descobrir que apareceu gente nova — ou que uma ficha da
+ * planilha acabou de virar matrícula de verdade — era abrir a lista e comparar
+ * com a memória.
+ *
+ * Vai para os mesmos destinatários dos avisos do Wellhub (aba Configurações,
+ * bloco `avisos`). É a mesma gente que opera o estúdio, e uma segunda lista só
+ * criaria mais um lugar para esquecer de atualizar.
+ *
+ * Fica fora do caminho da resposta de propósito: o login não espera a Resend, e
+ * e-mail que não sai nunca é motivo para barrar a entrada de quem já provou ser
+ * dono do número.
+ */
+function avisarPrimeiroAcesso(telefone, aluno, aniversarioGravado, horariosEscolhidos) {
+  const fuso = process.env.TZ_ESTUDIO || 'America/Sao_Paulo';
+  const quem = aluno.nome || mostrarTelefone(telefone);
+
+  const linhas = [
+    `Nome: ${aluno.nome || '—'}`,
+    `Telefone: ${mostrarTelefone(telefone)}`,
+    `Aniversário: ${mostrarAniversario(aniversarioGravado) || '—'}`,
+    '',
+    'Grade da semana:',
+  ];
+
+  // A grade escolhida agora manda; quem já entrou com uma gravada não escolhe
+  // de novo, e nesse caso o aviso mostra a que está valendo.
+  const semana = (horariosEscolhidos && horariosEscolhidos.length)
+    ? horariosEscolhidos
+    : gradeGravada(telefone);
+  if (semana.length) {
+    for (const s of semana) linhas.push(`  • ${grade.NOME_DIA[s.dia]} às ${s.hora}`);
+  } else {
+    linhas.push('  (nenhum horário fixo)');
+  }
+
+  // Lido depois de a grade ter sido aplicada: é aqui que se vê se a pessoa caiu
+  // numa ficha que já existia ou se abriu uma do zero, que é o caso que pede
+  // conferência de vínculo e cobrança.
+  const m = matriculas.porTelefone(telefone);
+  linhas.push('');
+  if (m) {
+    linhas.push(`Matrícula: ${m.nome} (#${m.id})`);
+    if (m.vinculo) linhas.push(`Vínculo: ${m.vinculo}`);
+    if (m.observacao) linhas.push(`Observação: ${m.observacao}`);
+  } else {
+    linhas.push('Matrícula: nenhuma ficha vinculada a este telefone.');
+  }
+  linhas.push(`Quando: ${new Date().toLocaleString('pt-BR', { timeZone: fuso })}`);
+
+  Promise.resolve()
+    .then(() => poller.enviarEmail(`🆕 Primeiro acesso no app: ${quem}`, linhas.join('\n')))
+    .catch((e) => console.warn(`[acesso] aviso de primeiro acesso não saiu: ${e.message}`));
+}
+
 rotas.post('/auth/entrar', (req, res) => {
   const c = config.ler();
   const telefone = normalizarTelefone(req.body.telefone);
@@ -474,6 +536,9 @@ rotas.post('/auth/entrar', (req, res) => {
     const r = aplicarGradeNaMatricula(telefone, aluno.nome, aniversario, gradeEscolhida);
     if (!r.ok) console.warn(`[acesso] grade de ${telefone} não foi gravada: ${r.motivo}`);
   }
+
+  // Depois da grade: assim o aviso já sai com a matrícula no estado final.
+  if (primeiraVez) avisarPrimeiroAcesso(telefone, aluno, aniversario, gradeEscolhida);
 
   const token = store.abrirSessao(telefone, Number(c.acesso.diasDeSessao || 7));
   res.json({
