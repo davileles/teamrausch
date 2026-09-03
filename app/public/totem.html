@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Entrada · Wellhub</title>
+<title>Entrada · Team Rausch</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <meta name="theme-color" content="#F2F3F5">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -51,7 +51,6 @@
   .teclas button[data-acao=apagar]{background:var(--tecla-apagar);font-size:28px;color:var(--apagado)}
   .teclas button.ok{background:var(--vermelho);border-color:var(--vermelho);color:#fff;
     font-size:20px;letter-spacing:.08em;text-transform:uppercase}
-  .rodape{font:400 13.5px/1.5 'Work Sans',sans-serif;color:var(--fraco);text-align:center;margin-top:24px}
 
   .resposta{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;
     justify-content:center;color:#fff;padding:36px;text-align:center}
@@ -80,8 +79,6 @@
     font:600 13px 'Work Sans',sans-serif;letter-spacing:.06em;text-transform:uppercase;
     cursor:pointer;border-bottom:1px solid var(--linha);padding-bottom:3px}
   .voltar-totem:active{color:var(--amarelo);border-color:var(--amarelo)}
-  .discreto{margin-top:20px;background:none;border:none;color:var(--fraco);
-    font:500 13px 'Work Sans',sans-serif;cursor:pointer;text-decoration:underline}
 
   /* Lista de homônimos: mesmo final de telefone, nomes diferentes. */
   .nomes{width:100%;display:flex;flex-direction:column;gap:10px}
@@ -169,7 +166,6 @@
         <button id="btn-cadastro">Criar cadastro
           <small>Primeira vez no estúdio</small></button>
       </div>
-      <button class="discreto" data-ir="wellhub">Check-in pelo código do Wellhub</button>
     </section>
 
     <!-- ------------------- confirmar presença ----------------------- -->
@@ -195,55 +191,28 @@
       <button class="voltar-totem" data-ir="presenca">Voltar</button>
     </section>
 
-    <!-- ----------------------- código Wellhub ------------------------ -->
-    <section class="tela" id="tela-wellhub">
-      <div class="rotulo">Wellhub</div>
-      <div class="chamada">Digite seu código</div>
-      <div class="visor" id="visor" aria-live="polite"></div>
-      <div class="teclas" id="teclas">
-        <button>1</button><button>2</button><button>3</button>
-        <button>4</button><button>5</button><button>6</button>
-        <button>7</button><button>8</button><button>9</button>
-        <button data-acao="apagar">←</button><button>0</button>
-        <button class="ok" data-acao="entrar">Entrar</button>
-      </div>
-      <p class="rodape">Faça o check-in no app do Wellhub antes de digitar. O leitor de QR também funciona.</p>
-      <button class="voltar-totem" data-ir="menu">Voltar</button>
-    </section>
   </div>
 
   <div class="resposta" id="resposta"><h2 id="r-titulo"></h2><p id="r-texto"></p></div>
 
 <script>
 /* ── tablet da entrada ──────────────────────────────────────────────────
-   Três caminhos numa tela só: presença pelos 4 dígitos, cadastro novo e o
-   código do Wellhub, que continua existindo porque o leitor de QR e o app
-   do Wellhub não mudaram.
+   Duas coisas: confirmar presença pelos 4 últimos dígitos do telefone e abrir
+   cadastro. O cadastro não mora aqui — o botão abre a tela de entrada do app
+   em modo totem, que é o mesmo fluxo do site.
 
-   O cadastro sai daqui: o botão abre a tela de entrada do app em modo totem,
-   que é o mesmo fluxo do site.
+   O check-in do Wellhub saiu desta tela: quem tem Wellhub confirma no app do
+   próprio Wellhub, e o check-in chega ao sistema pelo webhook do portal. A
+   rota /acesso continua de pé para a catraca, que não passa por aqui.
 
-   `tela` guarda onde estamos porque o leitor de QR se comporta como teclado:
-   sem saber a tela atual, um bipe de QR digitaria no lugar errado. Aqui ele
-   acorda a tela do Wellhub e escreve lá.                                */
+   As rotas usadas aqui são abertas, sem token de dispositivo: o tablet é só um
+   atalho no navegador, sem nada para configurar.                          */
 
-// Só o check-in do Wellhub usa token de dispositivo, porque a rota /acesso é a
-// mesma da catraca. A confirmação de presença é aberta: o tablet é só um atalho
-// no navegador, sem nada para configurar.
-const TOKEN_DISPOSITIVO = ''; // preencha com DEVICE_TOKEN se você configurou um
 let tela = 'menu';
-let codigo = '';   // código do Wellhub
 let final = '';    // 4 dígitos da presença
 let ocioso = null;
 
-const visorWellhub = document.getElementById('visor');
 const visorFinal = document.getElementById('visor-final');
-
-function cabWellhub(){
-  const h = {'Content-Type':'application/json'};
-  if (TOKEN_DISPOSITIVO) h['X-Device-Token'] = TOKEN_DISPOSITIVO;
-  return h;
-}
 
 async function chamar(caminho, corpo){
   const r = await fetch('/totem-api'+caminho,
@@ -261,7 +230,6 @@ function ir(destino){
   document.getElementById('tela-'+destino).classList.add('ativa');
 
   if (destino !== 'presenca' && destino !== 'nomes'){ final = ''; pintarFinal(); }
-  if (destino !== 'wellhub'){ codigo = ''; pintarWellhub(); }
   reiniciarOcio();
 }
 
@@ -363,50 +331,16 @@ if (new URLSearchParams(location.search).has('cadastro')){
   responder(true, 'Cadastro criado', 'Pronto! Agora é só entrar pelo seu celular.', 6);
 }
 
-/* ------------------------- código Wellhub ------------------------------ */
-
-function pintarWellhub(){ visorWellhub.textContent = '•'.repeat(codigo.length); }
-
-async function entrarWellhub(){
-  if (!codigo) return;
-  const atual = codigo;
-  codigo = ''; pintarWellhub();
-  try{
-    const r = await fetch('/acesso', {method:'POST', headers:cabWellhub(),
-      body:JSON.stringify({codigo:atual})}).then(x=>x.json());
-    responder(r.abrir, r.abrir ? 'Pode entrar' : 'Acesso negado',
-      r.abrir ? (r.nome||'') : r.mensagem);
-  }catch(e){
-    responder(false, 'Fora do ar', 'Procure a recepção para liberar sua entrada.');
-  }
-}
-
-document.getElementById('teclas').addEventListener('click', e=>{
-  const b = e.target.closest('button'); if (!b) return;
-  const acao = b.dataset.acao;
-  if (acao === 'apagar') codigo = codigo.slice(0,-1);
-  else if (acao === 'entrar') return entrarWellhub();
-  else if (codigo.length < 20) codigo += b.textContent;
-  pintarWellhub();
-});
-
-/* Leitor de QR/código de barras funciona como teclado: digita e manda Enter.
-   Do menu, o primeiro caractere já leva para a tela do Wellhub — ninguém vai
-   tocar em "check-in pelo código" antes de bipar. */
+/* Teclado físico ou leitor de código de barras: os dígitos caem no visor da
+   presença e Enter busca. */
 document.addEventListener('keydown', e=>{
-  if (tela === 'presenca' || tela === 'nomes'){
-    if (e.key === 'Enter') buscarFinal();
-    else if (e.key === 'Backspace'){ final = final.slice(0,-1); pintarFinal(); }
-    else if (/^[0-9]$/.test(e.key) && final.length < 4){
-      final += e.key; pintarFinal();
-      if (final.length === 4) buscarFinal();
-    }
-    return;
+  if (tela !== 'presenca' && tela !== 'nomes') return;
+  if (e.key === 'Enter') buscarFinal();
+  else if (e.key === 'Backspace'){ final = final.slice(0,-1); pintarFinal(); }
+  else if (/^[0-9]$/.test(e.key) && final.length < 4){
+    final += e.key; pintarFinal();
+    if (final.length === 4) buscarFinal();
   }
-  if (tela === 'menu' && /^[0-9A-Za-z]$/.test(e.key)) ir('wellhub');
-  if (e.key === 'Enter') entrarWellhub();
-  else if (e.key === 'Backspace'){ codigo = codigo.slice(0,-1); pintarWellhub(); }
-  else if (/^[0-9A-Za-z]$/.test(e.key) && codigo.length < 20){ codigo += e.key; pintarWellhub(); }
 });
 </script>
 </body>
