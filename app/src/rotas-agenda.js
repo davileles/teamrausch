@@ -270,6 +270,12 @@ function aplicarGradeNaMatricula(telefone, nome, aniversario, gradeEscolhida) {
     return matriculas.atualizar(m.id, campos);
   }
 
+  // O nome digitado aqui é o que a pessoa usa no dia a dia; a base pode ter o
+  // completo, vindo da planilha ou do Wellhub. Nesse caso a ficha nasce assim
+  // mesmo — adivinhar juntaria dois homônimos — mas já marcada para revisão,
+  // com o nome da provável gêmea, para ser mesclada na tela em vez de virar
+  // dois resultados na busca.
+  const parecidas = matriculas.possiveisDuplicadas(nome);
   return matriculas.criar({
     nome,
     telefone,
@@ -277,6 +283,10 @@ function aplicarGradeNaMatricula(telefone, nome, aniversario, gradeEscolhida) {
     vinculo: 'mensalista',
     grade: gradeEscolhida,
     observacao: 'Ficha aberta pelo próprio aluno no primeiro acesso — conferir vínculo e cobrança.',
+    revisar: parecidas.length
+      ? [`Pode ser a mesma pessoa de ${parecidas.map((x) => x.nome).join(', ')}`
+        + ' — confira e mescle as fichas se for.']
+      : [],
   });
 }
 

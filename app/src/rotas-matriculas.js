@@ -23,6 +23,7 @@ const telefone = require('./telefone');
 const frequencia = require('./frequencia');
 const presencas = require('./presencas');
 const alertas = require('./alertas-frequencia');
+const mensagens = require('./mensagens-store');
 const poller = require('./poller-portal');
 
 module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
@@ -536,6 +537,82 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       ok: true, matricula: ficha(store.porId(m.id)),
       gympassId, soltos: r.movidos,
       checkinsNaFicha: checkins.quantosDaMatricula(m.id),
+    });
+  });
+
+  /* ----------------------- fichas duplicadas ----------------------------- */
+
+  /**
+   * Candidatas a serem a mesma pessoa desta ficha, mais a base inteira para a
+   * tela montar a lista. Duas chamadas viraram uma porque o select precisa das
+   * duas coisas ao mesmo tempo: a sugestão em cima e o resto em ordem.
+   */
+  rotas.get('/:id/duplicadas', (req, res) => {
+    const m = store.porId(req.params.id);
+    if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+
+    const resumir = (x) => ({
+      id: x.id,
+      nome: x.nome,
+      ativo: Boolean(x.ativo),
+      telefone: x.telefone || null,
+      gympassId: x.gympassId || null,
+      grade: (x.grade || []).length,
+      checkins: checkins.quantosDaMatricula(x.id),
+      criadoEm: x.criadoEm || null,
+    });
+
+    // Procura pelos vários nomes da ficha: o aluno digitou um no app, o portal
+    // manda outro e a planilha trazia um terceiro.
+    const vistas = new Set();
+    const sugeridas = [];
+    for (const nome of [m.nome, m.nomeWellhub, m.nomeOriginal, m.planilhaNome].filter(Boolean)) {
+      for (const cand of store.possiveisDuplicadas(nome, m.id)) {
+        if (vistas.has(cand.id)) continue;
+        vistas.add(cand.id);
+        sugeridas.push(resumir(cand));
+      }
+    }
+
+    res.json({
+      sugeridas,
+      todas: store.listar().filter((x) => x.id !== m.id).map(resumir),
+    });
+  });
+
+  /**
+   * Junta duas fichas do mesmo aluno. `de` é a duplicada, que some.
+   *
+   * A ordem importa: a mesclagem acontece primeiro e é ela que decide o nome
+   * final; só depois os check-ins e o histórico de mensagens são movidos, já
+   * carimbados com o nome certo.
+   */
+  rotas.post('/:id/mesclar', (req, res) => {
+    const fica = store.porId(req.params.id);
+    if (!fica) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+
+    const sai = store.porId(String(req.body.de || '').trim());
+    if (!sai) return res.status(404).json({ erro: 'Ficha duplicada não encontrada.' });
+    const nomeSaiu = sai.nome;
+
+    const r = store.mesclar(fica.id, sai.id, { nome: req.body.nome });
+    if (!r.ok) return res.status(400).json({ erro: r.motivo });
+
+    const mov = checkins.moverMatricula(sai.id, fica.id);
+    mensagens.moverMatricula(sai.id, fica.id, r.matricula.nome);
+
+    // O aluno vê no app o nome da ficha de login. Mesclar costuma trocar o nome
+    // e trazer o telefone da outra ficha — sem espelhar, a tela dele continua
+    // mostrando o cadastro antigo.
+    espelharNoLogin(r.matricula, r.matricula);
+
+    res.json({
+      ok: true,
+      matricula: ficha(store.porId(fica.id)),
+      removida: nomeSaiu,
+      checkinsMovidos: (mov && mov.movidos) || 0,
+      excecoesMovidas: r.excecoesMovidas,
+      trazidos: r.trazidos,
     });
   });
 

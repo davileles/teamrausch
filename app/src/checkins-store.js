@@ -649,6 +649,33 @@ function reatribuir(gympassId, matriculaId) {
   };
 }
 
+/**
+ * Leva para outra ficha todos os check-ins de uma matrícula que deixou de
+ * existir. É o par da mesclagem de fichas duplicadas: `reatribuir` parte do
+ * Wellhub ID, e aqui o ponto de partida é a ficha — inclusive os registros
+ * antigos, que podem ter vindo da planilha sem ID nenhum.
+ *
+ * Aproveita para reescrever o nome guardado em todos os check-ins da ficha
+ * final: a mesclagem costuma trocar o nome dela, e a lista do portal mostraria
+ * o antigo até o próximo check-in.
+ */
+function moverMatricula(deId, paraId) {
+  const m = matriculas.porId(paraId);
+  if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+
+  let movidos = 0;
+  for (const c of dados.checkins) {
+    if (c.matriculaId === deId && deId !== paraId) {
+      c.matriculaId = m.id;
+      c.vinculadoPor = c.vinculadoPor || 'manual';
+      movidos += 1;
+    }
+    if (c.matriculaId === m.id) c.nomeMatricula = m.nome;
+  }
+  gravar();
+  return { ok: true, movidos, nome: m.nome };
+}
+
 /** Quantos check-ins estão hoje nesta ficha — a tela mostra ao lado do vínculo. */
 function quantosDaMatricula(matriculaId) {
   return dados.checkins.filter((c) => c.matriculaId === matriculaId).length;
@@ -765,7 +792,7 @@ setInterval(() => limparAntigos(), 24 * 3600000).unref();
 
 module.exports = {
   registrar, registrarLote, porId, vincular, desvincular, revincularOrfaos,
-  importarHistorico, pessoas, reatribuir, quantosDaMatricula,
+  importarHistorico, pessoas, reatribuir, moverMatricula, quantosDaMatricula,
   listar, datasDaMatricula, mapaPorMatricula, ultimoDaMatricula, aplicarNomesDoPortal,
   produtoPorMatricula,
   resumo, normalizarNome, dataLocal, hojeLocal, backup,

@@ -256,6 +256,24 @@ function jaEnviados(lote) {
     .map((h) => h.matriculaId);
 }
 
+/**
+ * Ficha mesclada: o histórico de mensagens da duplicada passa a apontar para a
+ * ficha que ficou. Sem isto, "o que já mandei para esta pessoa" ficaria partido
+ * em dois, e um disparo em massa poderia repetir a mensagem para ela.
+ */
+function moverMatricula(deId, paraId, nome) {
+  if (!deId || !paraId || deId === paraId) return { movidos: 0 };
+  let movidos = 0;
+  for (const h of dados.historico) {
+    if (h.matriculaId !== deId) continue;
+    h.matriculaId = paraId;
+    if (nome) h.nome = nome;
+    movidos += 1;
+  }
+  if (movidos) gravar();
+  return { movidos };
+}
+
 function situacao() {
   return {
     modelos: dados.modelos.length,
@@ -270,6 +288,6 @@ semear().catch((e) => log('semeadura falhou:', e.message));
 
 module.exports = {
   semear, listarModelos, porId, criarModelo, atualizarModelo, removerModelo,
-  marcarDisparo, registrar, historico, jaEnviados, situacao,
+  marcarDisparo, registrar, historico, jaEnviados, moverMatricula, situacao,
   MODOS, PUBLICOS, GATILHOS,
 };

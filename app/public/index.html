@@ -1866,11 +1866,39 @@ function fichaMatricula(m){
     ${(m.revisar||[]).length ? `<p class="ajuda alerta-rev">⚠︎ ${m.revisar.map(esc).join(' · ')}<br>
       <span style="opacity:.75">Da planilha: ${esc(m.freqOriginal||'—')}</span></p>` : ''}
     ${novo ? '' : blocoAcesso(m)}
+    ${novo ? '' : blocoMesclar(m)}
     <div class="rodape">
       <button class="leve mf-salvar">${novo ? 'Cadastrar' : 'Salvar'}</button>
       <button class="leve mf-cancelar">Cancelar</button>
       ${novo ? '' : `<button class="leve mf-inativar">${m.ativo?'Inativar':'Reativar'}</button>`}
     </div>
+  </div>`;
+}
+
+/**
+ * Ficha duplicada.
+ *
+ * O mesmo aluno em dois cadastros é o preço de o nome ser a chave quando não há
+ * telefone: a planilha trouxe o nome completo, a pessoa entrou no app e digitou
+ * o curto, e o sistema — que exige nome único — abriu a segunda ficha. As duas
+ * aparecem na busca, e cada uma fica com um pedaço da verdade: os check-ins numa,
+ * a grade na outra.
+ *
+ * Mesclar resolve pelo lado certo: a ficha aberta é a que FICA, a escolhida no
+ * select some, e tudo que ela tinha e falta aqui vem junto.
+ */
+function blocoMesclar(m){
+  return `<div class="acesso mesclagem">
+    <h4>Ficha duplicada</h4>
+    <p class="ajuda" style="margin:0 0 8px">O mesmo aluno em dois cadastros. Escolha a outra
+      ficha: check-ins, telefone, Wellhub, faltas e histórico vêm para <b>esta</b>, e ela
+      deixa de aparecer na busca. O nome final é o do Wellhub, quando existe.</p>
+    <div class="linha">
+      <select class="mf-merge-quem"><option value="">Carregando fichas…</option></select>
+      <button type="button" class="leve mf-merge-ok">Mesclar</button>
+    </div>
+    <p class="ajuda" style="margin:8px 0 0">Não tem volta: a outra ficha é apagada.
+      Campo preenchido nos dois lados fica como está aqui.</p>
   </div>`;
 }
 
@@ -2032,6 +2060,63 @@ async function ligarVinculoWellhub(el, id){
   });
 }
 
+/**
+ * Lista de fichas para mesclar. As prováveis gêmeas vêm em cima, separadas do
+ * resto: o servidor compara os nomes de todas as pontas (tela, Wellhub,
+ * planilha), o que a busca por nome do dia a dia não faz.
+ */
+async function ligarMesclagem(el, id){
+  const bloco = el.querySelector('.mesclagem');
+  if (!bloco || !id) return;
+  const quem = bloco.querySelector('.mf-merge-quem');
+  const ok = bloco.querySelector('.mf-merge-ok');
+
+  const rotulo = x => {
+    const partes = [];
+    if (x.checkins) partes.push(`${x.checkins} check-in(s)`);
+    if (x.grade) partes.push('com grade');
+    if (x.telefone) partes.push('com telefone');
+    if (!x.ativo) partes.push('inativa');
+    return `${x.nome}${partes.length ? ' · ' + partes.join(', ') : ''}`;
+  };
+
+  try{
+    const r = await api('/matriculas/'+id+'/duplicadas');
+    const sugeridas = r.sugeridas || [];
+    const jaVistas = new Set(sugeridas.map(x=>x.id));
+    const resto = (r.todas||[]).filter(x=>!jaVistas.has(x.id));
+    quem.innerHTML = '<option value="">Escolha a ficha duplicada…</option>'
+      + (sugeridas.length ? `<optgroup label="Parece ser a mesma pessoa">`
+        + sugeridas.map(x=>`<option value="${esc(x.id)}">${esc(rotulo(x))}</option>`).join('')
+        + '</optgroup>' : '')
+      + `<optgroup label="Todas as fichas">`
+      + resto.map(x=>`<option value="${esc(x.id)}">${esc(rotulo(x))}</option>`).join('')
+      + '</optgroup>';
+  }catch(err){
+    quem.innerHTML = `<option value="">Não consegui carregar: ${esc(err.message)}</option>`;
+    return;
+  }
+
+  ok.addEventListener('click', async ()=>{
+    if (!quem.value) return avisar('Escolha a ficha duplicada.','erro');
+    const escolhida = quem.options[quem.selectedIndex].textContent.trim();
+    const aqui = el.querySelector('.mf-nome').value.trim();
+    if (!confirm(`Mesclar "${escolhida}" nesta ficha?\n\n`
+      + `Tudo dela vem para "${aqui}" e ela é apagada. Não tem como desfazer.`)) return;
+    ok.disabled = true; ok.textContent = 'Mesclando…';
+    try{
+      const r = await api('/matriculas/'+id+'/mesclar',
+        {method:'POST', body: JSON.stringify({de: quem.value})});
+      avisar(`Fichas juntas em "${r.matricula.nome}" · `
+        + `${r.checkinsMovidos} check-in(s) trazidos.`, 'ok');
+      matEstado.aberta = null; await redesenhar();
+    }catch(err){
+      avisar(err.message,'erro');
+      ok.disabled = false; ok.textContent = 'Mesclar';
+    }
+  });
+}
+
 function ligarFicha(el, id){
   const nasc = el.querySelector('.mf-nasc');
   nasc.addEventListener('input', ()=>{
@@ -2086,6 +2171,7 @@ function ligarFicha(el, id){
     if (wh) wh.hidden = e.target.value === 'mensalista';
   });
   ligarVinculoWellhub(el, id);
+  ligarMesclagem(el, id);
   el.querySelector('.mf-cancelar').addEventListener('click', ()=>{
     matEstado.aberta = null; redesenhar();
   });

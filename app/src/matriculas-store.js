@@ -665,6 +665,12 @@ function criar(campos = {}, opcoes = {}) {
       (d) => `${grade.NOME_DIA[d.dia]}: ${d.hora} não entrou (um horário por dia)`);
   }
 
+  // Aviso de quem chamou — hoje o "pode ser duplicata" do primeiro acesso do
+  // aluno. Entra somando, para não apagar o que a grade já tinha marcado.
+  if (Array.isArray(campos.revisar) && campos.revisar.length) {
+    registro.revisar = [...(registro.revisar || []), ...campos.revisar.map(String)];
+  }
+
   dados.matriculas.push(registro);
   gravar();
   return { ok: true, matricula: registro };
@@ -948,6 +954,210 @@ function inativar(id) {
   m.atualizadoEm = new Date().toISOString();
   gravar();
   return { ok: true, matricula: m };
+}
+
+/* ------------------------- fichas duplicadas ------------------------------ */
+
+/**
+ * Palavras de um nome, sem acento, sem caixa e sem partículas ('de', 'da'…).
+ * É a forma comparável do nome: "Gabriela Scotti Aboul Gonçalves" e
+ * "gabriela scotti" viram listas que dá para encaixar uma na outra.
+ */
+function palavrasDoNome(nome) {
+  return String(nome || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR')
+    .split(/\s+/)
+    .filter((p) => p.length > 1 && !PARTICULAS.includes(p));
+}
+
+/**
+ * Fichas que provavelmente são a mesma pessoa desta.
+ *
+ * O caso que gerou isto: a base veio da planilha com o nome completo, o aluno
+ * entrou no app e digitou o nome curto, e o sistema — que exige nome único —
+ * abriu uma segunda ficha em vez de reconhecer quem já estava lá. As duas
+ * aparecem na busca, os check-ins caem numa e a grade fica na outra.
+ *
+ * O critério é conservador: mesmo primeiro nome E um dos nomes cabendo inteiro
+ * dentro do outro. "Gabriela Scotti" cabe em "Gabriela Scotti Aboul Gonçalves";
+ * "Gabriela Fonseca Abreu" não. Compara também `nomeWellhub`, `nomeOriginal` e
+ * `planilhaNome`, porque a mesma pessoa costuma estar escrita de um jeito
+ * diferente em cada uma dessas pontas.
+ *
+ * NUNCA junta sozinho: isto só sugere. Quem decide é a tela.
+ */
+function possiveisDuplicadas(nome, exceto) {
+  const alvo = palavrasDoNome(nome);
+  if (!alvo.length) return [];
+  return dados.matriculas.filter((m) => {
+    if (m.id === exceto) return false;
+    return [m.nome, m.nomeWellhub, m.nomeOriginal, m.planilhaNome]
+      .filter(Boolean)
+      .some((outro) => {
+        const p = palavrasDoNome(outro);
+        if (!p.length || p[0] !== alvo[0]) return false;
+        const [menor, maior] = p.length < alvo.length ? [p, alvo] : [alvo, p];
+        return menor.every((x) => maior.includes(x));
+      });
+  });
+}
+
+/**
+ * Junta duas fichas do mesmo aluno numa só.
+ *
+ * `idFica` continua e recebe tudo; `idSai` é apagada. A regra é simples e
+ * previsível: CAMPO VAZIO NA QUE FICA É PREENCHIDO PELA QUE SAI, campo
+ * preenchido nas duas fica como está. Nada do que já foi conferido na tela é
+ * sobrescrito por um dado mais velho.
+ *
+ * As exceções, todas por um motivo:
+ *   • começo do treino e data de cadastro ficam com a data MAIS ANTIGA — é o
+ *     que faz a projeção de mensalidade e a cota do mês contarem certo;
+ *   • a grade que vale é a de vigência mais recente; a outra vai para o
+ *     histórico de grades, em vez de sumir;
+ *   • o nome final é o do Wellhub, quando existe e não está travado: é o nome
+ *     que a própria pessoa cadastrou no portal e é por ele que o check-in a
+ *     reconhece. Um nome explícito no parâmetro tem prioridade sobre tudo.
+ *
+ * RECUSA em vez de escolher sozinha quando as duas fichas têm Wellhub ID ou
+ * telefone diferentes: aí não é duplicata, ou é duplicata com um dado errado
+ * em algum lado — juntar cegamente mandaria check-in ou login para a pessoa
+ * errada, e o erro só apareceria semanas depois.
+ *
+ * Check-ins e histórico de mensagens NÃO são movidos aqui: eles vivem em
+ * outros módulos, que já dependem deste. Quem chama (as rotas) move os dois
+ * logo depois, com a ficha final em mãos.
+ */
+function mesclar(idFica, idSai, opcoes = {}) {
+  const fica = porId(idFica);
+  if (!fica) return { ok: false, motivo: 'Matrícula não encontrada.' };
+  const sai = porId(idSai);
+  if (!sai) return { ok: false, motivo: 'Ficha duplicada não encontrada.' };
+  if (fica.id === sai.id) return { ok: false, motivo: 'Escolha duas fichas diferentes.' };
+
+  if (fica.gympassId && sai.gympassId
+    && String(fica.gympassId) !== String(sai.gympassId)) {
+    return { ok: false, motivo: `As duas fichas têm Wellhub IDs diferentes `
+      + `(${fica.gympassId} e ${sai.gympassId}). Desvincule uma delas antes de mesclar.` };
+  }
+  if (fica.telefone && sai.telefone && !mesmoTelefone(fica.telefone, sai.telefone)) {
+    return { ok: false, motivo: `As duas fichas têm telefones diferentes `
+      + `(${fica.telefone} e ${sai.telefone}). Apague o errado antes de mesclar.` };
+  }
+
+  const trazidos = [];
+
+  // Campo vazio aqui, preenchido lá: vem para cá.
+  const SIMPLES = ['telefone', 'gympassId', 'aniversario', 'titularWellhub', 'observacao',
+    'ciclo', 'diaVencimento', 'obsVencimento', 'nomeWellhub', 'nomeOriginal',
+    'planilhaNome', 'freqOriginal', 'origem'];
+  for (const campo of SIMPLES) {
+    const vazio = fica[campo] === undefined || fica[campo] === null || fica[campo] === '';
+    const tem = sai[campo] !== undefined && sai[campo] !== null && sai[campo] !== '';
+    if (vazio && tem) { fica[campo] = sai[campo]; trazidos.push(campo); }
+  }
+
+  // Data mais antiga manda: quem treina desde agosto não pode virar aluno novo
+  // porque abriu a segunda ficha ontem.
+  for (const campo of ['desde', 'criadoEm']) {
+    if (sai[campo] && (!fica[campo] || String(sai[campo]) < String(fica[campo]))) {
+      fica[campo] = sai[campo];
+      trazidos.push(campo);
+    }
+  }
+
+  if (sai.ativo) fica.ativo = true;
+  // Experimental é "ainda sem horário combinado". Se qualquer uma das duas já
+  // tinha horário fixo, a pessoa não é mais experimental.
+  if (!sai.experimental) fica.experimental = false;
+  if (sai.nomeTravado) fica.nomeTravado = true;
+  if (sai.vinculo === 'wellhub' && fica.vinculo !== 'wellhub' && fica.gympassId) {
+    fica.vinculo = 'wellhub';
+    trazidos.push('vinculo');
+  }
+  if ((sai.revisar || []).length) {
+    fica.revisar = [...new Set([...(fica.revisar || []), ...sai.revisar])];
+  }
+
+  // Grade: vale a de vigência mais recente. A outra não é jogada fora — vai
+  // para o histórico, que é o que mantém a agenda dos dias passados correta.
+  const gSai = sai.grade || [];
+  if (gSai.length && !mesmaGrade(fica.grade || [], gSai)) {
+    const deFica = fica.vigenteDe || String(fica.criadoEm || '').slice(0, 10) || '';
+    const deSai = sai.vigenteDe || String(sai.criadoEm || '').slice(0, 10) || '';
+    if (!(fica.grade || []).length || deSai > deFica) {
+      if ((fica.grade || []).length && deFica) {
+        fica.gradeAnterior = [
+          { grade: fica.grade, vigenteDe: deFica, vigenteAte: grade.somarDias(deSai, -1) },
+          ...(fica.gradeAnterior || []),
+        ];
+      }
+      fica.grade = gSai;
+      if (deSai) fica.vigenteDe = deSai;
+      trazidos.push('grade');
+    } else if (deSai) {
+      fica.gradeAnterior = [
+        { grade: gSai, vigenteDe: deSai, vigenteAte: grade.somarDias(deFica, -1) },
+        ...(fica.gradeAnterior || []),
+      ];
+    }
+  }
+  fica.gradeAnterior = [...(fica.gradeAnterior || []), ...(sai.gradeAnterior || [])]
+    .slice(0, 12);
+
+  // Quem treinava na conta da ficha que sai passa a treinar na que fica.
+  for (const outra of dados.matriculas) {
+    if (outra.contaDe === sai.id) outra.contaDe = fica.id;
+  }
+  // A ficha que fica não pode continuar apontando para uma conta que deixou de
+  // existir — e, sendo a mesma pessoa, ela não compartilha a própria conta.
+  if (fica.contaDe === sai.id) delete fica.contaDe;
+  if (!fica.contaDe && sai.contaDe && sai.contaDe !== fica.id && !fica.gympassId) {
+    fica.contaDe = sai.contaDe;
+  }
+
+  // Faltas e aulas extras marcadas na ficha antiga continuam valendo.
+  let excecoesMovidas = 0;
+  for (const e of dados.excecoes) {
+    if (e.matriculaId !== sai.id) continue;
+    const igual = dados.excecoes.find((x) => x.matriculaId === fica.id
+      && x.data === e.data && x.tipo === e.tipo && (x.hora || null) === (e.hora || null));
+    if (igual) continue;
+    e.matriculaId = fica.id;
+    excecoesMovidas += 1;
+  }
+  dados.excecoes = dados.excecoes.filter((e) => e.matriculaId !== sai.id);
+
+  // A duplicada sai da base ANTES de o nome final ser aplicado: é ela que
+  // estava ocupando o nome do Wellhub e fazendo a renomeação automática ser
+  // recusada por "já existe outro aluno com esse nome".
+  dados.matriculas = dados.matriculas.filter((m) => m.id !== sai.id);
+
+  const escolhido = arrumarCaixa(opcoes.nome || '');
+  const doWellhub = fica.nomeTravado ? '' : arrumarCaixa(fica.nomeWellhub || '');
+  const nomeFinal = escolhido || doWellhub || fica.nome;
+  if (nomeFinal && nomeFinal !== fica.nome && !comMesmoNome(nomeFinal, fica.id)) {
+    if (!fica.nomeOriginal) fica.nomeOriginal = fica.nome;
+    fica.nome = nomeFinal;
+  }
+  if (fica.nomeOriginal === fica.nome) delete fica.nomeOriginal;
+
+  // As exceções guardam o nome para a tela não precisar cruzar a base a cada
+  // linha; renomear a ficha sem atualizar aqui deixaria o nome velho na agenda.
+  for (const e of dados.excecoes) {
+    if (e.matriculaId === fica.id) e.nome = fica.nome;
+  }
+
+  fica.atualizadoEm = new Date().toISOString();
+  gravar();
+  return {
+    ok: true,
+    matricula: fica,
+    removida: { id: sai.id, nome: sai.nome },
+    trazidos: [...new Set(trazidos)],
+    excecoesMovidas,
+  };
 }
 
 function remover(id) {
@@ -1283,6 +1493,7 @@ module.exports = {
   listar, porId, porTelefone, porGympassId, definirGympassId, definirTitular,
   renomearDoWellhub, arrumarCaixa,
   criar, atualizar, inativar, remover, definirContaDe, dependentesDe,
+  mesclar, possiveisDuplicadas,
   excecoes, registrarExcecao, apagarExcecao,
   importar, sincronizarPlanilha, resumo, backup, normalizarHorarios, normalizarNomes,
   reduzirGradesEmConflito,
