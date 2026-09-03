@@ -3,8 +3,13 @@
 /**
  * app/src/rotas-totem.js — davileles/teamrausch
  *
- * O tablet fixo na entrada do estúdio. Duas coisas acontecem ali, e nenhuma
- * delas exige login: confirmar a presença na aula de hoje e abrir cadastro.
+ * O tablet fixo na entrada do estúdio, para confirmar a presença na aula de
+ * hoje sem login.
+ *
+ * Cadastro não passa por aqui: o botão do tablet abre a própria tela de entrada
+ * do app (`/?totem=1`), que já sabe pedir telefone, código, nome, aniversário e
+ * os horários da semana. Duplicar esse fluxo daria duas versões para manter e
+ * uma delas ficaria para trás.
  *
  * POR QUE SEM SENHA
  *   Quem está na frente do tablet já está dentro do estúdio. Pedir telefone,
@@ -32,7 +37,6 @@ const config = require('./config');
 const agenda = require('./agenda');
 const store = require('./agenda-store');
 const matriculas = require('./matriculas-store');
-const rotasAgenda = require('./rotas-agenda');
 
 const rotas = express.Router();
 rotas.use(express.json());
@@ -218,66 +222,6 @@ rotas.post('/confirmar', comFreio(30), (req, res) => {
     nome: aluno.nome || null,
     hora: agora.hora,
     repetida: r.repetida,
-  });
-});
-
-/**
- * Cadastro aberto no próprio tablet, sem código de confirmação.
- *
- * Sem código porque quem está digitando está dentro do estúdio, na frente de
- * alguém — o código no WhatsApp existe para provar que o número é seu quando
- * não há ninguém olhando, e aqui há.
- *
- * NÃO MARCA `ultimoAcesso`
- *   Isso mantém a próxima entrada no app como primeiro acesso, que é onde a
- *   pessoa escolhe os horários da semana. Sem grade ela não aparece em lista de
- *   presença nenhuma — e sem aparecer, não conseguiria confirmar presença
- *   aqui. Pedir a grade inteira de pé no tablet seria pior.
- */
-rotas.post('/cadastro', comFreio(10), (req, res) => {
-  const c = config.ler();
-  const telefone = rotasAgenda.normalizarTelefone(req.body.telefone);
-  if (!telefone) {
-    return res.status(400).json({ erro: 'Telefone inválido. Use DDD + número.' });
-  }
-
-  const nome = String(req.body.nome || '').trim().replace(/\s+/g, ' ');
-  if (!rotasAgenda.nomeCompleto(nome)) {
-    return res.status(400).json({ erro: 'Informe o nome completo: nome e sobrenome.' });
-  }
-
-  const aniversario = rotasAgenda.normalizarAniversario(req.body.aniversario);
-  if (!aniversario) {
-    return res.status(400).json({ erro: 'Aniversário inválido. Use dia e mês, como 07/03.' });
-  }
-
-  const existente = store.aluno(telefone);
-  if (existente && existente.nome) {
-    return res.status(409).json({
-      erro: `Este telefone já tem cadastro no nome de ${existente.nome}.`,
-    });
-  }
-  if (!existente && !c.acesso.cadastroAberto) {
-    return res.status(403).json({
-      erro: 'O estúdio está com o cadastro fechado. Fale com a recepção.',
-    });
-  }
-
-  // Nome do Wellhub manda, como em todo o resto do sistema: se a ficha já tem
-  // vínculo com o portal, o que a pessoa digitou aqui não sobrescreve.
-  const doWellhub = rotasAgenda.nomeDoWellhub(telefone);
-
-  const aluno = store.salvarAluno(telefone, {
-    nome: doWellhub || nome,
-    aniversario,
-  });
-  console.log(`[totem] cadastro aberto no tablet: ${aluno.nome} (${telefone}).`);
-
-  res.json({
-    ok: true,
-    nome: aluno.nome,
-    // A tela usa isto para mandar a pessoa escolher os horários no app.
-    faltaGrade: true,
   });
 });
 
