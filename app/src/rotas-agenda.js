@@ -110,6 +110,31 @@ function nomeCompleto(texto) {
   return String(texto || '').trim().split(/\s+/).filter((p) => p.length >= 2).length >= 2;
 }
 
+/**
+ * Nome que o Wellhub já conhece para este telefone, para a tela de entrada
+ * abrir preenchida em vez de em branco.
+ *
+ * Só vale quando o portal realmente identificou a ficha — `gympassId` gravado
+ * ou algum nome que veio de um check-in (`nomeWellhub`). Nesses casos o nome
+ * saiu do cadastro que a pessoa mesma fez no Wellhub, com nome e sobrenome
+ * escritos direito; é melhor palpite do que a digitação apressada de quem está
+ * entrando pela primeira vez, e a pessoa só precisa conferir.
+ *
+ * Ficha que existe só porque veio da planilha não entra: ali o nome pode ser
+ * apelido ou abreviação, e sugerir isso seria empurrar o erro para dentro do
+ * cadastro definitivo.
+ *
+ * Continua sendo sugestão — o campo permanece editável e o servidor exige nome
+ * completo do mesmo jeito em `/auth/entrar`.
+ */
+function nomeDoWellhub(telefone) {
+  const m = matriculas.porTelefone(telefone);
+  if (!m) return null;
+  if (!m.gympassId && !m.nomeWellhub) return null;
+  const nome = String(m.nome || '').trim();
+  return nomeCompleto(nome) ? nome : null;
+}
+
 /* --------------------- grade semanal do primeiro acesso ------------------- */
 
 /**
@@ -310,6 +335,7 @@ rotas.post('/auth/codigo', async (req, res) => {
       precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
       precisaDeGrade: precisaDeGrade(cadastrado, telefone),
       gradeAtual: gradeGravada(telefone),
+      nomeSugerido: nomeDoWellhub(telefone),
       horarios: horariosDaSemana(),
     });
   }
@@ -325,6 +351,7 @@ rotas.post('/auth/codigo', async (req, res) => {
       precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
       precisaDeGrade: precisaDeGrade(cadastrado, telefone),
       gradeAtual: gradeGravada(telefone),
+      nomeSugerido: nomeDoWellhub(telefone),
       horarios: horariosDaSemana(),
     });
   }
@@ -343,6 +370,7 @@ rotas.post('/auth/codigo', async (req, res) => {
     precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
     precisaDeGrade: precisaDeGrade(cadastrado, telefone),
     gradeAtual: gradeGravada(telefone),
+    nomeSugerido: nomeDoWellhub(telefone),
     horarios: horariosDaSemana(),
   });
 });
