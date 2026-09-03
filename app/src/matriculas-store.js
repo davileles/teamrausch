@@ -470,11 +470,16 @@ function arrumarCaixa(nome) {
  * com apelidos e abreviações; o portal tem o nome do cadastro real, e é por ele
  * que a pessoa é identificada na hora de conferir a fila.
  *
- * APLICA UMA VEZ POR NOME, NÃO A CADA CHECK-IN
- *   `nomeWellhub` guarda o último nome que veio do portal. Se ele já é o que
- *   está gravado, nada acontece — assim, se você corrigir o nome na tela depois,
- *   a correção fica de pé em vez de ser desfeita no próximo check-in. Só quando
- *   o portal passa a mandar um nome diferente é que a troca acontece de novo.
+ * O NOME DO PORTAL MANDA, SEMPRE
+ *   Quem tem Wellhub tem, no portal, o nome que a própria pessoa cadastrou —
+ *   completo e escrito direito. É esse que vale. Nome digitado na tela, no
+ *   primeiro acesso ou em Meus dados volta para o do portal no check-in
+ *   seguinte, e a reaplicação acontece a cada passada, não uma vez por nome:
+ *   assim a base e a fila do Wellhub nunca ficam com grafias diferentes.
+ *
+ *   A exceção é `nomeTravado` — conta em nome de terceiro, onde o nome do
+ *   portal comprovadamente não é o do aluno. Ali continua valendo a decisão
+ *   tomada na tela.
  *
  * O nome que estava na planilha vai para `nomeOriginal` e nunca se perde.
  */
@@ -485,15 +490,15 @@ function renomearDoWellhub(id, nomeDoPortal) {
   const literal = String(nomeDoPortal || '').trim().replace(/\s+/g, ' ');
   if (!literal) return { ok: true, mudou: false };
 
-  // Este nome do portal já foi processado (adotado ou recusado). Não insiste.
-  if (m.nomeWellhub === literal) return { ok: true, mudou: false };
-  m.nomeWellhub = literal;
-
   // Conta do Wellhub em nome de outra pessoa (pai, mãe, cônjuge): o portal manda
   // o nome de quem assina o plano, mas quem treina é o aluno desta ficha.
   // `nomeTravado` guarda essa decisão para sempre — sem ela, o próximo check-in
   // (ou o `aplicar-nomes`) rebatizaria o aluno com o nome do titular.
   if (m.nomeTravado) {
+    if (m.nomeWellhub === literal && m.titularWellhub) {
+      return { ok: true, mudou: false, travado: true };
+    }
+    m.nomeWellhub = literal;
     if (!m.titularWellhub) m.titularWellhub = literal;
     m.atualizadoEm = new Date().toISOString();
     gravar();
@@ -501,6 +506,12 @@ function renomearDoWellhub(id, nomeDoPortal) {
   }
 
   const novo = arrumarCaixa(literal);
+
+  // Já está exatamente como o portal manda: nada a gravar. É o caso comum, e
+  // sair aqui evita escrever o arquivo a cada check-in do dia.
+  if (m.nomeWellhub === literal && m.nome === novo) return { ok: true, mudou: false };
+  m.nomeWellhub = literal;
+
   if (!novo || novo === m.nome) { gravar(); return { ok: true, mudou: false }; }
 
   // Nome único continua sendo regra: dois cadastros com o mesmo nome quebram a
