@@ -1085,5 +1085,5 @@ rotas.use('/mensagens', require('./rotas-mensagens')({ exigirLogin, exigirAdmin 
 
 module.exports = {
   rotas, normalizarTelefone, mostrarTelefone, ehAdmin,
-  normalizarAniversario, mostrarAniversario, nomeDoWellhub, nomeCompleto,
+  normalizarAniversario, mostrarAniversario,
 };
