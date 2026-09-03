@@ -1592,7 +1592,9 @@ async function carregarPerfil(){
       <div class="ficha">
         <div class="dupla">
           <div class="campo"><label for="p-nome">Como quero ser chamado</label>
-            <input id="p-nome" maxlength="60" value="${esc(p.nome||'')}"></div>
+            <input id="p-nome" maxlength="60" value="${esc(p.nome||'')}"${p.nomeDoWellhub?' disabled':''}>
+            ${p.nomeDoWellhub ? `<p class="ajuda" style="margin:6px 0 0">Seu nome vem do seu
+              cadastro no Wellhub e é ele que vale aqui. Para mudar, altere no Wellhub.</p>` : ''}</div>
           <div class="campo"><label for="p-aniv">Meu aniversário</label>
             <input id="p-aniv" inputmode="numeric" maxlength="5" placeholder="dd/mm"
               value="${esc(p.aniversario||'')}"></div>
@@ -1615,10 +1617,11 @@ async function carregarPerfil(){
       const b = document.getElementById('p-salvar');
       b.disabled = true; b.textContent = 'Salvando…';
       try{
-        const r = await api('/perfil', {method:'PUT', body: JSON.stringify({
-          nome: document.getElementById('p-nome').value,
-          aniversario: pAniv.value,
-        })});
+        // Com Wellhub o nome nem é enviado: quem nomeia é o portal, e mandar
+        // o campo travado só criaria a dúvida de qual dos dois valeu.
+        const corpo = { aniversario: pAniv.value };
+        if (!p.nomeDoWellhub) corpo.nome = document.getElementById('p-nome').value;
+        const r = await api('/perfil', {method:'PUT', body: JSON.stringify(corpo)});
         eu.nome = r.nome; eu.aniversario = r.aniversario;
         document.getElementById('quem-sou').textContent = eu.nome || eu.telefone;
         avisar('Dados atualizados.', 'ok');
