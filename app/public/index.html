@@ -4973,29 +4973,21 @@ async function carregarConfig(){
         dos dois valores e aparece separado na aba Indicadores — assim um nome novo no portal vira
         um aviso na tela, e não um erro silencioso na soma.</p>
 
-      <h3>Avisos de check-in</h3>
-      <p class="ajuda">Quem é avisado quando um check-in do Wellhub é confirmado. Pode ser
-        mais de um e-mail e mais de um telefone — separe por vírgula. Deixe a lista em
-        branco para desligar aquele canal.</p>
-      <div class="campo"><label for="c-aviso-ligado">Avisar check-in confirmado</label>
-        <select id="c-aviso-ligado">
-          <option value="1"${av.checkinConfirmado !== false ? ' selected' : ''}>Sim</option>
-          <option value="0"${av.checkinConfirmado === false ? ' selected' : ''}>Não</option>
-        </select></div>
+      <h3>Avisos de operação</h3>
+      <p class="ajuda">Fila do Wellhub esperando confirmação, falha ao confirmar, sessão do
+        portal recusada e a cobrança de frequência. Check-in confirmado com sucesso
+        <b>não</b> vira mensagem: é o desfecho normal, e quem treinou já aparece na aba
+        <b>Check-ins</b>. No WhatsApp o aviso vai só para o grupo do operador.</p>
       <div class="campo"><label for="c-aviso-emails">E-mails</label>
         <input id="c-aviso-emails" value="${esc((av.emails||[]).join(', '))}"
-          placeholder="voce@estudio.com, recepcao@estudio.com"></div>
-      <div class="campo"><label for="c-aviso-tels">Telefones no WhatsApp</label>
-        <input id="c-aviso-tels" value="${esc((av.telefones||[]).map(t=>t.replace(/^55/,'')).join(', '))}"
-          placeholder="31988887777, 11977776666">
-        <p class="ajuda">Com DDD. O aviso sai pelo mesmo número do estúdio que envia os
-          códigos de acesso.</p></div>
+          placeholder="voce@estudio.com, recepcao@estudio.com">
+        <p class="ajuda">Mais de um, separados por vírgula. Em branco desliga o canal.</p></div>
       <div class="campo"><label for="c-aviso-grupos">Grupos do WhatsApp</label>
         <input id="c-aviso-grupos" value="${esc((av.grupos||[]).join(', '))}"
           placeholder="120363411741796601@g.us">
-        <p class="ajuda">O grupo do operador: em vez de manter a lista de telefones a cada
-          troca de recepção, o aviso cai num grupo. O número do estúdio precisa estar nele.
-          Separe por vírgula.</p>
+        <p class="ajuda">O grupo do operador é o único destino dos avisos no WhatsApp —
+          nenhum aviso automático vai para número particular. O número do estúdio precisa
+          estar no grupo. Separe por vírgula se for mais de um; lista vazia desliga o canal.</p>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
           <button type="button" class="acao" id="c-buscar-grupos"
             style="width:auto;margin:0;padding:8px 14px">Buscar grupos</button>
@@ -5276,9 +5268,10 @@ async function salvarConfig(){
       valorCrosstraining: n('c-val-cross'),
     },
     avisos: {
-      checkinConfirmado: v('c-aviso-ligado') === '1',
       emails: v('c-aviso-emails').split(',').map(s=>s.trim()).filter(Boolean),
-      telefones: v('c-aviso-tels').split(',').map(s=>s.trim()).filter(Boolean),
+      // Zerada de propósito: aviso automático só vai para o grupo do operador,
+      // e um número que ficasse guardado aqui voltaria a receber sozinho.
+      telefones: [],
       grupos: v('c-aviso-grupos').split(',').map(s=>s.trim()).filter(Boolean),
     },
     administradores: v('c-admins').split(',').map(s=>s.trim()).filter(Boolean),
