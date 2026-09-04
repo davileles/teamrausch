@@ -121,8 +121,28 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       return res.status(400).json({ erro: motivo });
     }
 
-    const texto = String(corpo.texto || '').trim();
-    if (!texto) return res.status(400).json({ erro: 'A mensagem está vazia.' });
+    const bruto = String(corpo.texto || '').trim();
+    if (!bruto) return res.status(400).json({ erro: 'A mensagem está vazia.' });
+
+    // PREENCHER AQUI, E NÃO SÓ NA TELA
+    //   O disparo em massa manda o texto já preenchido, mas "Um aluno" com
+    //   mensagem escrita na hora não tem prévia: o {{nome}} chegava literal no
+    //   WhatsApp do aluno. Este é o único ponto por onde todo envio passa, com
+    //   ou sem modelo. Preencher duas vezes é inofensivo — o que já virou nome
+    //   não é mais marcador.
+    const ficha = m ? destinatarios.porMatricula(m.id) : null;
+    const texto = ficha ? destinatarios.preencher(bruto, ficha) : bruto;
+
+    // Sem ficha não há o que preencher: um número avulso não tem nome, treino
+    // nem plano. Melhor recusar do que mandar "Olá, {{nome}}!" para alguém.
+    const sobrou = texto.match(/\{\{\w+\}\}/g);
+    if (sobrou) {
+      return res.status(400).json({
+        erro: `A mensagem ainda tem ${sobrou.join(', ')} sem preencher. `
+          + 'Marcador só funciona com aluno escolhido na lista — em envio para '
+          + 'número avulso, escreva o texto já pronto.',
+      });
+    }
 
     const r = await enviarTexto(numero, texto);
 
