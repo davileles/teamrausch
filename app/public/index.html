@@ -4543,6 +4543,9 @@ async function msgPainelIndividual(){
         </div>
         <div class="campo"><label for="mi-texto">Mensagem</label>
           <textarea id="mi-texto" rows="8" placeholder="Escolha um modelo ou escreva aqui…"></textarea>
+          <div class="chips-mat">${msgEstado.marcadores.map(x=>
+            `<button class="chip" type="button" data-marcador="${x.chave}"
+              title="${esc(x.descricao)}${x.exemplo?' · vira \''+esc(x.exemplo)+'\'':''}">{{${x.chave}}}</button>`).join('')}</div>
           <p class="ajuda" id="mi-destino">Escolha o aluno para ver o número.</p></div>
         <button class="acao" id="mi-enviar">Enviar no WhatsApp</button>
       </div>`;
