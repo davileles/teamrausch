@@ -90,16 +90,17 @@ const PADRAO = {
     valorFuncional: 18.75,
     valorCrosstraining: 22.28,
   },
-  // Quem recebe os avisos do check-in Wellhub (e-mail e/ou WhatsApp).
-  // Editável em Configurações → Avisos de check-in. Listas vazias = canal
-  // desligado; sem e-mail cadastrado o sistema cai no WELLHUB_ALERTA_EMAIL.
+  // Quem recebe os avisos de operação (e-mail e/ou WhatsApp).
+  // Editável em Configurações → Avisos. Sem e-mail cadastrado o sistema cai no
+  // WELLHUB_ALERTA_EMAIL.
   avisos: {
-    checkinConfirmado: true,    // false = não avisa quando um check-in é confirmado
     emails: [],                 // ['fulano@estudio.com', 'recepcao@estudio.com']
-    telefones: [],              // E.164: ['5531988887777', '5511977776666']
-    // Grupos do WhatsApp que recebem os mesmos avisos — o "grupo do operador"
-    // do estúdio. JIDs completos: ['120363411741796601@g.us']. Um grupo evita
-    // ter de manter a lista de telefones a cada troca de recepção.
+    // Mantida por compatibilidade com configs antigos: nenhum aviso automático
+    // sai para telefone. No WhatsApp, o destino é o grupo — ver `grupos`.
+    telefones: [],
+    // Grupos do WhatsApp que recebem os avisos — o "grupo do operador" do
+    // estúdio. JIDs completos: ['120363411741796601@g.us']. É o único destino
+    // do canal WhatsApp: lista vazia = canal desligado.
     grupos: [],
   },
   administradores: [],          // telefones em E.164: ['5531988887777']
