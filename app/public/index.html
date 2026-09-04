@@ -4316,7 +4316,7 @@ async function carregarMensagens(){
 /** Um só ouvinte para a aba inteira: o HTML é remontado o tempo todo. */
 function msgCliques(e){
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.marcador) return msgInserirMarcador(b.dataset.marcador);
+  if (b.dataset.marcador) return msgInserirMarcador(b.dataset.marcador, b);
   if (b.id === 'mm-salvar') return msgSalvarModelo();
   if (b.id === 'mm-cancelar'){ msgEstado.editando = null; return redesenhar(); }
   if (b.dataset.editar){ msgEstado.editando = b.dataset.editar;
@@ -4437,8 +4437,20 @@ function msgAtualizarForm(){
   if (ds) ds.hidden = gatilho !== 'dia_da_semana';
 }
 
-function msgInserirMarcador(chave){
-  const ta = document.getElementById('mm-texto') || document.getElementById('mx-texto');
+/**
+ * Insere o marcador na caixa do painel em que o botão foi clicado.
+ *
+ * As quatro subabas de Mensagens ficam todas no DOM ao mesmo tempo — as
+ * inativas só ganham `hidden`. Buscar por id fixo, como era feito antes,
+ * encontrava sempre o `mm-texto` do formulário de modelo, mesmo com ele
+ * invisível: em "Em massa" o clique parecia não fazer nada, porque o texto
+ * entrava na caixa escondida da subaba ao lado.
+ */
+function msgInserirMarcador(chave, botao){
+  const painel = botao ? botao.closest('[data-painel]') : null;
+  const ta = (painel && painel.querySelector('textarea'))
+    || document.getElementById('mm-texto')
+    || document.getElementById('mx-texto');
   if (!ta) return;
   const marca = '{{'+chave+'}}';
   const i = ta.selectionStart ?? ta.value.length;
