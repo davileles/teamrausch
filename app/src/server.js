@@ -8,6 +8,7 @@ const pollerPortal = require('./poller-portal');
 const checkinsStore = require('./checkins-store');
 const matriculas = require('./matriculas-store');
 const alertasFrequencia = require('./alertas-frequencia');
+const aniversariantes = require('./aniversariantes-dia');
 const agendadorMensagens = require('./agendador-mensagens');
 const planilhaAlunos = require('./planilha-alunos');
 const configApp = require('./config');
@@ -454,6 +455,27 @@ app.all('/wellhub/frequencia/aviso', async (req, res) => {
   }
 });
 
+/**
+ * Aniversariantes de hoje, do jeito que a operação recebe às 5h30.
+ * ?enviar=1 manda para o grupo; sem isso é só pré-visualização.
+ * ?data=YYYY-MM-DD confere outro dia sem esperar ele chegar.
+ */
+app.all('/wellhub/aniversariantes', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  try {
+    const r = await aniversariantes.rodar({
+      data: req.query.data || undefined,
+      avisar: String(req.query.enviar || '') === '1',
+      mesmoSemNinguem: true,
+    });
+    res.json({ ok: true, ...r, agendador: aniversariantes.situacao() });
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
 /* ---------------------------------------------------------------------------
    WhatsApp — pareamento do número pela rede privada
 
@@ -579,4 +601,5 @@ app.listen(PORTA, () => {
   alertasFrequencia.iniciar(); // aviso diário de quem está devendo treino
   planilhaAlunos.iniciar(); // cadastro de alunos pela planilha do Google
   agendadorMensagens.iniciar(); // modelos programados e recorrentes
+  aniversariantes.iniciar(); // lista dos aniversariantes do dia para a operação
 });
