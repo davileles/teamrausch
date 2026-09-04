@@ -95,7 +95,6 @@ function situacao() {
     atualizadoEm: estado.atualizadoEm,
     slug: portal.SLUG || null,
     emailAviso: EMAIL_DESTINO,
-    avisoCheckinLigado: preferencias().checkinConfirmado !== false,
     emailsAviso: emailsDestino(),
     telefonesAviso: telefonesDestino(),
     gruposAviso: gruposDestino(),
@@ -149,9 +148,25 @@ function gruposDestino() {
     .filter((g) => /^\d{5,}@g\.us$/.test(g));
 }
 
-/** Telefones e grupos na ordem em que os avisos saem. */
+/**
+ * Para onde o aviso automático sai no WhatsApp: SÓ O GRUPO DO OPERADOR.
+ *
+ * Enquanto a lista de telefones entrava aqui junto, cada ciclo do poller
+ * repetia a mesma mensagem no privado de quem estivesse cadastrado — e é no
+ * privado que ela atrapalha, porque chega misturada à conversa pessoal e não
+ * some quando a pessoa deixa a operação. `telefonesDestino` continua existindo
+ * para o que é conversa com uma pessoa só; aviso de máquina não é isso.
+ *
+ * Sem grupo cadastrado o canal fica mudo de propósito, e o log diz isso. Cair
+ * de volta no privado por falta de destino seria desfazer a regra justamente
+ * na hora em que ninguém está olhando.
+ */
 function destinosWhatsApp() {
-  return [...telefonesDestino(), ...gruposDestino()];
+  const grupos = gruposDestino();
+  if (!grupos.length) {
+    log('nenhum grupo em Configurações → Avisos: nada sai pelo WhatsApp.');
+  }
+  return grupos;
 }
 
 /** Endereço e token do serviço de WhatsApp: config primeiro, ambiente depois. */
@@ -267,18 +282,6 @@ async function enviarWhatsApp(texto) {
 async function avisar(assunto, texto) {
   await enviarEmail(assunto, texto);
   await enviarWhatsApp(texto);
-}
-
-/**
- * Aviso de check-in confirmado. Respeita a chave liga/desliga de
- * Configurações → Avisos de check-in; os avisos de falha seguem sempre.
- */
-async function avisarCheckin(assunto, texto) {
-  if (preferencias().checkinConfirmado === false) {
-    log('aviso de check-in confirmado desligado nas configurações.');
-    return;
-  }
-  await avisar(assunto, texto);
 }
 
 /* ------------------------------------------------------------------------- *
@@ -439,31 +442,30 @@ async function rodarUmaVez(opcoes = {}) {
       }
     }
 
-    if (querAvisar) {
-      const n = rel.confirmados.length;
-      const assunto = n === 1
-        ? `✅ Check-in confirmado — ${rotulo(rel.confirmados[0])}`
-        : `✅ ${n} check-ins confirmados no Wellhub`;
-
-      const corpo = [];
-      corpo.push(n === 1
-        ? 'Check-in confirmado automaticamente no Wellhub:'
-        : `${n} check-ins confirmados automaticamente no Wellhub:`);
-      corpo.push('');
-      corpo.push(rel.confirmados.map(linhaDoAluno).join('\n'));
-
-      // A conferência é o que separa "mandei confirmar" de "o portal registrou".
-      if (rel.naoConferidos.length) {
-        corpo.push('');
-        corpo.push('⚠️ O portal ainda não mostra como validado:');
-        corpo.push(rel.naoConferidos.map((c) => `• ${rotulo(c)}`).join('\n'));
-        corpo.push('Confira em https://partners.gympass.com/validation/' + portal.SLUG);
-      } else if (rel.conferidosNoPortal.length === n) {
-        corpo.push('');
-        corpo.push('Todos conferidos como validados no portal.');
-      }
-
-      await avisarCheckin(assunto, corpo.join('\n'));
+    // CONFIRMAÇÃO QUE DEU CERTO NÃO VIRA MENSAGEM
+    //   É o desfecho normal de todo ciclo. Anunciá-lo transforma o grupo num
+    //   letreiro que ninguém lê — e um grupo que ninguém lê também engole o
+    //   aviso que importava. Quem treinou continua na aba Check-ins, que é
+    //   onde se procura isso.
+    //
+    //   O que sobrou aqui é o único desfecho que pede ação sua: mandamos
+    //   confirmar e o portal não mostra o check-in como validado. É a
+    //   diferença entre "mandei confirmar" e "o Wellhub registrou" — e o que
+    //   você deixa de receber é dinheiro.
+    if (querAvisar && rel.naoConferidos.length) {
+      const n = rel.naoConferidos.length;
+      await avisar(
+        `⚠️ Wellhub: ${n} check-in(s) confirmado(s) que o portal não validou`,
+        [
+          n === 1
+            ? 'Mandei confirmar, mas o portal ainda não mostra como validado:'
+            : `Mandei confirmar ${n} check-ins, mas o portal ainda não mostra como validados:`,
+          '',
+          rel.naoConferidos.map(linhaDoAluno).join('\n'),
+          '',
+          'Confira em https://partners.gympass.com/validation/' + portal.SLUG,
+        ].join('\n')
+      );
     }
   }
 
