@@ -198,8 +198,17 @@ function preencher(texto, aluno, extras = {}) {
 
     ...extras,
   };
-  return String(texto || '').replace(/\{\{(\w+)\}\}/g, (_, chave) =>
-    valores[chave] === undefined || valores[chave] === null ? '' : String(valores[chave]));
+  // Marcador é o que a pessoa digita, e ninguém lembra da caixa certa no meio
+  // de um texto longo. {{NOME}} sumindo da mensagem é pior que um erro visível:
+  // o aluno recebe "Olá, !" e ninguém percebe até ele responder.
+  const porNomeSimples = new Map(
+    Object.keys(valores).map((k) => [k.toLowerCase(), k]));
+
+  return String(texto || '').replace(/\{\{(\w+)\}\}/g, (_, chave) => {
+    const real = porNomeSimples.get(String(chave).toLowerCase());
+    const valor = real === undefined ? undefined : valores[real];
+    return valor === undefined || valor === null ? '' : String(valor);
+  });
 }
 
 /** Lista dos marcadores, para a tela oferecer os botões de inserir. */
