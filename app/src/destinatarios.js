@@ -231,4 +231,16 @@ const MARCADORES = [
   { chave: 'plano', descricao: 'Wellhub ou mensalista', exemplo: 'Wellhub' },
 ];
 
-module.exports = { montar, preencher, primeiroNome, MARCADORES };
+/**
+ * Ficha de um aluno só, pelo mesmo caminho que gera a prévia da tela.
+ *
+ * Existe para o envio individual poder preencher os marcadores no servidor.
+ * Refazer a montagem da ficha aqui daria uma segunda versão dos mesmos campos,
+ * e é assim que a prévia e a mensagem enviada acabam divergindo.
+ */
+function porMatricula(matriculaId) {
+  if (!matriculaId) return null;
+  return montar('todos').alunos.find((a) => a.matriculaId === matriculaId) || null;
+}
+
+module.exports = { montar, porMatricula, preencher, primeiroNome, MARCADORES };
