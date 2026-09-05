@@ -1374,6 +1374,6 @@ function panoramaDoMes({
 module.exports = {
   avaliar, painel, devedores, aulasPrevistas, metaDoMes, devidoAteAgora, proximoMarco,
   diasRestantes, repartirConta, dividirContas, repartir, intercalar, panoramaDoMes,
-  hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes,
+  hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes, chaveProduto,
   TOLERANCIA_MIN, SEMANAS_NO_MES, TETO_SEMANAL, TETO_MES,
 };

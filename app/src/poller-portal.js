@@ -41,6 +41,9 @@ const path = require('path');
 const portal = require('./wellhub-portal');
 const config = require('./config');
 const checkins = require('./checkins-store');
+const matriculas = require('./matriculas-store');
+const frequencia = require('./frequencia');
+const telefone = require('./telefone');
 
 const ATIVO = String(process.env.POLLER_PORTAL_ATIVO || 'false') === 'true';
 const MINUTOS = Number(process.env.POLLER_PORTAL_MINUTOS || 15);
@@ -49,6 +52,8 @@ const EMAIL_DESTINO = process.env.WELLHUB_ALERTA_EMAIL || 'davileles@gmail.com';
 const EMAIL_FROM = process.env.RESEND_FROM || 'Wellhub Alertas <onboarding@resend.dev>';
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const ARQ_ESTADO = path.join(DATA_DIR, 'poller-portal.json');
+/** Aviso na hora quando alguém entra pelo produto que paga menos. */
+const ALERTA_FUNCIONAL = String(process.env.FUNCIONAL_ALERTA_ATIVO || 'true') === 'true';
 
 function log(...a) { console.log(new Date().toISOString(), '[poller-portal]', ...a); }
 
@@ -285,6 +290,96 @@ async function avisar(assunto, texto) {
 }
 
 /* ------------------------------------------------------------------------- *
+ *  ALERTA DE PRODUTO BARATO
+ *
+ *  Funcional e crosstraining são o mesmo plano do lado do aluno e pagam
+ *  valores diferentes do lado do estúdio. Quem entra pelo funcional não
+ *  economiza nada e deixa a diferença na mesa — é a única perda do painel que
+ *  se resolve com uma conversa, e não com o aluno treinando mais.
+ *
+ *  POR QUE NA HORA, E NÃO NO RELATÓRIO DA MANHÃ
+ *  O relatório conta o que já aconteceu. Aqui o aluno acabou de entrar e ainda
+ *  está no estúdio: dá para orientar na porta, antes de a marcação virar
+ *  hábito. Por isso o telefone vai junto — a orientação sai no mesmo minuto,
+ *  sem abrir o painel no meio do atendimento.
+ *
+ *  SÓ CHECK-IN NOVO E SÓ DE HOJE
+ *  `registrarLote` devolve apenas o que ainda não estava no histórico, então o
+ *  poller pode reler a mesma lista de validados o dia inteiro sem repetir o
+ *  aviso. O corte por data protege o outro caso: num volume vazio o histórico
+ *  chega inteiro de uma vez, e sem ele o primeiro ciclo depois de um deploy
+ *  despejaria meses de check-ins antigos no grupo.
+ * ------------------------------------------------------------------------- */
+
+/** Quanto o crosstraining paga a mais. Zero ou negativo desliga o aviso. */
+function diferencaDeProduto() {
+  let precos = {};
+  try { precos = config.ler().financeiro || {}; } catch (e) { /* padrões abaixo */ }
+  const funcional = Number(precos.valorFuncional);
+  const cross = Number(precos.valorCrosstraining);
+  if (!Number.isFinite(funcional) || !Number.isFinite(cross)) return 0;
+  return cross - funcional;
+}
+
+/** Telefone da ficha, já formatado para leitura. Null quando não há. */
+function telefoneDaFicha(matriculaId) {
+  if (!matriculaId) return null;
+  const m = matriculas.porId(matriculaId);
+  if (!m || !m.telefone) return null;
+  return telefone.mostrar(telefone.normalizar(m.telefone) || m.telefone);
+}
+
+function reais(valor) {
+  return 'R$ ' + Number(valor || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+}
+
+/**
+ * Avisa o grupo sobre os check-ins novos marcados como Funcional.
+ *
+ * @param {object[]} registros os check-ins NOVOS devolvidos por registrarLote
+ * @param {boolean}  querAvisar false no teste manual: monta e não envia
+ */
+async function avisarProdutoBarato(registros, querAvisar) {
+  if (!querAvisar || !ALERTA_FUNCIONAL) return [];
+  const diferenca = diferencaDeProduto();
+  if (diferenca <= 0) return [];
+
+  const hoje = checkins.hojeLocal();
+  const alvos = (registros || []).filter((c) =>
+    c.data === hoje && frequencia.chaveProduto(c.produto) === 'funcional');
+  if (!alvos.length) return [];
+
+  const linhas = alvos.map((c) => {
+    const nome = c.nomeMatricula || c.nome || 'Sem nome';
+    const tel = telefoneDaFicha(c.matriculaId);
+    const contato = tel
+      || (c.matriculaId ? 'sem telefone na ficha' : 'sem ficha — vincule em Matrículas → Frequência');
+    return `• ${nome} — ${contato}\n  Funcional às ${c.hora || '--:--'}`;
+  });
+
+  const n = alvos.length;
+  const texto = [
+    n === 1
+      ? '🔻 Check-in no Funcional'
+      : `🔻 ${n} check-ins no Funcional`,
+    '',
+    ...linhas,
+    '',
+    `O crosstraining paga ${reais(diferenca)} a mais por check-in e custa o mesmo `
+    + 'para o aluno.',
+    n === 1
+      ? 'Vale um contato agora para orientar a marcar Crosstraining na próxima.'
+      : 'Vale um contato agora para orientar a marcarem Crosstraining na próxima.',
+  ].join('\n');
+
+  await enviarWhatsApp(texto);
+  log(`aviso de produto barato: ${n} check-in(s).`);
+  return alvos;
+}
+
+/* ------------------------------------------------------------------------- *
  *  CICLO
  * ------------------------------------------------------------------------- */
 
@@ -317,11 +412,18 @@ function linhaDoAluno(c) {
  * Devolve os validados normalizados para a conferência pós-confirmação
  * aproveitar a mesma chamada, em vez de bater no portal duas vezes.
  */
-async function coletarValidados(rel) {
+async function coletarValidados(rel, querAvisar = true) {
   try {
     const validados = await portal.listarValidados();
     rel.validados = validados.length;
     rel.registrados = checkins.registrarLote(validados, 'portal');
+    // Depois de gravar, nunca antes: o aviso fala de check-in que já existe no
+    // histórico, e é a gravação que garante que ele não será avisado de novo.
+    const baratos = await avisarProdutoBarato(rel.registrados.registros, querAvisar);
+    rel.produtoBarato = baratos.map((c) => ({
+      gympassId: c.gympassId, nome: c.nomeMatricula || c.nome,
+      matriculaId: c.matriculaId, hora: c.hora,
+    }));
     return validados;
   } catch (e) {
     log('listarValidados falhou:', e.message);
@@ -348,6 +450,7 @@ async function rodarUmaVez(opcoes = {}) {
     falhas: [],
     conferidosNoPortal: [],
     naoConferidos: [],
+    produtoBarato: [],
     validados: 0,
     registrados: null,
     erro: null,
@@ -387,7 +490,7 @@ async function rodarUmaVez(opcoes = {}) {
 
   if (!pendentes.length) {
     log('fila vazia.');
-    await coletarValidados(rel);   // ninguém na fila não quer dizer que ninguém treinou
+    await coletarValidados(rel, querAvisar);   // ninguém na fila não quer dizer que ninguém treinou
     return rel;
   }
   log(`fila com ${pendentes.length} pendente(s).`);
@@ -395,7 +498,7 @@ async function rodarUmaVez(opcoes = {}) {
   const nomes = pendentes.map(rotulo).join(', ');
 
   if (!estado.autoConfirmar) {
-    await coletarValidados(rel);   // pega o que você já confirmou na mão
+    await coletarValidados(rel, querAvisar);   // pega o que você já confirmou na mão
     if (querAvisar) {
       await avisar(
         `🟡 Wellhub: ${pendentes.length} check-in(s) para confirmar`,
@@ -431,7 +534,7 @@ async function rodarUmaVez(opcoes = {}) {
   // Conferência de fechamento: o portal precisa mostrar o check-in como validado.
   // Sem isso, "confirmei" é só o que o nosso lado achou que aconteceu.
   // A mesma leitura alimenta o histórico — uma chamada, dois usos.
-  const validados = await coletarValidados(rel);
+  const validados = await coletarValidados(rel, querAvisar);
 
   if (rel.confirmados.length) {
     if (validados) {
@@ -512,4 +615,5 @@ module.exports = {
   // estão configurados aqui, não faz sentido ter uma segunda cópia disso.
   avisar, enviarEmail, enviarWhatsApp, emailsDestino, telefonesDestino,
   gruposDestino, destinosWhatsApp,
+  avisarProdutoBarato, diferencaDeProduto,
 };

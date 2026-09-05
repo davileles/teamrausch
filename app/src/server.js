@@ -9,6 +9,7 @@ const checkinsStore = require('./checkins-store');
 const matriculas = require('./matriculas-store');
 const alertasFrequencia = require('./alertas-frequencia');
 const aniversariantes = require('./aniversariantes-dia');
+const relatorioDiario = require('./relatorio-diario');
 const agendadorMensagens = require('./agendador-mensagens');
 const planilhaAlunos = require('./planilha-alunos');
 const configApp = require('./config');
@@ -476,6 +477,31 @@ app.all('/wellhub/aniversariantes', async (req, res) => {
   }
 });
 
+/**
+ * Fechamento do dia anterior, do jeito que a operação recebe de manhã.
+ * ?enviar=1 manda para o grupo; sem isso é só pré-visualização.
+ * ?data=YYYY-MM-DD refaz o relatório de outro dia — inclusive de meses
+ * anteriores, porque o panorama segue o mês da data pedida e não o de hoje.
+ */
+app.all('/wellhub/relatorio', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  const data = String(req.query.data || '');
+  if (data && !/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+    return res.status(400).json({ ok: false, erro: 'Data inválida. Use AAAA-MM-DD.' });
+  }
+  try {
+    const r = await relatorioDiario.rodar({
+      data: data || undefined,
+      avisar: String(req.query.enviar || '') === '1',
+    });
+    res.json({ ok: true, ...r, agendador: relatorioDiario.situacao() });
+  } catch (e) {
+    res.status(500).json({ ok: false, erro: e.message });
+  }
+});
+
 /* ---------------------------------------------------------------------------
    WhatsApp — pareamento do número pela rede privada
 
@@ -602,4 +628,5 @@ app.listen(PORTA, () => {
   planilhaAlunos.iniciar(); // cadastro de alunos pela planilha do Google
   agendadorMensagens.iniciar(); // modelos programados e recorrentes
   aniversariantes.iniciar(); // lista dos aniversariantes do dia para a operação
+  relatorioDiario.iniciar(); // fechamento do dia anterior para o grupo do operador
 });
