@@ -4255,8 +4255,9 @@ const MSG_MODOS = [['manual','Manual — você dispara pela tela'],
   ['programado','Programado — uma data e hora'],
   ['recorrente','Recorrente — repete sempre']];
 const MSG_GATILHOS = [['aniversario','No aniversário do aluno'],
+  ['dia_da_semana','Toda semana, num dia fixo'],
   ['dia_do_mes','Todo mês, num dia fixo'],
-  ['dia_da_semana','Toda semana, num dia fixo']];
+  ['diario','Todo dia']];
 const MSG_DIAS = [['0','Domingo'],['1','Segunda'],['2','Terça'],['3','Quarta'],
   ['4','Quinta'],['5','Sexta'],['6','Sábado']];
 
@@ -4341,9 +4342,16 @@ function msgResumoModelo(m){
       + (m.ativo ? '' : ' · já saiu');
   }
   const quando = m.gatilho === 'aniversario' ? 'no aniversário'
+    : m.gatilho === 'diario' ? 'todo dia'
     : m.gatilho === 'dia_do_mes' ? `todo dia ${m.diaDoMes} do mês`
     : `toda ${msgRotulo(MSG_DIAS, m.diaDaSemana).toLowerCase()}`;
-  return `recorrente · ${quando} às ${m.hora} · ${quem}` + (m.ativo ? '' : ' · desligado');
+  // O intervalo é o que evita a mesma pessoa receber todo dia; mostrar no
+  // resumo poupa abrir o modelo para lembrar se a trava está ligada.
+  const trava = m.intervaloDias ? ` · 1× a cada ${m.intervaloDias} d por aluno` : '';
+  const corte = (m.publico === 'ausentes' && m.ausenteDias)
+    ? ` · sumido há ${m.ausenteDias} d+` : '';
+  return `recorrente · ${quando} às ${m.hora} · ${quem}${corte}${trava}`
+    + (m.ativo ? '' : ' · desligado');
 }
 
 function msgPainelModelos(){
@@ -4393,6 +4401,20 @@ function msgPainelModelos(){
           <label for="mm-dia-semana">Dia da semana</label>
           <select id="mm-dia-semana">${MSG_DIAS.map(([v,r])=>
             `<option value="${v}"${String(m.diaDaSemana||1)===v?' selected':''}>${r}</option>`).join('')}</select></div>
+      </div>
+
+      <div class="dupla">
+        <div class="campo"><label for="mm-intervalo">Não repetir antes de (dias)</label>
+          <input id="mm-intervalo" type="number" min="0" max="365" value="${Number(m.intervaloDias)||0}">
+          <p class="ajuda">Dias mínimos entre duas mensagens deste modelo para a
+            <b>mesma pessoa</b>. Quem sumiu continua sumido amanhã: sem esta trava,
+            um envio diário vira cobrança diária para a mesma pessoa. Conta também
+            o que você mandou à mão. 0 desliga.</p></div>
+        <div class="campo"><label for="mm-ausente-dias">Sumido há (dias)</label>
+          <input id="mm-ausente-dias" type="number" min="0" max="365" value="${Number(m.ausenteDias)||0}">
+          <p class="ajuda">Só vale para o público <b>Sumidos</b>. 0 usa o padrão do
+            servidor. Quem nunca treinou conta a partir da data de matrícula, para o
+            aluno novo não receber "sentimos sua falta" na primeira semana.</p></div>
       </div>
 
       <div class="campo"><label for="mm-texto">Texto</label>
@@ -4474,6 +4496,8 @@ async function msgSalvarModelo(){
     if (corpo.gatilho === 'dia_do_mes') corpo.diaDoMes = Number(v('mm-dia-mes'));
     if (corpo.gatilho === 'dia_da_semana') corpo.diaDaSemana = Number(v('mm-dia-semana'));
   }
+  corpo.intervaloDias = Number(v('mm-intervalo')) || 0;
+  corpo.ausenteDias = Number(v('mm-ausente-dias')) || 0;
 
   const btn = document.getElementById('mm-salvar');
   btn.disabled = true;

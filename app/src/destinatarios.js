@@ -27,6 +27,40 @@ const presencas = require('./presencas');
 /** Dias sem aparecer a partir dos quais o aluno entra no público 'ausentes'. */
 const AUSENTE_DIAS = Number(process.env.PRESENCA_AUSENTE_DIAS || 10);
 
+/** Diferença em dias entre uma data 'AAAA-MM-DD' e hoje. */
+function diasDesde(iso, hoje) {
+  if (!iso) return null;
+  const a = Date.parse(String(iso).slice(0, 10) + 'T00:00:00Z');
+  const b = Date.parse(String(hoje).slice(0, 10) + 'T00:00:00Z');
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.floor((b - a) / 86400000);
+}
+
+/**
+ * Se este aluno conta como sumido.
+ *
+ * NUNCA TER TREINADO NÃO É O MESMO QUE TER SUMIDO
+ *   Quem tem check-in é fácil: conta os dias desde o último. O problema é
+ *   quem nunca apareceu — antes, essa pessoa entrava sempre, e o aluno
+ *   matriculado ontem, que ainda não passou o QR uma vez, recebia "sentimos
+ *   sua falta" no dia seguinte. Para quem nunca treinou, o relógio começa na
+ *   matrícula: `desde` quando existe, senão o dia em que a ficha foi criada.
+ *   Assim a carência é a mesma para todo mundo, e o aluno novo só entra se
+ *   realmente passar o período sem aparecer nenhuma vez.
+ *
+ *   Ficha sem nenhuma das duas datas entra: é cadastro antigo, não aluno novo.
+ */
+function sumiu(a, limite, ficha, hoje) {
+  if (a.diasSemTreinar !== null && a.diasSemTreinar !== undefined) {
+    return a.diasSemTreinar >= limite;
+  }
+  const inicio = ficha
+    ? (ficha.desde || String(ficha.criadoEm || '').slice(0, 10) || null)
+    : null;
+  const d = diasDesde(inicio, hoje);
+  return d === null ? true : d >= limite;
+}
+
 /** Primeiro nome, que é como se fala com o aluno no WhatsApp. */
 function primeiroNome(nome) {
   return String(nome || '').trim().split(/\s+/)[0] || '';
@@ -108,11 +142,16 @@ function motivoDe(f, m) {
 }
 
 /**
- * @param {string} publico  todos | wellhub | mensalista | devedores
- * @param {object} opcoes   { hoje } — só para o gatilho de aniversário
+ * @param {string} publico  todos | wellhub | mensalista | devedores | ausentes
+ * @param {object} opcoes   { aniversarioEm, ausenteDias }
  */
 function montar(publico = 'todos', opcoes = {}) {
   const freq = indiceDeFrequencia();
+  // Corte de ausência do modelo, quando ele define um; senão o padrão do
+  // estúdio. Fica aqui, e não no agendador, para a prévia da tela e o disparo
+  // automático chegarem à mesma lista.
+  const limiteAusente = Number(opcoes.ausenteDias) > 0
+    ? Math.round(Number(opcoes.ausenteDias)) : AUSENTE_DIAS;
   let lista;
 
   if (publico === 'devedores' || publico === 'ausentes') {
@@ -124,18 +163,25 @@ function montar(publico = 'todos', opcoes = {}) {
     //   passa a incluir o mensalista e estes dois públicos crescem sozinhos.
     const painel = alertas.montarPainel({ vinculo: presencas.vinculoParaPainel() });
 
-    const ids = publico === 'devedores'
-      ? new Set(frequencia.devedores(painel).map((a) => a.matriculaId))
+    const todas = matriculas.listar();
+    let ids;
+
+    if (publico === 'devedores') {
+      ids = new Set(frequencia.devedores(painel).map((a) => a.matriculaId));
+    } else {
       // Ausente é outra pergunta: não "está atrás da meta", e sim "sumiu".
       // Quem treina 1× por semana pode estar em dia com o pacote e não
       // aparecer há três semanas — e é essa pessoa que se perde sem ninguém
-      // notar. Nunca ter treinado também conta.
-      : new Set(painel.alunos
+      // notar.
+      const fichas = new Map(todas.map((m) => [m.id, m]));
+      const hoje = frequencia.hojeLocal();
+      ids = new Set(painel.alunos
         .filter((a) => a.situacao !== 'experimental' && a.situacao !== 'sem-grade')
-        .filter((a) => a.diasSemTreinar === null || a.diasSemTreinar >= AUSENTE_DIAS)
+        .filter((a) => sumiu(a, limiteAusente, fichas.get(a.matriculaId), hoje))
         .map((a) => a.matriculaId));
+    }
 
-    lista = matriculas.listar().filter((m) => m.ativo && ids.has(m.id));
+    lista = todas.filter((m) => m.ativo && ids.has(m.id));
   } else {
     lista = matriculas.listar().filter((m) => {
       if (!m.ativo) return false;

@@ -83,6 +83,12 @@ function avaliar(modelo, hoje, hhmm) {
   if (modelo.ultimaMarca === hoje) return { disparar: false, marca: null };
   if (agora < emMinutos(modelo.hora || '09:00')) return { disparar: false, marca: null };
 
+  if (modelo.gatilho === 'diario') {
+    // Todo dia depois da hora marcada. Só faz sentido junto de um público
+    // calculado e de um intervalo por aluno — sem o intervalo, isto vira a
+    // mesma mensagem todos os dias para quem continuar no público.
+    return { disparar: true, marca: hoje };
+  }
   if (modelo.gatilho === 'dia_do_mes') {
     if (Number(hoje.slice(8, 10)) !== Number(modelo.diaDoMes)) return { disparar: false, marca: null };
     return { disparar: true, marca: hoje };
@@ -104,8 +110,26 @@ function avaliar(modelo, hoje, hhmm) {
 
 async function disparar(modelo, hoje) {
   const opcoes = modelo.gatilho === 'aniversario' ? { aniversarioEm: hoje.slice(5) } : {};
+  if (modelo.ausenteDias) opcoes.ausenteDias = modelo.ausenteDias;
   const lista = destinatarios.montar(modelo.publico, opcoes);
-  const alvos = lista.alunos.filter((a) => a.temTelefone);
+  let alvos = lista.alunos.filter((a) => a.temTelefone);
+
+  // INTERVALO POR ALUNO
+  //   O público de "sumidos" não muda de um dia para o outro: quem sumiu há
+  //   40 dias continua sumido amanhã. Sem esta trava, um modelo diário manda
+  //   a mesma cobrança todo dia para a mesma pessoa — que é o caminho curto
+  //   para o aluno bloquear o estúdio e o número cair.
+  //
+  //   Conta envios de qualquer origem, inclusive os feitos à mão pela tela:
+  //   se você acabou de falar com a pessoa, o automático não repete atrás.
+  const pulados = modelos.recebeuDoModeloDesde(modelo.id, modelo.intervaloDias);
+  if (pulados.size) {
+    const antes = alvos.length;
+    alvos = alvos.filter((a) => !pulados.has(a.matriculaId));
+    const n = antes - alvos.length;
+    if (n) log(`"${modelo.nome}": ${n} pulado(s) — já receberam nos últimos `
+      + `${modelo.intervaloDias} dias.`);
+  }
 
   if (!alvos.length) {
     log(`"${modelo.nome}": ninguém para receber hoje.`);
@@ -197,6 +221,7 @@ function situacao() {
       .map((m) => ({
         id: m.id, nome: m.nome, modo: m.modo, gatilho: m.gatilho,
         quando: m.quando, hora: m.hora, publico: m.publico,
+        intervaloDias: m.intervaloDias || 0, ausenteDias: m.ausenteDias || 0,
         ultimoDisparoEm: m.ultimoDisparoEm,
       })),
   };

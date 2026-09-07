@@ -77,6 +77,10 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     const opcoes = modelo && modelo.gatilho === 'aniversario'
       ? { aniversarioEm: new Date().toISOString().slice(5, 10) }
       : {};
+    // O corte de ausência do modelo precisa valer aqui também: a prévia que
+    // mostra 12 nomes e o disparo que manda para 5 seriam a mesma tela
+    // mentindo sobre o que vai acontecer.
+    if (modelo && modelo.ausenteDias) opcoes.ausenteDias = modelo.ausenteDias;
     const lista = destinatarios.montar(publico, opcoes);
 
     // Lote em andamento: quem já recebeu não volta para a fila.

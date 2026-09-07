@@ -33,7 +33,7 @@ const MODOS = ['manual', 'programado', 'recorrente'];
 /** Quem recebe. `devedores` é calculado na hora do envio, não fica congelado. */
 const PUBLICOS = ['todos', 'wellhub', 'mensalista', 'devedores', 'ausentes'];
 /** Só para modo `recorrente`. */
-const GATILHOS = ['aniversario', 'dia_do_mes', 'dia_da_semana'];
+const GATILHOS = ['aniversario', 'dia_do_mes', 'dia_da_semana', 'diario'];
 
 let dados = { modelos: [], historico: [] };
 
@@ -120,6 +120,26 @@ function normalizar(campos, base = {}) {
       : Boolean(campos.ativo),
     hora: null, quando: null, gatilho: null, diaDoMes: null, diaDaSemana: null,
   };
+
+  // INTERVALO POR ALUNO (cooldown)
+  //   Um modelo que roda todo dia sobre um público calculado — "sumidos",
+  //   "devendo treino" — repete a mesma mensagem para a mesma pessoa enquanto
+  //   ela continuar no público. Quem sumiu há 40 dias receberia 40 cobranças.
+  //   Aqui fica quantos dias precisam passar antes de a mesma pessoa poder
+  //   receber este modelo de novo. 0 desliga a trava, que é o comportamento de
+  //   quem já existia antes deste campo.
+  const intervalo = Number(campos.intervaloDias === undefined
+    ? base.intervaloDias : campos.intervaloDias);
+  m.intervaloDias = Number.isFinite(intervalo) && intervalo > 0
+    ? Math.min(Math.round(intervalo), 365) : 0;
+
+  // Corte de ausência por modelo. 0 = usa PRESENCA_AUSENTE_DIAS do servidor.
+  // Existe porque "sumido" não é a mesma coisa em todo modelo: um lembrete
+  // leve cabe em 10 dias, uma retomada de aluno perdido cabe em 30.
+  const ausente = Number(campos.ausenteDias === undefined
+    ? base.ausenteDias : campos.ausenteDias);
+  m.ausenteDias = Number.isFinite(ausente) && ausente > 0
+    ? Math.min(Math.round(ausente), 365) : 0;
 
   if (modo === 'programado') {
     const quando = String(campos.quando === undefined ? base.quando : campos.quando || '').trim();
@@ -247,6 +267,32 @@ function historico({ limite = 200, lote = null, matriculaId = null } = {}) {
 }
 
 /**
+ * Quem recebeu ESTE modelo, com sucesso, nos últimos `dias`.
+ *
+ * É a memória que o cooldown usa. Fica no histórico que já existia em vez de
+ * numa lista nova por modelo: o registro de envio é a única fonte que sabe o
+ * que de fato saiu — inclusive o que saiu à mão, pela tela, e que também não
+ * deve ser repetido pelo agendador horas depois.
+ *
+ * Percorre o histórico inteiro em vez de parar no primeiro item antigo:
+ * `moverMatricula` reescreve linhas no meio da lista, e uma parada antecipada
+ * deixaria de ver envios recentes se a ordem saísse do lugar.
+ */
+function recebeuDoModeloDesde(modeloId, dias) {
+  const n = Number(dias);
+  if (!modeloId || !(n > 0)) return new Set();
+  const corte = new Date(Date.now() - (n * 86400000)).toISOString();
+  const ids = new Set();
+  for (const h of dados.historico) {
+    if (!h.ok || !h.matriculaId) continue;
+    if (h.modeloId !== modeloId) continue;
+    if (String(h.em || '') < corte) continue;
+    ids.add(h.matriculaId);
+  }
+  return ids;
+}
+
+/**
  * Quem já recebeu neste lote e deu certo. É o que a tela usa para retomar um
  * disparo interrompido sem mandar a mensagem duas vezes.
  */
@@ -288,6 +334,7 @@ semear().catch((e) => log('semeadura falhou:', e.message));
 
 module.exports = {
   semear, listarModelos, porId, criarModelo, atualizarModelo, removerModelo,
-  marcarDisparo, registrar, historico, jaEnviados, moverMatricula, situacao,
+  marcarDisparo, registrar, historico, jaEnviados, recebeuDoModeloDesde,
+  moverMatricula, situacao,
   MODOS, PUBLICOS, GATILHOS,
 };
