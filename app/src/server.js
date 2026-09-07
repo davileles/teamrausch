@@ -14,6 +14,8 @@ const agendadorMensagens = require('./agendador-mensagens');
 const planilhaAlunos = require('./planilha-alunos');
 const configApp = require('./config');
 const { lerCheckin } = require('./payload-map');
+const agendaStore = require('./agenda-store');
+const presencas = require('./presencas');
 
 const app = express();
 const PORTA = process.env.PORT || 3000;
@@ -214,6 +216,76 @@ function tokenPainelConfere(req) {
   if (!esperado) return true; // sem token configurado, acesso liberado
   return req.query.token === esperado || req.get('X-Panel-Token') === esperado;
 }
+
+/* ---------------------------------------------------------------------------
+   CONFERÊNCIA DA PRESENÇA DO TOTEM
+
+   O tablet da entrada grava presença desde sempre, mas enquanto
+   PRESENCA_CONFIRMACAO_ATIVA for false esses registros não contam em lugar
+   nenhum: não entram na frequência, não tiram ninguém do público "Sumidos" e
+   não aparecem em tela alguma. Ligar a chave sem olhar é apostar que o tablet
+   está sendo usado — e se não estiver, o mensalista entra na conta com zero
+   treinos e vira crítico no dia seguinte, cobrado por não ter feito algo que
+   ninguém registrou.
+
+   Isto mostra o que já foi gravado: quanto por dia, quanto casa com uma ficha
+   e quanto não casa. Presença que não casa com matrícula é presença perdida —
+   o telefone digitado no tablet não bate com nenhum cadastro, e ela não vai
+   creditar ninguém mesmo depois da chave ligada.
+
+   Protegido por PANEL_TOKEN, GET, para abrir do celular.
+--------------------------------------------------------------------------- */
+app.get('/presencas/resumo', (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'Token inválido. Use ?token=SEU_PANEL_TOKEN' });
+  }
+  const dias = Math.min(Math.max(Number(req.query.dias) || 30, 1), 365);
+  const ate = checkinsStore.hojeLocal();
+  const de = new Date(Date.parse(ate + 'T00:00:00Z') - ((dias - 1) * 86400000))
+    .toISOString().slice(0, 10);
+
+  const lista = agendaStore.listarPresencas({ de, ate });
+  const porDia = {};
+  const semFicha = [];
+  const comFicha = new Set();
+  const cache = new Map();
+
+  for (const p of lista) {
+    porDia[p.data] = (porDia[p.data] || 0) + 1;
+    if (!cache.has(p.telefone)) {
+      const m = matriculas.porTelefone(p.telefone);
+      cache.set(p.telefone, m || null);
+    }
+    const m = cache.get(p.telefone);
+    if (m) comFicha.add(m.id);
+    else semFicha.push({ data: p.data, hora: p.hora, nome: p.nome || null, telefone: p.telefone });
+  }
+
+  // Quantos mensalistas passariam a ter dado de treino com a chave ligada. É o
+  // número que decide: baixo demais e ligar transforma a maioria em devedora.
+  const mensalistas = matriculas.listar().filter((m) => m.ativo && m.vinculo === 'mensalista');
+  const mensalistasComPresenca = mensalistas.filter((m) => comFicha.has(m.id)).length;
+
+  res.json({
+    ok: true,
+    janela: { de, ate, dias },
+    confirmacaoAtiva: presencas.CONFIRMACAO_ATIVA,
+    aviso: presencas.CONFIRMACAO_ATIVA
+      ? 'A confirmação já conta na frequência.'
+      : 'A confirmação está sendo gravada mas ainda NÃO conta na frequência '
+        + '(PRESENCA_CONFIRMACAO_ATIVA=false).',
+    total: lista.length,
+    alunosDistintos: comFicha.size,
+    semFicha: semFicha.length,
+    mensalistas: {
+      ativos: mensalistas.length,
+      comAlgumaPresenca: mensalistasComPresenca,
+      semNenhuma: mensalistas.length - mensalistasComPresenca,
+    },
+    porDia: Object.fromEntries(Object.entries(porDia).sort()),
+    exemplosSemFicha: semFicha.slice(0, 20),
+  });
+});
 
 /* Dispara um e-mail (e WhatsApp, se houver) de teste. Protegido por PANEL_TOKEN. */
 app.get('/wellhub/teste-aviso', async (req, res) => {
