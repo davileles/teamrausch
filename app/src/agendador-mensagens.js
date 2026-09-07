@@ -30,6 +30,7 @@ const frequencia = require('./frequencia');
 const grade = require('./grade');
 const { enviarTexto } = require('./mensageiro');
 const telefone = require('./telefone');
+const poller = require('./poller-portal');
 
 const ATIVO = String(process.env.MSG_AGENDADOR_ATIVO || 'true') === 'true';
 /** Pausa entre um aluno e o próximo. O serviço de WhatsApp já tem fila
@@ -108,9 +109,64 @@ function avaliar(modelo, hoje, hhmm) {
 
 /* -------------------------------- envio ---------------------------------- */
 
+/** Até quantos nomes cabem no aviso do grupo antes de virar parede de texto. */
+const AVISO_MAX_LINHAS = Number(process.env.MSG_AVISO_MAX_LINHAS || 25);
+
+/**
+ * Conta ao grupo do estúdio o que acabou de sair sozinho.
+ *
+ * POR QUE DEPOIS, E NÃO ANTES
+ *   Aviso prévio não dá para cancelar nada: o agendador não espera resposta.
+ *   Depois, o texto pode dizer o que de fato aconteceu — quem recebeu, quem
+ *   falhou e quem ficou de fora pelo intervalo. É esse o registro que serve
+ *   quando o aluno responde no grupo e ninguém sabe do que ele está falando.
+ *
+ *   Vai só para o WhatsApp das listas do estúdio, não para o e-mail: é rotina
+ *   diária, e o e-mail está reservado para o que precisa de atenção.
+ */
+async function avisarGrupo(modelo, resultado, pulados) {
+  if (modelo.avisarGrupo === false) return;
+  const { alvos = [], falhas = [] } = resultado;
+  if (!alvos.length && !pulados) return;
+
+  const linhas = alvos.slice(0, AVISO_MAX_LINHAS).map((a) => {
+    const quanto = a.diasSemTreinar === null || a.diasSemTreinar === undefined
+      ? 'nunca treinou'
+      : `${a.diasSemTreinar} dias sem treinar`;
+    const tel = a.telefoneFormatado || a.telefone || 'sem telefone';
+    return `• ${a.nome} — ${quanto} · ${tel}`;
+  });
+  if (alvos.length > AVISO_MAX_LINHAS) {
+    linhas.push(`…e mais ${alvos.length - AVISO_MAX_LINHAS}.`);
+  }
+
+  const corpo = [`📤 Enviei "${modelo.nome}" para ${alvos.length} aluno(s).`, ''];
+  if (linhas.length) corpo.push(...linhas, '');
+  if (falhas.length) {
+    corpo.push(`⚠️ ${falhas.length} não saiu/saíram: `
+      + falhas.slice(0, 5).map((f) => f.nome).join(', ') + '.', '');
+  }
+  if (pulados) {
+    corpo.push(`${pulados} não entrou/entraram: já receberam esta mensagem nos `
+      + `últimos ${modelo.intervaloDias} dias.`, '');
+  }
+  corpo.push('Se alguém aqui já saiu do estúdio, inative a ficha em Matrículas '
+    + 'para não receber de novo.');
+
+  try {
+    await poller.enviarWhatsApp(corpo.join('\n'));
+    log(`"${modelo.nome}": grupo avisado.`);
+  } catch (e) {
+    // O aviso é registro, não o trabalho. Se ele falhar, as mensagens já
+    // saíram e o histórico continua tendo tudo.
+    log(`"${modelo.nome}": não consegui avisar o grupo — ${e.message}`);
+  }
+}
+
 async function disparar(modelo, hoje) {
   const opcoes = modelo.gatilho === 'aniversario' ? { aniversarioEm: hoje.slice(5) } : {};
   if (modelo.ausenteDias) opcoes.ausenteDias = modelo.ausenteDias;
+  if (modelo.ausenteAte) opcoes.ausenteAte = modelo.ausenteAte;
   const lista = destinatarios.montar(modelo.publico, opcoes);
   let alvos = lista.alunos.filter((a) => a.temTelefone);
 
@@ -122,30 +178,32 @@ async function disparar(modelo, hoje) {
   //
   //   Conta envios de qualquer origem, inclusive os feitos à mão pela tela:
   //   se você acabou de falar com a pessoa, o automático não repete atrás.
-  const pulados = modelos.recebeuDoModeloDesde(modelo.id, modelo.intervaloDias);
-  if (pulados.size) {
+  const recentes = modelos.recebeuDoModeloDesde(modelo.id, modelo.intervaloDias);
+  let pulados = 0;
+  if (recentes.size) {
     const antes = alvos.length;
-    alvos = alvos.filter((a) => !pulados.has(a.matriculaId));
-    const n = antes - alvos.length;
-    if (n) log(`"${modelo.nome}": ${n} pulado(s) — já receberam nos últimos `
-      + `${modelo.intervaloDias} dias.`);
+    alvos = alvos.filter((a) => !recentes.has(a.matriculaId));
+    pulados = antes - alvos.length;
+    if (pulados) log(`"${modelo.nome}": ${pulados} pulado(s) — já receberam nos `
+      + `últimos ${modelo.intervaloDias} dias.`);
   }
 
   if (!alvos.length) {
     log(`"${modelo.nome}": ninguém para receber hoje.`);
-    return { enviados: 0, falhas: 0, total: 0 };
+    return { enviados: 0, falhas: 0, total: 0, pulados };
   }
 
   const lote = 'LOTE-' + Date.now().toString(36);
   log(`"${modelo.nome}": ${alvos.length} destinatário(s), lote ${lote}.`);
 
   let enviados = 0;
-  let falhas = 0;
+  const falhas = [];
+  const saiu = [];
   for (const a of alvos) {
     const texto = destinatarios.preencher(modelo.texto, a);
     const numero = telefone.normalizar(a.telefone);
     const r = await enviarTexto(numero, texto);
-    if (r.ok) enviados++; else falhas++;
+    if (r.ok) { enviados++; saiu.push(a); } else { falhas.push({ ...a, motivo: r.motivo }); }
 
     modelos.registrar({
       matriculaId: a.matriculaId, nome: a.nome, telefone: numero, texto,
@@ -156,8 +214,9 @@ async function disparar(modelo, hoje) {
     await dormir(PAUSA_MS);
   }
 
-  log(`"${modelo.nome}": ${enviados} enviada(s), ${falhas} com erro.`);
-  return { enviados, falhas, total: alvos.length, lote };
+  log(`"${modelo.nome}": ${enviados} enviada(s), ${falhas.length} com erro.`);
+  await avisarGrupo(modelo, { alvos: saiu, falhas }, pulados);
+  return { enviados, falhas: falhas.length, total: alvos.length, pulados, lote };
 }
 
 /* ------------------------------- ciclo ----------------------------------- */
@@ -222,6 +281,7 @@ function situacao() {
         id: m.id, nome: m.nome, modo: m.modo, gatilho: m.gatilho,
         quando: m.quando, hora: m.hora, publico: m.publico,
         intervaloDias: m.intervaloDias || 0, ausenteDias: m.ausenteDias || 0,
+        ausenteAte: m.ausenteAte || 0, avisarGrupo: m.avisarGrupo !== false,
         ultimoDisparoEm: m.ultimoDisparoEm,
       })),
   };

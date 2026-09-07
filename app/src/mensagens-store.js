@@ -141,6 +141,23 @@ function normalizar(campos, base = {}) {
   m.ausenteDias = Number.isFinite(ausente) && ausente > 0
     ? Math.min(Math.round(ausente), 365) : 0;
 
+  // Teto de ausência. 0 = sem teto. Acima disso a pessoa provavelmente saiu do
+  // estúdio e ninguém inativou a ficha — o sistema não tem como distinguir, e
+  // escrever para quem já foi embora é pior do que não escrever.
+  const teto = Number(campos.ausenteAte === undefined ? base.ausenteAte : campos.ausenteAte);
+  m.ausenteAte = Number.isFinite(teto) && teto > 0
+    ? Math.min(Math.round(teto), 3650) : 0;
+  if (m.ausenteAte && m.ausenteDias && m.ausenteAte < m.ausenteDias) {
+    return { ok: false, motivo: 'O teto de ausência precisa ser maior que o mínimo.' };
+  }
+
+  // Aviso no grupo do estúdio a cada disparo automático. Ligado por padrão:
+  // mensagem que sai sozinha para o aluno sem ninguém do estúdio saber é como
+  // se você descobrisse pela resposta dele.
+  m.avisarGrupo = campos.avisarGrupo === undefined
+    ? (base.avisarGrupo === undefined ? true : Boolean(base.avisarGrupo))
+    : Boolean(campos.avisarGrupo);
+
   if (modo === 'programado') {
     const quando = String(campos.quando === undefined ? base.quando : campos.quando || '').trim();
     // 'AAAA-MM-DDTHH:MM' — hora local do estúdio, que é como o campo da tela

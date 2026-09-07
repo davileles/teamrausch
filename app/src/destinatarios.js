@@ -50,15 +50,26 @@ function diasDesde(iso, hoje) {
  *
  *   Ficha sem nenhuma das duas datas entra: é cadastro antigo, não aluno novo.
  */
-function sumiu(a, limite, ficha, hoje) {
-  if (a.diasSemTreinar !== null && a.diasSemTreinar !== undefined) {
-    return a.diasSemTreinar >= limite;
-  }
-  const inicio = ficha
-    ? (ficha.desde || String(ficha.criadoEm || '').slice(0, 10) || null)
-    : null;
-  const d = diasDesde(inicio, hoje);
-  return d === null ? true : d >= limite;
+function sumiu(a, limite, teto, ficha, hoje) {
+  let d = (a.diasSemTreinar !== null && a.diasSemTreinar !== undefined)
+    ? a.diasSemTreinar
+    : diasDesde(
+      ficha ? (ficha.desde || String(ficha.criadoEm || '').slice(0, 10) || null) : null,
+      hoje);
+
+  // Sem check-in e sem data de início não dá para saber há quanto tempo a
+  // pessoa sumiu. Sem teto isso entra, como sempre entrou. Com teto, fica de
+  // fora: o teto existe justamente para não escrever para quem já foi embora,
+  // e chutar aqui desfaz a proteção.
+  if (d === null) return !teto;
+
+  if (d < limite) return false;
+  // TETO: QUEM SUMIU DEMAIS PROVAVELMENTE SAIU
+  //   O sistema não sabe a diferença entre "faltou três semanas" e "cancelou e
+  //   não avisou". Passado o teto, a hipótese mais provável é a segunda, e
+  //   "sentimos sua falta" para quem saiu há cinco meses é constrangedor.
+  //   Essa pessoa vira assunto de conversa, não de disparo automático.
+  return teto ? d <= teto : true;
 }
 
 /** Primeiro nome, que é como se fala com o aluno no WhatsApp. */
@@ -143,7 +154,7 @@ function motivoDe(f, m) {
 
 /**
  * @param {string} publico  todos | wellhub | mensalista | devedores | ausentes
- * @param {object} opcoes   { aniversarioEm, ausenteDias }
+ * @param {object} opcoes   { aniversarioEm, ausenteDias, ausenteAte }
  */
 function montar(publico = 'todos', opcoes = {}) {
   const freq = indiceDeFrequencia();
@@ -152,6 +163,8 @@ function montar(publico = 'todos', opcoes = {}) {
   // automático chegarem à mesma lista.
   const limiteAusente = Number(opcoes.ausenteDias) > 0
     ? Math.round(Number(opcoes.ausenteDias)) : AUSENTE_DIAS;
+  const tetoAusente = Number(opcoes.ausenteAte) > 0
+    ? Math.round(Number(opcoes.ausenteAte)) : 0;
   let lista;
 
   if (publico === 'devedores' || publico === 'ausentes') {
@@ -177,7 +190,7 @@ function montar(publico = 'todos', opcoes = {}) {
       const hoje = frequencia.hojeLocal();
       ids = new Set(painel.alunos
         .filter((a) => a.situacao !== 'experimental' && a.situacao !== 'sem-grade')
-        .filter((a) => sumiu(a, limiteAusente, fichas.get(a.matriculaId), hoje))
+        .filter((a) => sumiu(a, limiteAusente, tetoAusente, fichas.get(a.matriculaId), hoje))
         .map((a) => a.matriculaId));
     }
 

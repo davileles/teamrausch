@@ -81,6 +81,7 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     // mostra 12 nomes e o disparo que manda para 5 seriam a mesma tela
     // mentindo sobre o que vai acontecer.
     if (modelo && modelo.ausenteDias) opcoes.ausenteDias = modelo.ausenteDias;
+    if (modelo && modelo.ausenteAte) opcoes.ausenteAte = modelo.ausenteAte;
     const lista = destinatarios.montar(publico, opcoes);
 
     // Lote em andamento: quem já recebeu não volta para a fila.

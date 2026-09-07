@@ -4348,8 +4348,8 @@ function msgResumoModelo(m){
   // O intervalo é o que evita a mesma pessoa receber todo dia; mostrar no
   // resumo poupa abrir o modelo para lembrar se a trava está ligada.
   const trava = m.intervaloDias ? ` · 1× a cada ${m.intervaloDias} d por aluno` : '';
-  const corte = (m.publico === 'ausentes' && m.ausenteDias)
-    ? ` · sumido há ${m.ausenteDias} d+` : '';
+  const corte = (m.publico === 'ausentes' && (m.ausenteDias || m.ausenteAte))
+    ? ` · sumido há ${m.ausenteDias || '?'}${m.ausenteAte ? ' a '+m.ausenteAte : '+'} d` : '';
   return `recorrente · ${quando} às ${m.hora} · ${quem}${corte}${trava}`
     + (m.ativo ? '' : ' · desligado');
 }
@@ -4415,6 +4415,20 @@ function msgPainelModelos(){
           <p class="ajuda">Só vale para o público <b>Sumidos</b>. 0 usa o padrão do
             servidor. Quem nunca treinou conta a partir da data de matrícula, para o
             aluno novo não receber "sentimos sua falta" na primeira semana.</p></div>
+      </div>
+
+      <div class="dupla">
+        <div class="campo"><label for="mm-ausente-ate">…e no máximo (dias)</label>
+          <input id="mm-ausente-ate" type="number" min="0" max="3650" value="${Number(m.ausenteAte)||0}">
+          <p class="ajuda">Acima disso a pessoa provavelmente <b>saiu do estúdio</b> e
+            ninguém inativou a ficha — o sistema não sabe a diferença. Quem passa do
+            teto sai do disparo e vira conversa sua. 0 desliga o teto.</p></div>
+        <div class="campo"><label for="mm-avisar-grupo">Avisar o grupo do estúdio</label>
+          <select id="mm-avisar-grupo">
+            <option value="1"${m.avisarGrupo===false?'':' selected'}>Sim, a cada disparo</option>
+            <option value="0"${m.avisarGrupo===false?' selected':''}>Não</option></select>
+          <p class="ajuda">Manda para as listas de Configurações → Avisos de check-in
+            a lista de quem recebeu, com telefone. Vale só para envio automático.</p></div>
       </div>
 
       <div class="campo"><label for="mm-texto">Texto</label>
@@ -4498,6 +4512,8 @@ async function msgSalvarModelo(){
   }
   corpo.intervaloDias = Number(v('mm-intervalo')) || 0;
   corpo.ausenteDias = Number(v('mm-ausente-dias')) || 0;
+  corpo.ausenteAte = Number(v('mm-ausente-ate')) || 0;
+  corpo.avisarGrupo = v('mm-avisar-grupo') === '1';
 
   const btn = document.getElementById('mm-salvar');
   btn.disabled = true;
