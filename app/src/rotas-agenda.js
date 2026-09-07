@@ -1059,6 +1059,64 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     novo.conquistas = limpas.sort((x, y) => x.aulas - y.aulas);
   }
 
+  /**
+   * FREQUÊNCIA E ENVIO AUTOMÁTICO
+   *
+   * Os módulos que leem estes valores já têm queda para o padrão quando o
+   * número não presta, então lixo aqui não derruba nada. A validação existe
+   * pelo outro motivo: com queda silenciosa, digitar 0 na pausa entre envios
+   * salvaria sem erro e continuaria enviando de 8 em 8 segundos — e a próxima
+   * pergunta seria por que a configuração não funciona.
+   */
+  function faixa(valor, min, max, nome) {
+    const n = Number(valor);
+    if (!Number.isFinite(n) || n < min || n > max) {
+      return `${nome} precisa ser um número entre ${min} e ${max}.`;
+    }
+    return null;
+  }
+
+  if (novo.frequencia !== undefined) {
+    const f = novo.frequencia || {};
+    const erros = [
+      f.ausenteDias !== undefined && faixa(f.ausenteDias, 1, 365, 'Sumido a partir de'),
+      f.janelaDias !== undefined && faixa(f.janelaDias, 1, 90, 'Janela da frequência'),
+    ].filter(Boolean);
+    if (erros.length) return res.status(400).json({ erro: erros[0] });
+
+    if (f.alertaHora !== undefined && !/^\d{2}:\d{2}$/.test(String(f.alertaHora))) {
+      return res.status(400).json({ erro: 'Hora do aviso inválida. Use HH:MM.' });
+    }
+    if (f.alertaDias !== undefined) {
+      if (!Array.isArray(f.alertaDias)) {
+        return res.status(400).json({ erro: 'Dias do aviso inválidos.' });
+      }
+      const limpos = [...new Set(f.alertaDias.map(Number)
+        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort();
+      // Lista vazia não é erro: é "voltar ao padrão". Gravar vazio faria o
+      // aviso nunca sair, e a tela não teria como explicar o silêncio.
+      novo.frequencia.alertaDias = limpos.length ? limpos : [1, 2, 3, 4, 5];
+    }
+    if (f.textoCobranca !== undefined) {
+      novo.frequencia.textoCobranca = String(f.textoCobranca).slice(0, 1200);
+    }
+    if (f.confirmacaoAtiva !== undefined) {
+      novo.frequencia.confirmacaoAtiva = Boolean(f.confirmacaoAtiva);
+    }
+    if (f.alertaAtivo !== undefined) novo.frequencia.alertaAtivo = Boolean(f.alertaAtivo);
+  }
+
+  if (novo.mensagens !== undefined) {
+    const m = novo.mensagens || {};
+    const erros = [
+      m.pausaSegundos !== undefined && faixa(m.pausaSegundos, 1, 120, 'Pausa entre alunos'),
+      m.toleranciaMin !== undefined && faixa(m.toleranciaMin, 0, 4320, 'Tolerância do programado'),
+      m.avisoMaxLinhas !== undefined && faixa(m.avisoMaxLinhas, 1, 200, 'Nomes no aviso ao grupo'),
+    ].filter(Boolean);
+    if (erros.length) return res.status(400).json({ erro: erros[0] });
+    if (m.agendadorAtivo !== undefined) novo.mensagens.agendadorAtivo = Boolean(m.agendadorAtivo);
+  }
+
   // Avisos de check-in: listas de e-mail e de telefone, com repetidos removidos.
   if (novo.avisos !== undefined) {
     const a = novo.avisos || {};

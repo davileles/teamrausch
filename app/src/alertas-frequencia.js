@@ -27,16 +27,42 @@ const frequencia = require('./frequencia');
 const poller = require('./poller-portal');
 const { enviarTexto } = require('./mensageiro');
 const grade = require('./grade');
+const config = require('./config');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const ARQ_ESTADO = path.join(DATA_DIR, 'alertas-frequencia.json');
 
-const ATIVO = String(process.env.FREQ_ALERTA_ATIVO || 'true') === 'true';
-const HORA = String(process.env.FREQ_ALERTA_HORA || '10:00');
-const JANELA_DIAS = Number(process.env.FREQ_JANELA_DIAS || 7);
+/**
+ * Tudo isto vem de Configurações → Frequência, lido na hora de usar.
+ *
+ * Eram constantes de variável de ambiente. Ler no boot fazia sentido enquanto
+ * mudar exigia deploy; agora que a tela edita, uma constante congelada faria o
+ * botão salvar sem efeito até o próximo deploy — o pior tipo de configuração,
+ * a que parece funcionar.
+ *
+ * Cada leitura tem uma queda: config corrompida não pode derrubar o aviso
+ * diário inteiro.
+ */
+function cfg() {
+  try {
+    return config.ler().frequencia || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function ativo() { return cfg().alertaAtivo !== false; }
+function hora() { return String(cfg().alertaHora || '10:00'); }
+function janelaDias() {
+  const n = Number(cfg().janelaDias);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 7;
+}
 /** Dias da semana em que o aviso sai. 1=seg … 6=sáb, 0=dom. */
-const DIAS_UTEIS = String(process.env.FREQ_ALERTA_DIAS || '1,2,3,4,5')
-  .split(',').map((x) => Number(x.trim())).filter((n) => n >= 0 && n <= 6);
+function diasUteis() {
+  const lista = Array.isArray(cfg().alertaDias) ? cfg().alertaDias : [];
+  const limpa = lista.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+  return limpa.length ? limpa : [1, 2, 3, 4, 5];
+}
 
 function log(...a) { console.log(new Date().toISOString(), '[freq-alerta]', ...a); }
 
@@ -64,7 +90,7 @@ function gravarEstado() {
 
 /** Monta o panorama de frequência com os dados que estão valendo agora. */
 function montarPainel(opcoes = {}) {
-  const dias = Number(opcoes.dias) > 0 ? Number(opcoes.dias) : JANELA_DIAS;
+  const dias = Number(opcoes.dias) > 0 ? Number(opcoes.dias) : janelaDias();
   const ate = opcoes.ate || frequencia.hojeLocal();
   // Sempre do dia 1º: a janela pode ser curta, mas o acumulado do mês precisa
   // das exceções do mês inteiro, ou uma aula cancelada no dia 2 continuaria
@@ -170,10 +196,12 @@ async function rodar(opcoes = {}) {
  * {{mesRealizado}}/{{mesEsperado}} são do mês corrente. O texto padrão fala do
  * mês porque é o ciclo que o aluno reconhece — o pacote dele renova no dia 1º.
  */
-const MODELO_COBRANCA = process.env.FREQ_TEXTO_COBRANCA
-  || 'Oi, {{nome}}! Aqui é do TeamRausch. Neste mês você fez {{mesRealizado}} '
-   + 'de {{mesEsperado}} treinos combinados. Consegue repor essa semana? '
-   + 'Se precisar remarcar horário, é só falar com a gente.';
+function modeloCobranca() {
+  return String(cfg().textoCobranca
+    || 'Oi, {{nome}}! Aqui é do TeamRausch. Neste mês você fez {{mesRealizado}} '
+     + 'de {{mesEsperado}} treinos combinados. Consegue repor essa semana? '
+     + 'Se precisar remarcar horário, é só falar com a gente.');
+}
 
 /** Cobra um aluno específico, com o texto padrão ou um escrito na hora. */
 async function cobrar(matriculaId, textoLivre) {
@@ -181,14 +209,14 @@ async function cobrar(matriculaId, textoLivre) {
   if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
   if (!m.telefone) return { ok: false, motivo: `${m.nome} não tem telefone cadastrado.` };
 
-  const dias = JANELA_DIAS;
+  const dias = janelaDias();
   const ate = frequencia.hojeLocal();
   const de = frequencia.inicioDoMes(ate);
   const situacao = frequencia.avaliar(
     m, presencas.datasDaMatricula(m.id), matriculas.excecoes({ de, ate, matriculaId: m.id }),
     { dias, ate });
 
-  const texto = String(textoLivre || MODELO_COBRANCA)
+  const texto = String(textoLivre || modeloCobranca())
     .replace(/\{\{nome\}\}/g, String(m.nome).split(' ')[0])
     .replace(/\{\{realizado\}\}/g, situacao.realizado)
     .replace(/\{\{esperado\}\}/g, situacao.esperado)
@@ -217,16 +245,18 @@ function agoraHHMM() {
  * quando o serviço estava reiniciando às 10:00 em ponto.
  */
 function iniciar() {
-  if (!ATIVO) { log('desligado (FREQ_ALERTA_ATIVO=false).'); return; }
-  log(`ligado: aviso diário às ${HORA}, janela de ${JANELA_DIAS} dias, `
-    + `dias ${DIAS_UTEIS.join(',')}.`);
+  // O timer sempre sobe: ligar e desligar agora é decisão de tela, e um
+  // `return` aqui deixaria o aviso morto até o próximo deploy.
+  log(`agendado: aviso diário às ${hora()}, janela de ${janelaDias()} dias, `
+    + `dias ${diasUteis().join(',')}${ativo() ? '' : ' — DESLIGADO na configuração'}.`);
 
   const tentar = async () => {
     try {
+      if (!ativo()) return;
       const hoje = frequencia.hojeLocal();
       if (estado.ultimaData === hoje) return;
-      if (!DIAS_UTEIS.includes(grade.diaDaSemana(hoje))) return;
-      if (agoraHHMM() < HORA) return;
+      if (!diasUteis().includes(grade.diaDaSemana(hoje))) return;
+      if (agoraHHMM() < hora()) return;
 
       const r = await rodar({});
       // Nada a avisar hoje também encerra o dia: sem isto, a checagem tentaria
@@ -243,14 +273,20 @@ function iniciar() {
 
 function situacao() {
   return {
-    ativo: ATIVO,
-    hora: HORA,
-    janelaDias: JANELA_DIAS,
-    diasDaSemana: DIAS_UTEIS,
+    ativo: ativo(),
+    hora: hora(),
+    janelaDias: janelaDias(),
+    diasDaSemana: diasUteis(),
     ultimoEnvioEm: estado.ultimoEnvioEm,
     ultimaData: estado.ultimaData,
     ultimoResumo: estado.ultimoResumo,
   };
 }
 
-module.exports = { iniciar, rodar, cobrar, montarPainel, situacao, JANELA_DIAS };
+module.exports = { iniciar, rodar, cobrar, montarPainel, situacao, janelaDias };
+
+// Compatibilidade com quem lia a constante. Responde o valor de agora.
+Object.defineProperty(module.exports, 'JANELA_DIAS', {
+  enumerable: true,
+  get: janelaDias,
+});

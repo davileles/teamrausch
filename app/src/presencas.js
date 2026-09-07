@@ -20,10 +20,10 @@
  *   não tem agendamento nenhum para marcar. `deConfirmacao()` traduz telefone
  *   em matrícula e devolve as datas.
  *
- *   Falta só ligar: `PRESENCA_CONFIRMACAO_ATIVA=true` no Railway. Enquanto for
- *   false, o tablet registra e nada mais muda — dá para acumular alguns dias de
- *   confirmação e conferir contra o Wellhub antes de deixar isso valer nas
- *   cobranças de frequência.
+ *   Falta só ligar: Configurações → Frequência → "Contar a presença do totem".
+ *   Enquanto estiver desligado, o tablet registra e nada mais muda — dá para
+ *   acumular alguns dias de confirmação e conferir em /presencas/resumo antes
+ *   de deixar isso valer nas cobranças de frequência.
  *
  * DIA, NÃO APARIÇÃO
  *   As duas fontes podem falar do mesmo treino: o aluno passa o QR do Wellhub
@@ -34,13 +34,26 @@
 const checkins = require('./checkins-store');
 const agendaStore = require('./agenda-store');
 const matriculas = require('./matriculas-store');
+const config = require('./config');
 
 /**
  * Vira true quando o módulo de confirmação estiver no ar. Enquanto for false,
  * quem não é Wellhub não tem como provar que treinou, e cobrar essa pessoa é
  * acusar quem veio.
+ *
+ * LIDO A CADA CHAMADA, NÃO NO BOOT
+ *   Era uma constante de variável de ambiente. Como agora está em
+ *   Configurações → Frequência, ler uma vez no carregamento do módulo faria a
+ *   troca na tela só valer no próximo deploy — e o administrador ficaria
+ *   olhando um botão que salva e não muda nada.
  */
-const CONFIRMACAO_ATIVA = String(process.env.PRESENCA_CONFIRMACAO_ATIVA || 'false') === 'true';
+function confirmacaoAtiva() {
+  try {
+    return config.ler().frequencia.confirmacaoAtiva === true;
+  } catch (e) {
+    return false;   // config ilegível: o seguro é não cobrar ninguém
+  }
+}
 
 /**
  * Datas com presença confirmada no estúdio, por matrícula.
@@ -50,7 +63,7 @@ const CONFIRMACAO_ATIVA = String(process.env.PRESENCA_CONFIRMACAO_ATIVA || 'fals
  * @returns {Map<string, string[]>} matriculaId → ['AAAA-MM-DD', …]
  */
 function deConfirmacao(janela = {}) {
-  if (!CONFIRMACAO_ATIVA) return new Map();
+  if (!confirmacaoAtiva()) return new Map();
 
   // A presença guarda telefone, que é a chave do cadastro de login; a
   // frequência conta por matrícula. `matriculas.porTelefone` é a mesma ponte
@@ -115,7 +128,7 @@ function datasDaMatricula(matriculaId) {
  * confirmação de presença ligada, ele passa a ter dado e entra sozinho.
  */
 function vinculosComDado() {
-  return CONFIRMACAO_ATIVA ? ['wellhub', 'mensalista'] : ['wellhub'];
+  return confirmacaoAtiva() ? ['wellhub', 'mensalista'] : ['wellhub'];
 }
 
 /**
@@ -129,13 +142,20 @@ function vinculoParaPainel() {
 
 function situacao() {
   return {
-    fontes: CONFIRMACAO_ATIVA ? ['wellhub', 'estudio'] : ['wellhub'],
-    confirmacaoAtiva: CONFIRMACAO_ATIVA,
+    fontes: confirmacaoAtiva() ? ['wellhub', 'estudio'] : ['wellhub'],
+    confirmacaoAtiva: confirmacaoAtiva(),
     vinculosComDado: vinculosComDado(),
   };
 }
 
 module.exports = {
   mapaPorMatricula, datasDaMatricula, vinculosComDado, vinculoParaPainel,
-  situacao, CONFIRMACAO_ATIVA,
+  situacao, confirmacaoAtiva,
 };
+
+// Compatibilidade: `presencas.CONFIRMACAO_ATIVA` continua funcionando para quem
+// já lia a constante, mas agora responde o valor de agora, não o do boot.
+Object.defineProperty(module.exports, 'CONFIRMACAO_ATIVA', {
+  enumerable: true,
+  get: confirmacaoAtiva,
+});

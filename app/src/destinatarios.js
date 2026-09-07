@@ -23,9 +23,17 @@ const alertas = require('./alertas-frequencia');
 const frequencia = require('./frequencia');
 const telefone = require('./telefone');
 const presencas = require('./presencas');
+const config = require('./config');
 
-/** Dias sem aparecer a partir dos quais o aluno entra no público 'ausentes'. */
-const AUSENTE_DIAS = Number(process.env.PRESENCA_AUSENTE_DIAS || 10);
+/**
+ * Dias sem aparecer a partir dos quais o aluno entra no público 'ausentes',
+ * para os modelos que não definem o seu próprio corte. Editável em
+ * Configurações → Frequência, então lido a cada chamada.
+ */
+function ausenteDiasPadrao() {
+  const n = Number(config.ler().frequencia.ausenteDias);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 10;
+}
 
 /** Diferença em dias entre uma data 'AAAA-MM-DD' e hoje. */
 function diasDesde(iso, hoje) {
@@ -162,7 +170,7 @@ function montar(publico = 'todos', opcoes = {}) {
   // estúdio. Fica aqui, e não no agendador, para a prévia da tela e o disparo
   // automático chegarem à mesma lista.
   const limiteAusente = Number(opcoes.ausenteDias) > 0
-    ? Math.round(Number(opcoes.ausenteDias)) : AUSENTE_DIAS;
+    ? Math.round(Number(opcoes.ausenteDias)) : ausenteDiasPadrao();
   const tetoAusente = Number(opcoes.ausenteAte) > 0
     ? Math.round(Number(opcoes.ausenteAte)) : 0;
   let lista;

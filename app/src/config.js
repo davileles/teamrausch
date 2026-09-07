@@ -90,6 +90,49 @@ const PADRAO = {
     valorFuncional: 18.75,
     valorCrosstraining: 22.28,
   },
+  /**
+   * FREQUÊNCIA E COBRANÇA
+   *
+   * Estes valores eram variáveis de ambiente. Viraram configuração porque são
+   * regra de negócio, não infraestrutura: mudar de quantos dias alguém conta
+   * como sumido não deveria pedir acesso ao Railway nem um deploy. As variáveis
+   * antigas continuam valendo como valor inicial — quem já as tinha definidas
+   * não vê diferença até editar na tela, e a partir daí a tela manda.
+   */
+  frequencia: {
+    // Conta a presença do totem como treino, ao lado do check-in do Wellhub.
+    // Enquanto for false, só o Wellhub conta — e o mensalista fica fora dos
+    // públicos "Sumidos" e "Devendo treino", porque não teria como provar que
+    // treinou e apareceria como devedor todo mês.
+    confirmacaoAtiva: String(process.env.PRESENCA_CONFIRMACAO_ATIVA || 'false') === 'true',
+    // Dias sem aparecer a partir dos quais o aluno entra no público "Sumidos".
+    // Cada modelo de mensagem pode ter o seu; este é o valor de quem não tem.
+    ausenteDias: Number(process.env.PRESENCA_AUSENTE_DIAS || 10),
+    // Aviso diário de quem está atrás da meta. Vai para as listas do estúdio,
+    // nunca para o aluno.
+    alertaAtivo: String(process.env.FREQ_ALERTA_ATIVO || 'true') === 'true',
+    alertaHora: String(process.env.FREQ_ALERTA_HORA || '10:00'),
+    janelaDias: Number(process.env.FREQ_JANELA_DIAS || 7),
+    // 0=dom … 6=sáb. Dias em que o aviso sai.
+    alertaDias: String(process.env.FREQ_ALERTA_DIAS || '1,2,3,4,5')
+      .split(',').map((x) => Number(String(x).trim()))
+      .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6),
+    // Texto padrão do botão de cobrar um aluno pela tela de Frequência.
+    textoCobranca: String(process.env.FREQ_TEXTO_COBRANCA
+      || 'Oi, {{nome}}! Aqui é do TeamRausch. Neste mês você fez {{mesRealizado}} '
+       + 'de {{mesEsperado}} treinos combinados. Consegue repor essa semana? '
+       + 'Se precisar remarcar horário, é só falar com a gente.'),
+  },
+  /** Disparo automático dos modelos programados e recorrentes. */
+  mensagens: {
+    agendadorAtivo: String(process.env.MSG_AGENDADOR_ATIVO || 'true') === 'true',
+    // Pausa entre um aluno e o próximo. Rajada é o que mais derruba número.
+    pausaSegundos: Math.round(Number(process.env.MSG_PAUSA_MS || 8000) / 1000),
+    // Quanto tempo depois da hora marcada um envio programado ainda vale.
+    toleranciaMin: Number(process.env.MSG_TOLERANCIA_MIN || 720),
+    // Nomes no aviso ao grupo antes de virar parede de texto.
+    avisoMaxLinhas: Number(process.env.MSG_AVISO_MAX_LINHAS || 25),
+  },
   // Quem recebe os avisos de operação (e-mail e/ou WhatsApp).
   // Editável em Configurações → Avisos. Sem e-mail cadastrado o sistema cai no
   // WELLHUB_ALERTA_EMAIL.

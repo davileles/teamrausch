@@ -31,13 +31,41 @@ const grade = require('./grade');
 const { enviarTexto } = require('./mensageiro');
 const telefone = require('./telefone');
 const poller = require('./poller-portal');
+const config = require('./config');
 
-const ATIVO = String(process.env.MSG_AGENDADOR_ATIVO || 'true') === 'true';
+/**
+ * Vem de Configurações → Frequência, lido na hora de usar e não no boot: a
+ * tela edita, e uma constante congelada faria o botão salvar sem efeito até o
+ * próximo deploy.
+ */
+function cfg() {
+  try {
+    return config.ler().mensagens || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function ativo() { return cfg().agendadorAtivo !== false; }
+
 /** Pausa entre um aluno e o próximo. O serviço de WhatsApp já tem fila
  *  interna, mas ela é de 1,2 s — curta demais para um lote de 80 pessoas. */
-const PAUSA_MS = Number(process.env.MSG_PAUSA_MS || 8000);
+function pausaMs() {
+  const s = Number(cfg().pausaSegundos);
+  return Number.isFinite(s) && s > 0 ? Math.round(s * 1000) : 8000;
+}
+
 /** Quanto tempo depois da hora marcada ainda vale enviar. */
-const TOLERANCIA_MIN = Number(process.env.MSG_TOLERANCIA_MIN || 720);
+function toleranciaMin() {
+  const n = Number(cfg().toleranciaMin);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : 720;
+}
+
+/** Até quantos nomes cabem no aviso do grupo antes de virar parede de texto. */
+function avisoMaxLinhas() {
+  const n = Number(cfg().avisoMaxLinhas);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 25;
+}
 
 function log(...a) { console.log(new Date().toISOString(), '[msg-agendador]', ...a); }
 
@@ -64,6 +92,7 @@ function emMinutos(hhmm) {
 function avaliar(modelo, hoje, hhmm) {
   if (!modelo.ativo) return { disparar: false, marca: null };
   const agora = emMinutos(hhmm);
+  const TOLERANCIA_MIN = toleranciaMin();
 
   if (modelo.modo === 'programado') {
     const [dia, hora] = String(modelo.quando || '').split('T');
@@ -109,9 +138,6 @@ function avaliar(modelo, hoje, hhmm) {
 
 /* -------------------------------- envio ---------------------------------- */
 
-/** Até quantos nomes cabem no aviso do grupo antes de virar parede de texto. */
-const AVISO_MAX_LINHAS = Number(process.env.MSG_AVISO_MAX_LINHAS || 25);
-
 /**
  * Conta ao grupo do estúdio o que acabou de sair sozinho.
  *
@@ -129,15 +155,16 @@ async function avisarGrupo(modelo, resultado, pulados) {
   const { alvos = [], falhas = [] } = resultado;
   if (!alvos.length && !pulados) return;
 
-  const linhas = alvos.slice(0, AVISO_MAX_LINHAS).map((a) => {
+  const teto = avisoMaxLinhas();
+  const linhas = alvos.slice(0, teto).map((a) => {
     const quanto = a.diasSemTreinar === null || a.diasSemTreinar === undefined
       ? 'nunca treinou'
       : `${a.diasSemTreinar} dias sem treinar`;
     const tel = a.telefoneFormatado || a.telefone || 'sem telefone';
     return `• ${a.nome} — ${quanto} · ${tel}`;
   });
-  if (alvos.length > AVISO_MAX_LINHAS) {
-    linhas.push(`…e mais ${alvos.length - AVISO_MAX_LINHAS}.`);
+  if (alvos.length > teto) {
+    linhas.push(`…e mais ${alvos.length - teto}.`);
   }
 
   const corpo = [`📤 Enviei "${modelo.nome}" para ${alvos.length} aluno(s).`, ''];
@@ -211,7 +238,7 @@ async function disparar(modelo, hoje) {
       lote, ok: r.ok, motivo: r.ok ? null : r.motivo,
     });
 
-    await dormir(PAUSA_MS);
+    await dormir(pausaMs());
   }
 
   log(`"${modelo.nome}": ${enviados} enviada(s), ${falhas.length} com erro.`);
@@ -240,7 +267,7 @@ async function rodar({ forcarId = null } = {}) {
         : avaliar(m, hoje, hhmm);
 
       if (d.vencido) {
-        log(`"${m.nome}": passou da tolerância de ${TOLERANCIA_MIN} min — não enviei.`);
+        log(`"${m.nome}": passou da tolerância de ${toleranciaMin()} min — não enviei.`);
         modelos.marcarDisparo(m.id, d.marca);
         feitos.push({ modelo: m.nome, vencido: true });
         continue;
@@ -263,17 +290,24 @@ async function rodar({ forcarId = null } = {}) {
 }
 
 function iniciar() {
-  if (!ATIVO) { log('desligado (MSG_AGENDADOR_ATIVO=false).'); return; }
-  log(`ligado: checagem a cada 5 min, pausa de ${PAUSA_MS / 1000}s entre envios.`);
-  setTimeout(() => rodar().catch((e) => log(e.message)), 90000).unref?.();
-  setInterval(() => rodar().catch((e) => log(e.message)), 5 * 60000).unref();
+  // O timer sempre sobe: ligar e desligar virou decisão de tela, e um `return`
+  // aqui deixaria o agendador morto até o próximo deploy.
+  log(`agendado: checagem a cada 5 min, pausa de ${pausaMs() / 1000}s entre envios`
+    + `${ativo() ? '' : ' — DESLIGADO na configuração'}.`);
+  const ciclo = () => {
+    if (!ativo()) return;
+    rodar().catch((e) => log(e.message));
+  };
+  setTimeout(ciclo, 90000).unref?.();
+  setInterval(ciclo, 5 * 60000).unref();
 }
 
 function situacao() {
   return {
-    ativo: ATIVO,
-    pausaMs: PAUSA_MS,
-    toleranciaMin: TOLERANCIA_MIN,
+    ativo: ativo(),
+    pausaMs: pausaMs(),
+    toleranciaMin: toleranciaMin(),
+    avisoMaxLinhas: avisoMaxLinhas(),
     rodando,
     agendados: modelos.listarModelos()
       .filter((m) => m.modo !== 'manual' && m.ativo)

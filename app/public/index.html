@@ -4876,6 +4876,10 @@ async function carregarConfig(){
     configAtual = c;
     const av = c.avisos || {};
     const fin = c.financeiro || {};
+    const frq = c.frequencia || {};
+    const msg = c.mensagens || {};
+    const DIAS_SEM = [['0','Dom'],['1','Seg'],['2','Ter'],['3','Qua'],['4','Qui'],['5','Sex'],['6','Sáb']];
+    const diasAlerta = Array.isArray(frq.alertaDias) ? frq.alertaDias.map(String) : ['1','2','3','4','5'];
     alvo.innerHTML = `
       <h2>Configurações</h2>
 
@@ -5012,6 +5016,76 @@ async function carregarConfig(){
       <p class="ajuda">Check-in com um produto que não seja nenhum dos dois entra pelo menor
         dos dois valores e aparece separado na aba Indicadores — assim um nome novo no portal vira
         um aviso na tela, e não um erro silencioso na soma.</p>
+
+      <h3>Frequência e cobrança</h3>
+      <p class="ajuda">Quem conta como sumido, quando o aviso diário sai e o texto padrão
+        da cobrança. Estas opções eram variáveis de ambiente — mudar pedia acesso ao
+        servidor. Agora valem no minuto seguinte a salvar.</p>
+
+      <div class="campo"><label for="c-freq-confirmacao">Contar a presença do totem</label>
+        <select id="c-freq-confirmacao">
+          <option value="0"${frq.confirmacaoAtiva?'':' selected'}>Não — só o check-in do Wellhub</option>
+          <option value="1"${frq.confirmacaoAtiva?' selected':''}>Sim — totem e Wellhub</option>
+        </select>
+        <p class="ajuda"><b>Confira antes de ligar.</b> O tablet grava presença desde
+          sempre, mas se ele não estiver no fluxo da entrada, ligar isto faz todo
+          mensalista aparecer com zero treinos e virar devedor no dia seguinte — cobrado
+          por não ter feito algo que ninguém registrou. Veja o que já foi gravado em
+          <code>/presencas/resumo?token=SEU_PANEL_TOKEN</code>: se muitos mensalistas
+          estiverem sem nenhuma presença, deixe desligado.</p></div>
+
+      <div class="dupla">
+        <div class="campo"><label for="c-freq-ausente">Sumido a partir de (dias)</label>
+          <input id="c-freq-ausente" type="number" min="1" max="365" value="${Number(frq.ausenteDias ?? 10)}">
+          <p class="ajuda">Vale para modelos que não definem o próprio corte.</p></div>
+        <div class="campo"><label for="c-freq-janela">Janela da frequência (dias)</label>
+          <input id="c-freq-janela" type="number" min="1" max="90" value="${Number(frq.janelaDias ?? 7)}">
+          <p class="ajuda">Período que o aviso diário compara com a meta.</p></div>
+      </div>
+
+      <div class="dupla">
+        <div class="campo"><label for="c-freq-ativo">Aviso diário de frequência</label>
+          <select id="c-freq-ativo">
+            <option value="1"${frq.alertaAtivo===false?'':' selected'}>Ligado</option>
+            <option value="0"${frq.alertaAtivo===false?' selected':''}>Desligado</option>
+          </select>
+          <p class="ajuda">Vai para as listas do estúdio, nunca para o aluno.</p></div>
+        <div class="campo"><label for="c-freq-hora">Hora do aviso</label>
+          <input id="c-freq-hora" type="time" value="${esc(frq.alertaHora||'10:00')}"></div>
+      </div>
+
+      <div class="campo"><label>Dias em que o aviso sai</label>
+        <div class="chips-mat" style="gap:6px">${DIAS_SEM.map(([v,r])=>`
+          <label class="chip" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" class="c-freq-dia" value="${v}"
+              ${diasAlerta.includes(v)?'checked':''} style="width:auto;margin:0">${r}</label>`).join('')}</div>
+        <p class="ajuda">Nenhum marcado volta ao padrão de segunda a sexta.</p></div>
+
+      <div class="campo"><label for="c-freq-cobranca">Texto padrão da cobrança</label>
+        <textarea id="c-freq-cobranca" rows="4">${esc(frq.textoCobranca||'')}</textarea>
+        <p class="ajuda">O que o botão "Cobrar" da aba Frequência sugere. Aceita
+          {{nome}}, {{mesRealizado}} e {{mesEsperado}}.</p></div>
+
+      <h3>Envio automático de mensagens</h3>
+      <div class="dupla">
+        <div class="campo"><label for="c-msg-ativo">Agendador</label>
+          <select id="c-msg-ativo">
+            <option value="1"${msg.agendadorAtivo===false?'':' selected'}>Ligado</option>
+            <option value="0"${msg.agendadorAtivo===false?' selected':''}>Desligado</option>
+          </select>
+          <p class="ajuda">Desligar para tudo: programados e recorrentes param de sair.</p></div>
+        <div class="campo"><label for="c-msg-pausa">Pausa entre alunos (segundos)</label>
+          <input id="c-msg-pausa" type="number" min="1" max="120" value="${Number(msg.pausaSegundos ?? 8)}">
+          <p class="ajuda">Rajada é o que mais derruba número. Abaixo de 5s é arriscado.</p></div>
+      </div>
+      <div class="dupla">
+        <div class="campo"><label for="c-msg-tolerancia">Tolerância do programado (min)</label>
+          <input id="c-msg-tolerancia" type="number" min="0" max="4320" value="${Number(msg.toleranciaMin ?? 720)}">
+          <p class="ajuda">Serviço fora do ar na hora marcada: até quando ainda vale enviar.</p></div>
+        <div class="campo"><label for="c-msg-linhas">Nomes no aviso ao grupo</label>
+          <input id="c-msg-linhas" type="number" min="1" max="200" value="${Number(msg.avisoMaxLinhas ?? 25)}">
+          <p class="ajuda">Acima disso o aviso corta e diz quantos sobraram.</p></div>
+      </div>
 
       <h3>Avisos de operação</h3>
       <p class="ajuda">Fila do Wellhub esperando confirmação, falha ao confirmar, sessão do
@@ -5306,6 +5380,23 @@ async function salvarConfig(){
     financeiro: {
       valorFuncional: n('c-val-func'),
       valorCrosstraining: n('c-val-cross'),
+    },
+    frequencia: {
+      confirmacaoAtiva: v('c-freq-confirmacao') === '1',
+      ausenteDias: n('c-freq-ausente'),
+      janelaDias: n('c-freq-janela'),
+      alertaAtivo: v('c-freq-ativo') === '1',
+      alertaHora: v('c-freq-hora'),
+      // Nenhum dia marcado seria um aviso que nunca sai, sem dizer por quê.
+      // O servidor cai no padrão quando a lista chega vazia.
+      alertaDias: [...document.querySelectorAll('.c-freq-dia:checked')].map(x=>Number(x.value)),
+      textoCobranca: v('c-freq-cobranca'),
+    },
+    mensagens: {
+      agendadorAtivo: v('c-msg-ativo') === '1',
+      pausaSegundos: n('c-msg-pausa'),
+      toleranciaMin: n('c-msg-tolerancia'),
+      avisoMaxLinhas: n('c-msg-linhas'),
     },
     avisos: {
       emails: v('c-aviso-emails').split(',').map(s=>s.trim()).filter(Boolean),
