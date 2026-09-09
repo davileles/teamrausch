@@ -76,7 +76,12 @@ function porExtenso(data) {
 /** Aulas fixas de um dia, agrupadas por horário. */
 function fixosDoDia(data) {
   const mapa = new Map();
-  if (config.ler().agenda.contarMatriculasNaLotacao === false) return mapa;
+  const c = config.ler();
+  // Dia em que o estúdio não abre não tem aula fixa. Sem esta linha o feriado
+  // bloqueava a agenda para quem quisesse marcar e ainda assim listava treze
+  // alunos na Grade do dia, com a sala fechada.
+  if ((c.agenda.datasBloqueadas || []).includes(data)) return mapa;
+  if (c.agenda.contarMatriculasNaLotacao === false) return mapa;
   const excecoes = matriculas.excecoes({ de: data, ate: data });
   for (const item of grade.agendaDoDia(matriculas.listar(), data, excecoes)) {
     if (!mapa.has(item.hora)) mapa.set(item.hora, []);
@@ -94,16 +99,19 @@ function fixosDaMatricula(matricula, data) {
 }
 
 /**
- * Uma aula desmarcada vira crédito de reposição?
+ * Uma aula desmarcada vira crédito de reposição sozinha?
  *
- * O critério é o aviso, não o motivo: com antecedência a vaga volta para a
- * agenda e outra pessoa aproveita; em cima da hora, ninguém aproveita e a aula
- * foi consumida do mesmo jeito. O estúdio ainda pode virar essa chave à mão
- * depois, caso a caso — ver `definirCredito` em matriculas-store.
+ * Por padrão não. Crédito é concessão do estúdio — viagem avisada, atestado,
+ * dia em que a sala não abriu — e é lá que mora o motivo, que é o que a
+ * recepção precisa poder mostrar quando alguém questionar o saldo. Ligando
+ * `creditoAutomatico`, desmarcar com antecedência passa a valer crédito: o
+ * critério vira o aviso, porque com antecedência a vaga volta para a agenda e
+ * outra pessoa aproveita, e em cima da hora ninguém aproveita.
  */
 function geraCredito(data, hora) {
   const c = config.ler();
   if (c.agenda.creditoReposicao === false) return false;
+  if (c.agenda.creditoAutomatico !== true) return false;
   const minimo = Number(c.agenda.horasParaGerarCredito || 0) * 60;
   return minutosAte(data, hora, c.estudio.fuso) >= minimo;
 }
@@ -116,6 +124,11 @@ function creditosDe(matricula) {
     matricula,
     matriculas.excecoes({ matriculaId: matricula.id }),
     { hoje: hoje(c.estudio.fuso), validadeDias: Number(c.agenda.validadeCreditoDias || 0) });
+}
+
+/** O crédito mais antigo ainda válido — é ele que a próxima reposição gasta. */
+function creditoAUsar(matricula) {
+  return creditosDe(matricula).creditos.find((c) => c.situacao === 'disponivel') || null;
 }
 
 /** Domingo da semana de uma data — a frequência da matrícula é semanal. */
@@ -144,7 +157,7 @@ function lotacao(data, hora, naGrade) {
  */
 function semanaDaMatricula(matricula, telefone, data) {
   const inicio = domingoDa(data);
-  let dias = 0;
+  const datas = [];
   let noDia = 0;
   for (let i = 0; i < 7; i++) {
     const d = somarDias(inicio, i);
@@ -153,9 +166,13 @@ function semanaDaMatricula(matricula, telefone, data) {
       for (const a of store.daData(d)) if (a.telefone === telefone) horas.add(a.hora);
     }
     if (!horas.size) continue;
-    if (d === data) noDia = horas.size; else dias += 1;
+    if (d === data) noDia = horas.size; else datas.push(d);
   }
-  return { dias, noDia, total: dias + (noDia ? 1 : 0) };
+  const dias = datas.length;
+  // `datas` sai junto porque quem soma crédito à conta da semana precisa saber
+  // quais dias já entraram, e não só quantos: um crédito do mesmo dia que já
+  // foi reposto contaria duas vezes.
+  return { dias, noDia, total: dias + (noDia ? 1 : 0), datas, inicio };
 }
 
 /* ------------------------------ agenda ----------------------------------- */
@@ -175,16 +192,38 @@ function minutosAte(data, hora, fuso) {
   return diferencaEmDias(hoje(fuso), data) * 1440 + emMinutos(hora) - agoraEmMinutos(fuso);
 }
 
-function datasAbertas() {
+function datasAbertas(dias) {
   const c = config.ler();
   const fuso = c.estudio.fuso;
   const inicio = hoje(fuso);
-  const total = Math.max(0, Number(c.agenda.diasAntecedencia) || 0);
+  const total = Math.max(0, Number(dias === undefined ? c.agenda.diasAntecedencia : dias) || 0);
   return Array.from({ length: total + 1 }, (_, i) => somarDias(inicio, i));
 }
 
-/** Monta um dia com todos os horários e a situação de cada um. */
-function montarDia(data, telefone, minhaMatricula) {
+/**
+ * Até onde a agenda vai para esta pessoa.
+ *
+ * A janela normal é curta de propósito — abrir o mês inteiro enche a agenda de
+ * marcação que ninguém honra. Mas reposição não se marca para amanhã: quem
+ * viajou volta daqui a duas semanas e precisa achar a aula. Então quem tem
+ * crédito na mão enxerga mais longe, e só enquanto tiver.
+ */
+function janelaDe(matricula) {
+  const c = config.ler();
+  const base = Number(c.agenda.diasAntecedencia) || 0;
+  if (!matricula) return base;
+  if (!creditosDe(matricula).saldo) return base;
+  return Math.max(base, Number(c.agenda.diasAntecedenciaReposicao) || 0);
+}
+
+/**
+ * Monta um dia com todos os horários e a situação de cada um.
+ *
+ * `saldoCreditos` chega pronto de `montarDias`: contar crédito é varrer as
+ * exceções da matrícula, e refazer isso em cada um dos vinte e dois dias da
+ * janela seria a mesma varredura vinte e duas vezes por request.
+ */
+function montarDia(data, telefone, minhaMatricula, saldoCreditos) {
   const c = config.ler();
   const fuso = c.estudio.fuso;
   const bloqueada = (c.agenda.datasBloqueadas || []).includes(data);
@@ -229,6 +268,12 @@ function montarDia(data, telefone, minhaMatricula) {
   }
   modelo.sort((a, b) => emMinutos(a.hora) - emMinutos(b.hora));
 
+  // Marcar mais uma aula neste dia estoura a semana? A conta é do dia, não do
+  // horário — vale igual para todos os slots.
+  const estouro = estouraFrequencia(minha, telefone, data);
+  const saldo = !estouro ? 0
+    : (saldoCreditos === undefined ? creditosDe(minha).saldo : saldoCreditos);
+
   const horarios = modelo.map((slot) => {
     const capacidade = slot.capacidade;
     const naGrade = fixos.get(slot.hora) || [];
@@ -250,6 +295,10 @@ function montarDia(data, telefone, minhaMatricula) {
     // está nele continua, quem não está não entra.
     else if (slot.foraDaAgenda) situacao = 'fechado';
     else if (ocupadas >= capacidade) situacao = 'lotado';
+    // Semana cheia e sem crédito: o horário existe e tem vaga, mas não é para
+    // esta pessoa. Deixar aberto só para recusar no clique é o beco sem saída
+    // que a tela deveria evitar.
+    else if (estouro && !saldo) situacao = 'fechado';
 
     // Quando a aula é sua mas não dá para mexer nela, a tela precisa dizer por
     // quê. Um selo mudo vira um beco sem saída: a pessoa acha que o app está
@@ -260,6 +309,10 @@ function montarDia(data, telefone, minhaMatricula) {
       motivoTravado = !c.agenda.permitirCancelar
         ? 'O estúdio não abriu cancelamento e troca pelo app.'
         : `Trocar ou desmarcar só até ${emTextoDeTempo(minimo)} antes.`;
+    } else if (estouro && !saldo && !bloqueada && !fechou && !slot.foraDaAgenda) {
+      motivoTravado = `Sua matrícula é de ${estouro.frequencia}x por semana e você já ` +
+        `tem ${estouro.dias} ${estouro.dias === 1 ? 'dia' : 'dias'} nesta semana. ` +
+        'Para encaixar mais uma, fale com o estúdio.';
     }
 
     return {
@@ -284,6 +337,9 @@ function montarDia(data, telefone, minhaMatricula) {
       podeDesmarcar: Boolean(meuFixo) && !meu && aTempo,
       // Trocar vale para as duas naturezas: aula da matrícula e reserva.
       podeTrocar: Boolean(meuFixo || meu) && aTempo,
+      // Marcar aqui gasta um crédito de reposição. A tela precisa avisar antes
+      // do clique: crédito é escasso e a pessoa escolhe onde gastar.
+      custaCredito: Boolean(estouro) && situacao === 'aberto',
     };
   });
 
@@ -298,7 +354,11 @@ function montarDia(data, telefone, minhaMatricula) {
 
 function montarDias(telefone) {
   const minha = telefone ? matriculas.porTelefone(telefone) : null;
-  return datasAbertas().map((d) => montarDia(d, telefone, minha));
+  const saldo = minha ? creditosDe(minha).saldo : 0;
+  const dias = Math.max(
+    Number(config.ler().agenda.diasAntecedencia) || 0,
+    saldo ? (Number(config.ler().agenda.diasAntecedenciaReposicao) || 0) : 0);
+  return datasAbertas(dias).map((d) => montarDia(d, telefone, minha, saldo));
 }
 
 /**
@@ -327,15 +387,54 @@ function minhaMatricula(telefone, data) {
 }
 
 /**
+ * Marcar aula neste dia estoura a frequência contratada?
+ *
+ * Só aqui o crédito entra em jogo. Quem ainda tem dia livre na semana marca
+ * normalmente e não gasta nada — gastar crédito numa aula que ele já tinha
+ * direito seria cobrar duas vezes pela mesma coisa.
+ */
+function estouraFrequencia(matricula, telefone, data) {
+  const c = config.ler();
+  if (!matricula || c.agenda.respeitarFrequencia === false) return null;
+  const frequencia = grade.diasPorSemana(matricula);
+  if (!frequencia) return null;
+  const semana = semanaDaMatricula(matricula, telefone, data);
+  if (semana.noDia) return null;
+
+  // A aula perdida que virou crédito continua ocupando o lugar dela na semana
+  // até o crédito ser gasto. Sem isso, quem desmarcava a segunda e remarcava
+  // na terça ficava com os dois dias e ainda saía com o crédito na mão: repunha
+  // de graça e guardava o direito a uma terceira aula em outra semana.
+  const fim = somarDias(semana.inicio, 6);
+  const jaContados = new Set([...semana.datas, data]);
+  const reservados = new Set(
+    creditosDe(matricula).creditos
+      .filter((x) => x.situacao === 'disponivel' &&
+        x.data >= semana.inicio && x.data <= fim && !jaContados.has(x.data))
+      .map((x) => x.data));
+
+  const dias = semana.dias + reservados.size;
+  if (dias < frequencia) return null;
+  return { frequencia, dias };
+}
+
+/**
  * Reserva uma vaga. Todas as checagens e a gravação acontecem no mesmo
  * passo síncrono — o Node não intercala, então duas pessoas não pegam a
  * mesma última vaga. Isso vale enquanto o serviço roda em UMA réplica.
+ *
+ * Quem estourou a frequência da semana e tem crédito de reposição marca
+ * sozinho: o crédito já é a autorização do estúdio, dada quando ele foi
+ * concedido. Mandar a pessoa ligar para a recepção de novo, com o crédito na
+ * mão, é pedir a mesma permissão duas vezes.
  */
 function reservar(aluno, data, hora) {
   const c = config.ler();
   const fuso = c.estudio.fuso;
 
-  if (!datasAbertas().includes(data)) {
+  const minha = matriculas.porTelefone(aluno.telefone);
+
+  if (!datasAbertas(janelaDe(minha)).includes(data)) {
     return { ok: false, motivo: 'Esse dia não está aberto para agendamento.' };
   }
   if ((c.agenda.datasBloqueadas || []).includes(data)) {
@@ -353,7 +452,6 @@ function reservar(aluno, data, hora) {
     return { ok: false, motivo: 'Você já está nesse horário.' };
   }
 
-  const minha = matriculas.porTelefone(aluno.telefone);
   const meusFixos = fixosDaMatricula(minha, data);
   if (meusFixos.some((x) => x.hora === hora)) {
     return { ok: false, motivo: 'Esse já é o seu horário fixo — você não precisa reservar.' };
@@ -373,16 +471,17 @@ function reservar(aluno, data, hora) {
   }
 
   // Frequência da matrícula: 3x por semana são três idas, não três por dia.
-  // Encaixe além disso é decisão do estúdio, não do app — por isso a mensagem
-  // manda falar com a recepção em vez de só recusar.
-  if (minha && c.agenda.respeitarFrequencia !== false) {
-    const frequencia = grade.diasPorSemana(minha);
-    const semana = semanaDaMatricula(minha, aluno.telefone, data);
-    if (frequencia > 0 && !semana.noDia && semana.dias >= frequencia) {
+  // Estourar isso exige um crédito de reposição; sem crédito, a decisão volta
+  // a ser do estúdio e a mensagem manda falar com a recepção.
+  const estouro = estouraFrequencia(minha, aluno.telefone, data);
+  let credito = null;
+  if (estouro) {
+    credito = creditoAUsar(minha);
+    if (!credito) {
       return {
         ok: false,
-        motivo: `Sua matrícula é de ${frequencia}x por semana e você já tem ` +
-          `${semana.dias} ${semana.dias === 1 ? 'dia' : 'dias'} de aula nesta semana. ` +
+        motivo: `Sua matrícula é de ${estouro.frequencia}x por semana e você já tem ` +
+          `${estouro.dias} ${estouro.dias === 1 ? 'dia' : 'dias'} de aula nesta semana. ` +
           'Para encaixar mais uma, fale com o estúdio.',
       };
     }
@@ -392,6 +491,26 @@ function reservar(aluno, data, hora) {
   const naGrade = fixosDoDia(data).get(hora) || [];
   if (lotacao(data, hora, naGrade).ocupadas >= capacidade) {
     return { ok: false, motivo: 'As vagas desse horário acabaram.' };
+  }
+
+  // Quem tem matrícula ganha uma aula extra nela, não uma reserva solta: é
+  // assim que a aula aparece na Grade do dia junto das outras daquele horário,
+  // e é o único registro que o crédito consegue apontar.
+  if (minha) {
+    const r = matriculas.registrarExcecao({
+      matriculaId: minha.id, data, tipo: 'extra', hora,
+      motivo: credito
+        ? `Reposição da aula de ${porExtenso(credito.data)}`
+        : 'Marcado pelo aluno no app',
+      reposicaoDe: credito ? credito.id : null,
+    });
+    if (!r.ok) return r;
+    return {
+      ok: true,
+      excecao: r.excecao,
+      reposicao: Boolean(credito),
+      saldo: creditosDe(minha).saldo,
+    };
   }
 
   const registro = store.reservar({
@@ -493,7 +612,7 @@ function trocar(aluno, de, para) {
   }
 
   /* ---- o destino serve? ---- */
-  if (!datasAbertas().includes(para.data)) {
+  if (!datasAbertas(janelaDe(minha)).includes(para.data)) {
     return { ok: false, motivo: 'Esse dia não está aberto para agendamento.' };
   }
   if ((c.agenda.datasBloqueadas || []).includes(para.data)) {
@@ -621,6 +740,6 @@ function listaDoDia(data) {
 module.exports = {
   hoje, montarDia, montarDias, datasAbertas, reservar, cancelar, desmarcarFixa, trocar,
   listaDoDia, minhaMatricula, semanaDaMatricula, fixosDaMatricula,
-  geraCredito, creditosDe,
+  geraCredito, creditosDe, creditoAUsar, janelaDe, estouraFrequencia,
   diaDaSemana, porExtenso, minutosAte, emTextoDeTempo, DIAS, NOME_DO_DIA,
 };

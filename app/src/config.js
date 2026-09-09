@@ -40,12 +40,21 @@ const PADRAO = {
     // crédito banca uma aula extra em outro dia — inclusive além da frequência
     // contratada. Desligado, desmarcar continua desmarcando e a aula é perdida.
     creditoReposicao: true,
-    // Desmarcou faltando menos que isto para a aula? É falta, não crédito. A
-    // vaga já não dá tempo de ser reaproveitada por mais ninguém.
+    // Quem concede o crédito é o estúdio: viagem avisada, atestado, dia em que
+    // a sala não abriu. Desmarcar sozinho pelo app não gera crédito nenhum —
+    // senão "desmarquei" viraria "ganhei uma aula", e o saldo cresceria sem
+    // que ninguém tivesse decidido nada.
+    creditoAutomatico: false,
+    // Só vale com `creditoAutomatico` ligado: desmarcou faltando menos que
+    // isto, é falta. A vaga já não dá tempo de ser reaproveitada por ninguém.
     horasParaGerarCredito: 24,
     // Prazo para usar o crédito, contado a partir da data da aula perdida.
     // 0 = não expira.
     validadeCreditoDias: 30,
+    // Janela de agendamento de quem tem crédito na mão. A janela normal é
+    // curta de propósito, mas reposição se marca com semanas de antecedência —
+    // com 1 dia, o crédito existiria no papel e não teria onde ser gasto.
+    diasAntecedenciaReposicao: 21,
     horarios: {
       dom: [],
       seg: [{ hora: '06:00' }, { hora: '07:00' }, { hora: '18:00' }, { hora: '19:00' }],
@@ -229,8 +238,10 @@ function publica() {
       limitePorDia: c.agenda.limitePorDia,
       respeitarFrequencia: c.agenda.respeitarFrequencia !== false,
       creditoReposicao: c.agenda.creditoReposicao !== false,
+      creditoAutomatico: c.agenda.creditoAutomatico === true,
       horasParaGerarCredito: c.agenda.horasParaGerarCredito,
       validadeCreditoDias: c.agenda.validadeCreditoDias,
+      diasAntecedenciaReposicao: c.agenda.diasAntecedenciaReposicao,
     },
   };
 }

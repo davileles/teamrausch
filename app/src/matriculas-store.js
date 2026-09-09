@@ -1274,11 +1274,18 @@ function registrarExcecao({ matriculaId, data, tipo, hora, motivo, gerouCredito,
  * desmarcou por atestado às 6h da manhã não deveria perder a aula por causa
  * dele. Esta é a porta do estúdio para o caso concreto.
  */
-function definirCredito(id, gerouCredito) {
+function definirCredito(id, gerouCredito, justificativa) {
   const e = dados.excecoes.find((x) => x.id === id);
   if (!e) return { ok: false, motivo: 'Exceção não encontrada.' };
   if (e.tipo !== 'cancelou') return { ok: false, motivo: 'Só aula desmarcada gera crédito.' };
   const novo = gerouCredito === true;
+  const texto = String(justificativa || '').trim();
+  // Crédito sem motivo escrito é o que a recepção não consegue defender três
+  // semanas depois, quando o aluno pergunta de onde veio a aula extra.
+  if (novo && !texto && !e.motivo) {
+    return { ok: false, motivo: 'Escreva o motivo do crédito.' };
+  }
+  if (texto) e.motivo = texto;
   // Tirar o crédito de algo que já virou aula deixaria uma extra pendurada num
   // crédito que não existe mais — e o aluno já treinou.
   if (!novo && dados.excecoes.some((x) => x.tipo === 'extra' && x.reposicaoDe === id)) {
@@ -1302,6 +1309,35 @@ function apagarExcecao(id) {
   }
   gravar();
   return { ok: true };
+}
+
+/**
+ * Desmarca as aulas de uma lista de alunos num dia e credita todas de uma vez.
+ *
+ * É a rotina do dia em que a sala não abriu. Fazer isso aluno por aluno pela
+ * tela são treze cliques com pressa, e o que sobra é sempre alguém esquecido
+ * que aparece na semana seguinte cobrando a aula.
+ *
+ * `alvos` = [{ matriculaId, hora }] — a projeção da grade daquele dia.
+ */
+function creditarEmLote(alvos, { data, motivo }) {
+  const texto = String(motivo || '').trim();
+  if (!texto) return { ok: false, motivo: 'Escreva o motivo do crédito.' };
+  const feitos = [];
+  const erros = [];
+  for (const alvo of alvos || []) {
+    const r = registrarExcecao({
+      matriculaId: alvo.matriculaId,
+      data,
+      tipo: 'cancelou',
+      hora: alvo.hora || null,
+      motivo: texto,
+      gerouCredito: true,
+    });
+    if (r.ok) feitos.push(r.excecao);
+    else erros.push({ matriculaId: alvo.matriculaId, motivo: r.motivo });
+  }
+  return { ok: true, creditados: feitos.length, excecoes: feitos, erros };
 }
 
 /** Guarda um ano de exceções: passado disso não alimenta mais nenhuma tela. */
@@ -1647,7 +1683,7 @@ module.exports = {
   renomearDoWellhub, arrumarCaixa,
   criar, atualizar, inativar, remover, definirContaDe, dependentesDe,
   mesclar, possiveisDuplicadas,
-  excecoes, registrarExcecao, apagarExcecao, definirCredito,
+  excecoes, registrarExcecao, apagarExcecao, definirCredito, creditarEmLote,
   importar, sincronizarPlanilha, resumo, backup, normalizarHorarios, normalizarNomes,
   reduzirGradesEmConflito,
   horaCheia,

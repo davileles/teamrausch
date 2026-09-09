@@ -833,10 +833,106 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
 
   /** Ligar ou desligar o crédito de uma aula desmarcada, caso a caso. */
   rotas.post('/excecoes/:id/credito', (req, res) => {
-    const r = store.definirCredito(req.params.id, req.body.gerouCredito === true);
+    const r = store.definirCredito(
+      req.params.id, req.body.gerouCredito === true, req.body.motivo);
     if (!r.ok) return res.status(400).json({ erro: r.motivo });
     res.json(r.excecao);
   });
+
+  /**
+   * Ausência avisada de um aluno — viagem, cirurgia, semana de prova.
+   *
+   * Desmarca todas as aulas da grade dele no intervalo e credita cada uma. É o
+   * caminho do caso individual: quem decide é você, e o motivo fica escrito na
+   * exceção, que é de onde a recepção vai ler depois.
+   */
+  rotas.post('/:id/ausencia', (req, res) => {
+    const m = store.porId(req.params.id);
+    if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+    const de = String(req.body.de || '');
+    const ate = String(req.body.ate || de);
+    const motivo = String(req.body.motivo || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(de) || !/^\d{4}-\d{2}-\d{2}$/.test(ate)) {
+      return res.status(400).json({ erro: 'Informe o período da ausência.' });
+    }
+    if (ate < de) return res.status(400).json({ erro: 'O fim do período vem antes do início.' });
+    if (!motivo) return res.status(400).json({ erro: 'Escreva o motivo da ausência.' });
+
+    // Uma ausência longa some da tela se virar cem créditos; o teto existe para
+    // a digitação errada de data, não para limitar a viagem de ninguém.
+    const dias = Math.round((Date.parse(`${ate}T12:00:00Z`) - Date.parse(`${de}T12:00:00Z`)) / 86400000);
+    if (dias > 120) return res.status(400).json({ erro: 'Período longo demais — confira as datas.' });
+
+    const alvos = [];
+    const excecoes = store.excecoes({ matriculaId: m.id, de, ate });
+    for (let i = 0; i <= dias; i++) {
+      const data = grade.somarDias(de, i);
+      for (const aula of grade.agendaDoDia([m], data, excecoes)) {
+        if (aula.origem !== 'fixo') continue;
+        alvos.push({ matriculaId: m.id, hora: aula.hora, data });
+      }
+    }
+    if (!alvos.length) {
+      return res.status(400).json({ erro: 'O aluno não tem aula nesse período.' });
+    }
+
+    let creditados = 0;
+    for (const alvo of alvos) {
+      const r = store.creditarEmLote([alvo], { data: alvo.data, motivo });
+      creditados += r.ok ? r.creditados : 0;
+    }
+    res.json({ ok: true, creditados, saldo: agenda.creditosDe(m).saldo });
+  });
+
+  /* --------------------------- estúdio fechado ---------------------------- */
+
+  /** Quem perde aula se o estúdio não abrir nesse dia. */
+  rotas.get('/creditos/dia-fechado', (req, res) => {
+    const data = String(req.query.data || hoje());
+    res.json({ data, alunos: aulasDoDiaParaCreditar(data) });
+  });
+
+  /**
+   * O estúdio não abriu. Desmarca a grade do dia inteiro e credita todo mundo.
+   *
+   * `bloquear` também tranca a data na agenda, para ninguém marcar em cima.
+   * Vínculo Wellhub fica de fora por padrão: quem paga por check-in não pagou
+   * pela aula que não aconteceu, então não há nada a repor.
+   */
+  rotas.post('/creditos/dia-fechado', (req, res) => {
+    const data = String(req.body.data || '');
+    const motivo = String(req.body.motivo || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return res.status(400).json({ erro: 'Data inválida.' });
+    if (!motivo) return res.status(400).json({ erro: 'Escreva o motivo (o aluno vai ler).' });
+
+    const alvos = aulasDoDiaParaCreditar(data, { incluirWellhub: req.body.incluirWellhub === true });
+    if (!alvos.length) return res.status(400).json({ erro: 'Ninguém tem aula nesse dia.' });
+
+    const r = store.creditarEmLote(alvos, { data, motivo });
+    if (!r.ok) return res.status(400).json({ erro: r.motivo });
+
+    let bloqueada = false;
+    if (req.body.bloquear !== false) {
+      const c = config.ler();
+      const lista = c.agenda.datasBloqueadas || [];
+      if (!lista.includes(data)) {
+        config.gravar({ agenda: { datasBloqueadas: [...lista, data].sort() } });
+      }
+      bloqueada = true;
+    }
+    res.json({ ...r, data, bloqueada });
+  });
+
+  /** Projeção da grade de um dia, pronta para virar crédito. */
+  function aulasDoDiaParaCreditar(data, { incluirWellhub = false } = {}) {
+    const excecoes = store.excecoes({ de: data, ate: data });
+    return grade.agendaDoDia(store.listar(), data, excecoes)
+      .filter((a) => a.origem === 'fixo')
+      .filter((a) => incluirWellhub || a.vinculo !== 'wellhub')
+      .map((a) => ({
+        matriculaId: a.matriculaId, nome: a.nome, hora: a.hora, vinculo: a.vinculo || null,
+      }));
+  }
 
   rotas.delete('/excecoes/:id', (req, res) => {
     const r = store.apagarExcecao(req.params.id);
