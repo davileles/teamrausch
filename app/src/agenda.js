@@ -93,6 +93,31 @@ function fixosDaMatricula(matricula, data) {
     matriculas.excecoes({ de: data, ate: data, matriculaId: matricula.id }));
 }
 
+/**
+ * Uma aula desmarcada vira crédito de reposição?
+ *
+ * O critério é o aviso, não o motivo: com antecedência a vaga volta para a
+ * agenda e outra pessoa aproveita; em cima da hora, ninguém aproveita e a aula
+ * foi consumida do mesmo jeito. O estúdio ainda pode virar essa chave à mão
+ * depois, caso a caso — ver `definirCredito` em matriculas-store.
+ */
+function geraCredito(data, hora) {
+  const c = config.ler();
+  if (c.agenda.creditoReposicao === false) return false;
+  const minimo = Number(c.agenda.horasParaGerarCredito || 0) * 60;
+  return minutosAte(data, hora, c.estudio.fuso) >= minimo;
+}
+
+/** Créditos de reposição de uma matrícula, já com a validade configurada. */
+function creditosDe(matricula) {
+  const c = config.ler();
+  if (!matricula || c.agenda.creditoReposicao === false) return { saldo: 0, creditos: [] };
+  return grade.creditosDaMatricula(
+    matricula,
+    matriculas.excecoes({ matriculaId: matricula.id }),
+    { hoje: hoje(c.estudio.fuso), validadeDias: Number(c.agenda.validadeCreditoDias || 0) });
+}
+
 /** Domingo da semana de uma data — a frequência da matrícula é semanal. */
 function domingoDa(data) {
   const d = new Date(`${data}T12:00:00Z`);
@@ -295,6 +320,9 @@ function minhaMatricula(telefone, data) {
     diasNaSemana: semana.total,
     diasRestantesNaSemana: frequencia ? Math.max(0, frequencia - semana.total) : null,
     respeitarFrequencia: config.ler().agenda.respeitarFrequencia !== false,
+    // Saldo de reposição. A tela mostra, mas ainda não é ele que autoriza a
+    // reserva além da frequência — encaixe continua passando pelo estúdio.
+    creditos: creditosDe(m),
   };
 }
 
@@ -416,9 +444,14 @@ function desmarcarFixa(aluno, data, hora) {
   if (faltam < minimo) {
     return { ok: false, motivo: `Cancelamento só até ${minimo} minutos antes do horário.` };
   }
-  const r = soltarAulaFixa(minha, data, item);
+  const r = soltarAulaFixa(minha, data, item, { credito: geraCredito(data, hora) });
   if (!r.ok) return r;
-  return { ok: true, excecao: r.excecao || null };
+  return {
+    ok: true,
+    excecao: r.excecao || null,
+    credito: Boolean(r.excecao && r.excecao.gerouCredito),
+    saldo: creditosDe(minha).saldo,
+  };
 }
 
 /**
@@ -505,7 +538,9 @@ function trocar(aluno, de, para) {
 
   /* ---- aplica: solta o antigo, pega o novo ---- */
   if (atual) {
-    const r = soltarAulaFixa(minha, de.data, atual);
+    // Troca não gera crédito: a aula não foi perdida, mudou de lugar. Marcar
+    // crédito aqui daria ao aluno uma terceira aula por ter movido a segunda.
+    const r = soltarAulaFixa(minha, de.data, atual, { credito: false });
     if (!r.ok) return r;
   }
   if (reserva) store.cancelar(reserva.id, 'aluno');
@@ -532,13 +567,14 @@ function trocar(aluno, de, para) {
  * Solta uma aula da matrícula. Aula da grade vira exceção de cancelamento;
  * aula extra é apagada, porque cancelar um encaixe é desfazer o encaixe.
  */
-function soltarAulaFixa(minha, data, item) {
+function soltarAulaFixa(minha, data, item, { credito = false, motivo } = {}) {
   if (item.origem === 'extra' && item.excecaoId) {
     return matriculas.apagarExcecao(item.excecaoId);
   }
   return matriculas.registrarExcecao({
     matriculaId: minha.id, data, tipo: 'cancelou', hora: item.hora,
-    motivo: 'Desmarcado pelo aluno no app',
+    motivo: motivo || 'Desmarcado pelo aluno no app',
+    gerouCredito: credito,
   });
 }
 
@@ -585,5 +621,6 @@ function listaDoDia(data) {
 module.exports = {
   hoje, montarDia, montarDias, datasAbertas, reservar, cancelar, desmarcarFixa, trocar,
   listaDoDia, minhaMatricula, semanaDaMatricula, fixosDaMatricula,
+  geraCredito, creditosDe,
   diaDaSemana, porExtenso, minutosAte, emTextoDeTempo, DIAS, NOME_DO_DIA,
 };

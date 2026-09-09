@@ -36,6 +36,16 @@ const PADRAO = {
     respeitarFrequencia: true,
     permitirCancelar: true,
     minutosParaCancelar: 120,   // até X min antes do horário
+    // Reposição. Desmarcar com antecedência vira um crédito na matrícula, e o
+    // crédito banca uma aula extra em outro dia — inclusive além da frequência
+    // contratada. Desligado, desmarcar continua desmarcando e a aula é perdida.
+    creditoReposicao: true,
+    // Desmarcou faltando menos que isto para a aula? É falta, não crédito. A
+    // vaga já não dá tempo de ser reaproveitada por mais ninguém.
+    horasParaGerarCredito: 24,
+    // Prazo para usar o crédito, contado a partir da data da aula perdida.
+    // 0 = não expira.
+    validadeCreditoDias: 30,
     horarios: {
       dom: [],
       seg: [{ hora: '06:00' }, { hora: '07:00' }, { hora: '18:00' }, { hora: '19:00' }],
@@ -218,6 +228,9 @@ function publica() {
       minutosParaCancelar: c.agenda.minutosParaCancelar,
       limitePorDia: c.agenda.limitePorDia,
       respeitarFrequencia: c.agenda.respeitarFrequencia !== false,
+      creditoReposicao: c.agenda.creditoReposicao !== false,
+      horasParaGerarCredito: c.agenda.horasParaGerarCredito,
+      validadeCreditoDias: c.agenda.validadeCreditoDias,
     },
   };
 }

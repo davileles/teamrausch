@@ -1197,7 +1197,7 @@ function excecoes({ de, ate, matriculaId } = {}) {
     (!matriculaId || e.matriculaId === matriculaId));
 }
 
-function registrarExcecao({ matriculaId, data, tipo, hora, motivo }) {
+function registrarExcecao({ matriculaId, data, tipo, hora, motivo, gerouCredito, reposicaoDe }) {
   const m = porId(matriculaId);
   if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(data || ''))) {
@@ -1213,10 +1213,42 @@ function registrarExcecao({ matriculaId, data, tipo, hora, motivo }) {
     return { ok: false, motivo: 'Horário inválido.' };
   }
 
+  // Crédito é coisa de aula perdida; reposição, de aula encaixada. Trocados,
+  // viravam campo morto que a contagem de saldo nunca ia enxergar.
+  const credito = tipo === 'cancelou' ? gerouCredito === true : false;
+  let repoe = null;
+  if (tipo === 'extra' && reposicaoDe) {
+    const origem = dados.excecoes.find((e) => e.id === reposicaoDe);
+    if (!origem || origem.matriculaId !== matriculaId || origem.tipo !== 'cancelou') {
+      return { ok: false, motivo: 'O crédito informado não é desta matrícula.' };
+    }
+    if (origem.gerouCredito !== true) {
+      return { ok: false, motivo: 'Essa aula desmarcada não gerou crédito.' };
+    }
+    // Um crédito banca uma aula. Sem esta checagem, duas extras apontando para
+    // o mesmo cancelamento zeravam o saldo e mesmo assim ficavam as duas de pé.
+    const jaGasto = dados.excecoes.find((e) =>
+      e.tipo === 'extra' && e.reposicaoDe === reposicaoDe);
+    if (jaGasto) return { ok: false, motivo: 'Esse crédito já foi usado.' };
+    repoe = reposicaoDe;
+  }
+
   const igual = dados.excecoes.find((e) =>
     e.matriculaId === matriculaId && e.data === data && e.tipo === tipo &&
     (e.hora || null) === (hora || null));
-  if (igual) return { ok: true, excecao: igual };
+  if (igual) {
+    // Repetir o lançamento não duplica a exceção, mas pode estar corrigindo o
+    // crédito dela — desmarcar de novo com mais antecedência, por exemplo.
+    let mudou = false;
+    if (tipo === 'cancelou' && gerouCredito !== undefined && igual.gerouCredito !== credito) {
+      igual.gerouCredito = credito; mudou = true;
+    }
+    if (tipo === 'extra' && repoe && igual.reposicaoDe !== repoe) {
+      igual.reposicaoDe = repoe; mudou = true;
+    }
+    if (mudou) gravar();
+    return { ok: true, excecao: igual };
+  }
 
   const registro = {
     id: 'e' + crypto.randomBytes(6).toString('hex'),
@@ -1228,15 +1260,46 @@ function registrarExcecao({ matriculaId, data, tipo, hora, motivo }) {
     motivo: String(motivo || '').trim() || null,
     criadoEm: new Date().toISOString(),
   };
+  if (tipo === 'cancelou') registro.gerouCredito = credito;
+  if (repoe) registro.reposicaoDe = repoe;
   dados.excecoes.push(registro);
   gravar();
   return { ok: true, excecao: registro };
+}
+
+/**
+ * Liga ou desliga o crédito de uma aula desmarcada.
+ *
+ * O prazo de antecedência decide sozinho na maioria dos casos, mas quem
+ * desmarcou por atestado às 6h da manhã não deveria perder a aula por causa
+ * dele. Esta é a porta do estúdio para o caso concreto.
+ */
+function definirCredito(id, gerouCredito) {
+  const e = dados.excecoes.find((x) => x.id === id);
+  if (!e) return { ok: false, motivo: 'Exceção não encontrada.' };
+  if (e.tipo !== 'cancelou') return { ok: false, motivo: 'Só aula desmarcada gera crédito.' };
+  const novo = gerouCredito === true;
+  // Tirar o crédito de algo que já virou aula deixaria uma extra pendurada num
+  // crédito que não existe mais — e o aluno já treinou.
+  if (!novo && dados.excecoes.some((x) => x.tipo === 'extra' && x.reposicaoDe === id)) {
+    return { ok: false, motivo: 'Esse crédito já foi usado numa aula extra.' };
+  }
+  if (e.gerouCredito === novo) return { ok: true, excecao: e };
+  e.gerouCredito = novo;
+  gravar();
+  return { ok: true, excecao: e };
 }
 
 function apagarExcecao(id) {
   const antes = dados.excecoes.length;
   dados.excecoes = dados.excecoes.filter((e) => e.id !== id);
   if (dados.excecoes.length === antes) return { ok: false, motivo: 'Exceção não encontrada.' };
+  // Apagar o cancelamento apaga o crédito junto. A extra que ele bancou fica —
+  // a aula pode já ter acontecido — mas perde o vínculo, senão o saldo passaria
+  // a contar um crédito fantasma para sempre.
+  for (const e of dados.excecoes) {
+    if (e.reposicaoDe === id) delete e.reposicaoDe;
+  }
   gravar();
   return { ok: true };
 }
@@ -1584,7 +1647,7 @@ module.exports = {
   renomearDoWellhub, arrumarCaixa,
   criar, atualizar, inativar, remover, definirContaDe, dependentesDe,
   mesclar, possiveisDuplicadas,
-  excecoes, registrarExcecao, apagarExcecao,
+  excecoes, registrarExcecao, apagarExcecao, definirCredito,
   importar, sincronizarPlanilha, resumo, backup, normalizarHorarios, normalizarNomes,
   reduzirGradesEmConflito,
   horaCheia,

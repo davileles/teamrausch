@@ -434,6 +434,7 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
           fatia ? { dias, ate, metaMes: fatia.meta, conta: fatia.conta } : { dias, ate });
       })(),
       checkins: checkins.listar({ matriculaId: m.id, limite: 60 }),
+      creditos: agenda.creditosDe(m),
     });
   });
 
@@ -773,17 +774,68 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     }));
   });
 
-  /** Desmarcar uma aula da grade ou encaixar uma extra num dia específico. */
+  /**
+   * Desmarcar uma aula da grade ou encaixar uma extra num dia específico.
+   *
+   * `gerouCredito` só é lido em 'cancelou'; omitido, o crédito sai do prazo de
+   * antecedência configurado. `reposicaoDe` só é lido em 'extra' e gasta o
+   * crédito informado — sem ele, o encaixe é cortesia e não mexe no saldo.
+   */
   rotas.post('/excecoes', (req, res) => {
+    const tipo = String(req.body.tipo || '');
+    const data = String(req.body.data || '');
+    const hora = req.body.hora ? String(req.body.hora) : null;
     const r = store.registrarExcecao({
       matriculaId: String(req.body.matriculaId || ''),
-      data: String(req.body.data || ''),
-      tipo: String(req.body.tipo || ''),
-      hora: req.body.hora ? String(req.body.hora) : null,
+      data,
+      tipo,
+      hora,
       motivo: req.body.motivo,
+      gerouCredito: tipo === 'cancelou'
+        ? (req.body.gerouCredito === undefined
+          ? agenda.geraCredito(data, hora || '23:59')
+          : req.body.gerouCredito === true)
+        : undefined,
+      reposicaoDe: req.body.reposicaoDe ? String(req.body.reposicaoDe) : null,
     });
     if (!r.ok) return res.status(400).json({ erro: r.motivo });
     res.status(201).json(r.excecao);
+  });
+
+  /* ------------------------- créditos de reposição ------------------------ */
+
+  /** Saldo e extrato de uma matrícula. */
+  rotas.get('/:id/creditos', (req, res) => {
+    const m = store.porId(req.params.id);
+    if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+    res.json(agenda.creditosDe(m));
+  });
+
+  /** Quem tem crédito para repor — a fila que a recepção precisa resolver. */
+  rotas.get('/creditos/pendentes', (_req, res) => {
+    const lista = [];
+    for (const m of store.listar()) {
+      if (!m.ativo) continue;
+      const { saldo, creditos } = agenda.creditosDe(m);
+      if (!saldo) continue;
+      lista.push({
+        id: m.id,
+        nome: m.nome,
+        telefone: m.telefone || null,
+        vinculo: m.vinculo || null,
+        saldo,
+        creditos: creditos.filter((c) => c.situacao === 'disponivel'),
+      });
+    }
+    lista.sort((a, b) => b.saldo - a.saldo || a.nome.localeCompare(b.nome, 'pt-BR'));
+    res.json({ total: lista.length, alunos: lista });
+  });
+
+  /** Ligar ou desligar o crédito de uma aula desmarcada, caso a caso. */
+  rotas.post('/excecoes/:id/credito', (req, res) => {
+    const r = store.definirCredito(req.params.id, req.body.gerouCredito === true);
+    if (!r.ok) return res.status(400).json({ erro: r.motivo });
+    res.json(r.excecao);
   });
 
   rotas.delete('/excecoes/:id', (req, res) => {

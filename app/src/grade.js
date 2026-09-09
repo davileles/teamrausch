@@ -27,8 +27,15 @@
  *   excecao = {
  *     id, matriculaId, data: 'YYYY-MM-DD',
  *     tipo: 'cancelou' | 'extra',
- *     hora: '19:00'   // obrigatório em 'extra'; em 'cancelou' limita a uma aula
+ *     hora: '19:00',      // obrigatório em 'extra'; em 'cancelou' limita a uma aula
+ *     gerouCredito: true, // só em 'cancelou' — a aula perdida pode ser reposta
+ *     reposicaoDe: 'e1a2' // só em 'extra' — id do 'cancelou' que esta aula repõe
  *   }
+ *
+ * Crédito de reposição não é um saldo guardado em lugar nenhum: é a diferença
+ * entre os 'cancelou' que geraram direito e os 'extra' que apontam para eles.
+ * Guardar o número separado significaria manter dois lugares sincronizados —
+ * e um deles ficaria errado no primeiro cancelamento desfeito pela tela.
  */
 
 const MS_DIA = 86400000;
@@ -162,6 +169,61 @@ function proximasDaMatricula(matricula, excecoes, { de, dias = 14 } = {}) {
   return out;
 }
 
+/**
+ * Créditos de reposição de uma matrícula.
+ *
+ * Devolve a lista inteira — usados, expirados e disponíveis — porque a tela do
+ * estúdio precisa explicar o saldo, não só mostrar o número. Um crédito some da
+ * conta por dois motivos, e confundir os dois gera a discussão de balcão que
+ * este campo existe para evitar: "usado" tem a data da aula que ele bancou;
+ * "expirado" tem a data em que venceu.
+ *
+ *   { saldo, creditos: [{ id, data, hora, motivo, expiraEm, situacao, usadoEm }] }
+ *   situacao: 'disponivel' | 'usado' | 'expirado'
+ */
+function creditosDaMatricula(matricula, excecoes = [], { hoje, validadeDias = 30 } = {}) {
+  const minhas = excecoes.filter((e) => e.matriculaId === matricula.id);
+  const hojeISO = hoje || new Date().toISOString().slice(0, 10);
+
+  // Qual extra gastou qual crédito. Um crédito banca uma aula só.
+  const gastoPor = new Map();
+  for (const e of minhas) {
+    if (e.tipo !== 'extra' || !e.reposicaoDe) continue;
+    if (!gastoPor.has(e.reposicaoDe)) gastoPor.set(e.reposicaoDe, e);
+  }
+
+  const creditos = minhas
+    .filter((e) => e.tipo === 'cancelou' && e.gerouCredito === true)
+    .map((e) => {
+      const usado = gastoPor.get(e.id) || null;
+      const expiraEm = validadeDias > 0 ? somarDias(e.data, validadeDias) : null;
+      let situacao = 'disponivel';
+      if (usado) situacao = 'usado';
+      else if (expiraEm && hojeISO > expiraEm) situacao = 'expirado';
+      return {
+        id: e.id,
+        data: e.data,
+        hora: e.hora || null,
+        motivo: e.motivo || null,
+        expiraEm,
+        situacao,
+        usadoEm: usado ? { data: usado.data, hora: usado.hora, id: usado.id } : null,
+      };
+    })
+    .sort((a, b) => a.data.localeCompare(b.data));
+
+  return {
+    saldo: creditos.filter((c) => c.situacao === 'disponivel').length,
+    creditos,
+  };
+}
+
+/** O crédito mais antigo ainda válido — é ele que a próxima reposição gasta. */
+function creditoAUsar(matricula, excecoes, opcoes) {
+  const { creditos } = creditosDaMatricula(matricula, excecoes, opcoes);
+  return creditos.find((c) => c.situacao === 'disponivel') || null;
+}
+
 /** Quantos dias por semana o aluno treina — derivado da grade, nunca armazenado. */
 function diasPorSemana(matricula) {
   return new Set((matricula.grade || []).map((s) => s.dia)).size;
@@ -236,5 +298,6 @@ module.exports = {
   diaDaSemana, somarDias, gradeVigente,
   agendaDoDia, agendaPorHorario, proximasDaMatricula,
   diasPorSemana, gradeEmTexto, ocupacaoSemanal,
+  creditosDaMatricula, creditoAUsar,
   conflitosDeGrade, NOME_DIA,
 };
