@@ -4300,7 +4300,8 @@ const MSG_PAUSA_MIN = 7000;
 const MSG_PAUSA_MAX = 18000;
 
 const MSG_PUBLICOS = [['ausentes','Sumidos'],['devedores','Devendo treino'],
-  ['mensalista','Mensalistas'],['todos','Todos os ativos'],['wellhub','Wellhub']];
+  ['mensalista','Mensalistas'],['sem_app','Nunca entraram no app'],
+  ['todos','Todos os ativos'],['wellhub','Wellhub']];
 const MSG_MODOS = [['manual','Manual — você dispara pela tela'],
   ['programado','Programado — uma data e hora'],
   ['recorrente','Recorrente — repete sempre']];
@@ -4727,6 +4728,9 @@ async function msgPainelMassa(){
         ${publico==='devedores'?`<p class="ajuda">${
           r.alunos.filter(a=>a.situacao==='critico').length} crítico(s) ·
           ${r.alunos.filter(a=>a.situacao==='atrasado').length} atrasado(s).</p>`:''}
+        ${publico==='sem_app'?`<p class="ajuda">Alunos ativos que têm telefone cadastrado
+          e nunca abriram o app. A conta é feita na hora do envio: quem entrar depois deste
+          disparo sai da lista sozinho no próximo.</p>`:''}
         ${(publico==='devedores'||publico==='ausentes')?`<p class="ajuda">
           Só alunos Wellhub por enquanto: o mensalista não faz check-in no portal,
           então a conta dele daria zero e ele cairia aqui sem dever nada. Entra

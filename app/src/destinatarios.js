@@ -19,6 +19,7 @@
  */
 
 const matriculas = require('./matriculas-store');
+const alunosLogin = require('./agenda-store');
 const alertas = require('./alertas-frequencia');
 const frequencia = require('./frequencia');
 const telefone = require('./telefone');
@@ -78,6 +79,24 @@ function sumiu(a, limite, teto, ficha, hoje) {
   //   "sentimos sua falta" para quem saiu há cinco meses é constrangedor.
   //   Essa pessoa vira assunto de conversa, não de disparo automático.
   return teto ? d <= teto : true;
+}
+
+/**
+ * Finais de telefone (8 dígitos) que já entraram no app.
+ *
+ * A ficha de acesso só nasce no `/entrar`, então ela existir É a prova de que a
+ * pessoa abriu o app pelo menos uma vez. Comparar pelos 8 últimos dígitos é o
+ * mesmo critério da aba Matrículas: o mesmo número aparece ora com o 55 na
+ * frente, ora sem o nono dígito, e exigir igualdade literal faria a pessoa
+ * receber "baixe o app" depois de já estar dentro dele.
+ */
+function finaisComAcesso() {
+  const finais = new Set();
+  for (const a of alunosLogin.listarAlunos()) {
+    const d = String(a.telefone || '').replace(/\D/g, '');
+    if (d.length >= 8) finais.add(d.slice(-8));
+  }
+  return finais;
 }
 
 /** Primeiro nome, que é como se fala com o aluno no WhatsApp. */
@@ -162,6 +181,7 @@ function motivoDe(f, m) {
 
 /**
  * @param {string} publico  todos | wellhub | mensalista | devedores | ausentes
+ *                           | sem_app
  * @param {object} opcoes   { aniversarioEm, ausenteDias, ausenteAte }
  */
 function montar(publico = 'todos', opcoes = {}) {
@@ -204,15 +224,33 @@ function montar(publico = 'todos', opcoes = {}) {
 
     lista = todas.filter((m) => m.ativo && ids.has(m.id));
   } else {
+    // SEM TELEFONE FICA DE FORA DESTE PÚBLICO, E SÓ DESTE
+    //   Nos outros, quem não tem número entra na lista marcado como "sem
+    //   telefone": é informação sua, e some da tela seria pior. Aqui não: o
+    //   público inteiro existe para convidar gente para o app por WhatsApp, e
+    //   sem número não há convite a mandar — a pessoa só engrossaria a contagem
+    //   e o total da tela deixaria de dizer quantas mensagens vão sair.
+    const comAcesso = publico === 'sem_app' ? finaisComAcesso() : null;
     lista = matriculas.listar().filter((m) => {
       if (!m.ativo) return false;
       if (publico === 'wellhub') return m.vinculo === 'wellhub';
       if (publico === 'mensalista') return m.vinculo === 'mensalista';
+      if (publico === 'sem_app') {
+        const d = String(m.telefone || '').replace(/\D/g, '');
+        return d.length >= 8 && !comAcesso.has(d.slice(-8));
+      }
       return true;
     });
   }
 
   const alunos = lista.map((m) => ficha(m, freq.get(m.id)));
+
+  // O motivo da linha é o que faz a conferência antes do disparo valer alguma
+  // coisa. Neste público a frequência não diz nada de útil — o que importa é
+  // que a pessoa nunca abriu o app.
+  if (publico === 'sem_app') {
+    for (const a of alunos) a.motivo = 'nunca entrou no app';
+  }
 
   // Aniversariantes do dia: filtro extra, aplicado sobre qualquer público.
   const filtrados = opcoes.aniversarioEm
