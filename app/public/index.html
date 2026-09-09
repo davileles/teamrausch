@@ -431,6 +431,15 @@
   #mat-soltos .soltos .solto{margin-bottom:0;min-width:0}
   /* Órfãos e fichas sem conta: tabelas, e no celular rolam na horizontal. */
   #fq-orfaos,#fq-sem-conta{overflow-x:auto}
+  /* E POR ROLAREM, O CABEÇALHO AQUI NÃO PODE SER GRUDADO.
+     Mesma regra do CSS que derrubou o cabeçalho de #fq-lista: com um eixo
+     rolável o outro vira `auto`, a div passa a ser o scrollport mais próximo e
+     o `top:var(--topo-fixo)` do <th> deixa de ser medido na página — passa a
+     ser medido DENTRO da div. Como ela nunca rola na vertical, o cabeçalho
+     descia os ~58px do topo fixo e pousava em cima da primeira linha, que é o
+     que se via na aba Frequência. Aqui ele fica no lugar; são tabelas curtas,
+     de trabalho pontual, e não precisam de cabeçalho que acompanha a rolagem. */
+  #fq-orfaos .freq-tabela th,#fq-sem-conta .freq-tabela th{position:static;top:auto}
   #fq-orfaos .freq-tabela select{min-width:150px}
   .sem-tel{color:var(--amarelo-2);margin:0}
   .sem-app{color:var(--amarelo-2)}
