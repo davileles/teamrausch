@@ -392,6 +392,10 @@
     text-transform:uppercase;color:var(--amarelo)}
   .mat-item p.ajuda{margin:0;font-size:12.5px}
   .mat-item p.sem-tel{color:var(--amarelo-2)}
+  /* Já entrou no app x nunca entrou: o segundo é o que pede ação (mandar o
+     link, ensinar a entrar), então é ele que ganha cor. */
+  .mat-item p.sem-app{color:var(--amarelo-2)}
+  .mat-item p.com-app{color:var(--fraco-2)}
   /* Índice A–Z: pula direto para a letra. Fica grudado abaixo do cabeçalho
      enquanto a lista rola; no celular vira uma fita horizontal. */
   .indice-az{position:sticky;top:var(--topo-fixo,58px);z-index:50;display:flex;flex-wrap:wrap;
@@ -429,6 +433,7 @@
   #fq-orfaos,#fq-sem-conta{overflow-x:auto}
   #fq-orfaos .freq-tabela select{min-width:150px}
   .sem-tel{color:var(--amarelo-2);margin:0}
+  .sem-app{color:var(--amarelo-2)}
   .nome-antigo{margin:10px 0 0;padding-left:10px;border-left:3px solid var(--linha-2)}
   /* ---- acesso ao app, dentro da ficha do aluno ---- */
   /* Vínculo com o Wellhub dentro da ficha: mesma caixa do bloco de acesso, para
@@ -1784,6 +1789,37 @@ function linhaSlot(dia=1, hora=''){
 }
 
 /** Formulário de uma matrícula. `m` vazio = cadastro novo. */
+/**
+ * Carimbo ISO com hora (`ultimoAcesso`, `criadoEm`) em dd/mm/aaaa.
+ *
+ * `dataCurta` não serve aqui: ela quebra a string nos hífens e só entende
+ * 'AAAA-MM-DD' puro, sem a parte da hora.
+ */
+function dataDoCarimbo(iso){
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d) ? null : d.toLocaleDateString('pt-BR');
+}
+
+/**
+ * Uma linha no cartão dizendo se a pessoa já abriu o app.
+ *
+ * A ficha de acesso só nasce no login — existir já é a prova de que entrou.
+ * Quem tem telefone e não tem ficha nunca abriu o app, e é essa a lista que o
+ * estúdio precisa enxergar de relance, sem abrir aluno por aluno.
+ *
+ * Sem telefone não mostra nada: o cartão já avisa que falta o número, e ali o
+ * que falta é o cadastro, não o login.
+ */
+function linhaApp(m){
+  if (!m.telefone) return '';
+  const a = m.acesso;
+  if (!a) return '<p class="ajuda sem-app">📱 nunca entrou no app</p>';
+  const quando = dataDoCarimbo(a.ultimoAcesso);
+  return `<p class="ajuda com-app">📱 já entrou no app${
+    quando ? ` · último acesso ${quando}` : ''}</p>`;
+}
+
 function fichaMatricula(m){
   const novo = !m.id;
   const mens = (m.vinculo || 'mensalista') === 'mensalista';
@@ -1918,14 +1954,17 @@ function blocoAcesso(m){
   const a = m.acesso;
   if (!a){
     return `<div class="acesso"><h4>Acesso ao app</h4>
-      <p class="ajuda" style="margin:0">Ainda não entrou. O cadastro de acesso nasce
-        sozinho no primeiro login com este número.</p></div>`;
+      <p class="ajuda sem-app" style="margin:0">📱 Nunca entrou no app. O cadastro de
+        acesso nasce sozinho no primeiro login com este número.</p></div>`;
   }
   return `<div class="acesso">
     <h4>Acesso ao app</h4>
     <p class="estado">${esc(a.telefoneFormatado)} ·
       ${a.bloqueado ? '<b class="suspenso">suspenso</b>' : '<b>ativo</b>'}
       ${a.admin ? ' · <b class="admin">administrador</b>' : ''}</p>
+    <p class="ajuda" style="margin:2px 0 0">📱 Já entrou no app${
+      dataDoCarimbo(a.ultimoAcesso) ? ` · último acesso em ${dataDoCarimbo(a.ultimoAcesso)}`
+        : (dataDoCarimbo(a.criadoEm) ? ` · desde ${dataDoCarimbo(a.criadoEm)}` : '')}</p>
     <div class="rodape">
       <button class="leve ac-alternar" data-bloq="${a.bloqueado?1:0}">
         ${a.bloqueado ? 'Reativar acesso' : 'Suspender acesso'}</button>
@@ -2266,7 +2305,8 @@ async function carregarMatriculas(){
       <div data-painel="alunos" ${matEstado.sub==='alunos'?'':'hidden'}>
         <p class="ajuda">${resumo.ativas} ativos · ${resumo.mensalistas} mensalistas ·
           ${resumo.wellhub} Wellhub · ${resumo.semTelefone} sem telefone ·
-          ${resumo.comAcesso} com acesso ao app${
+          ${resumo.comAcesso} já entraram no app${
+          resumo.nuncaEntraram ? ` · ${resumo.nuncaEntraram} nunca entraram` : ''}${
           resumo.suspensos ? ` · <b>${resumo.suspensos} suspenso(s)</b>` : ''}${
           resumo.aRevisar ? ` · <b>${resumo.aRevisar} a revisar</b>` : ''}${
           resumo.experimentais ? ` · <b>${resumo.experimentais} em experimental</b>` : ''}</p>
@@ -2286,7 +2326,7 @@ async function carregarMatriculas(){
                 `<button class="chip${matEstado.vinculo===v?' sel':''}" data-vin="${v}">${r}</button>`).join('')}
             </div>
             <div class="grupo-filtro"><span>Acesso ao app</span>
-              ${[['','Todos'],['com','Tem'],['sem','Não tem'],['suspensos','Suspensos']].map(([v,r])=>
+              ${[['','Todos'],['com','Já entrou'],['sem','Nunca entrou'],['suspensos','Suspensos']].map(([v,r])=>
                 `<button class="chip${matEstado.acesso===v?' sel':''}" data-ac="${v}">${r}</button>`).join('')}
             </div>
             <div class="grupo-filtro"><span></span>
@@ -2314,6 +2354,7 @@ async function carregarMatriculas(){
                 m.precisaRevisar?' · revisar':''}</span>
               <p class="ajuda">${esc(gradeEmTexto(m.grade))}</p>
               ${m.aniversarioFormatado ? `<p class="ajuda">🎂 ${esc(m.aniversarioFormatado)}</p>` : ''}
+              ${linhaApp(m)}
               ${m.telefone ? '' : '<p class="ajuda sem-tel">sem telefone cadastrado</p>'}
             </div>`).join('')
           : '<div class="vazio">Nenhum aluno com esses filtros.</div>'}</div>

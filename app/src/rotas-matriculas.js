@@ -80,6 +80,7 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
         admin: config.ehAdmin(a.telefone),
         aniversarioFormatado: aniversario.mostrar(a.aniversario),
         criadoEm: a.criadoEm || null,
+        ultimoAcesso: a.ultimoAcesso || null,
       }))
       .sort((x, y) => String(x.nome || '~').localeCompare(String(y.nome || '~'), 'pt-BR'));
   }
@@ -99,6 +100,10 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       bloqueado: Boolean(login.bloqueado),
       admin: config.ehAdmin(login.telefone),
       criadoEm: login.criadoEm || null,
+      // Carimbo do último login. A ficha existir já prova que a pessoa entrou
+      // — ela só nasce no `/entrar` —, mas a tela precisa dizer QUANDO foi para
+      // separar quem usa o app de quem abriu uma vez e nunca mais.
+      ultimoAcesso: login.ultimoAcesso || null,
     };
   }
 
@@ -197,6 +202,10 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       resumo: {
         ...store.resumo(),
         comAcesso: acessos.filter(Boolean).length,
+        // Quem tem telefone e nenhuma ficha de acesso: pode entrar e nunca
+        // entrou. Sem telefone fica de fora — ali o que falta é o cadastro,
+        // não o login, e a tela já avisa isso no cartão.
+        nuncaEntraram: todas.filter((m, i) => m.telefone && !acessos[i]).length,
         suspensos: acessos.filter((a) => a && a.bloqueado).length,
         acessosSoltos: acessosSoltos().length,
       },
