@@ -261,7 +261,48 @@ async function descobrirJid(telefone) {
 /* ------------------------------ rotas ----------------------------------- */
 
 const app = express();
-app.use(express.json({ limit: '128kb' }));
+
+/**
+ * O limite de 128 KB continua valendo para tudo, menos para POST /enviar: é
+ * por ali que chega o anexo (em base64), e um parser global maior abriria
+ * todas as rotas para corpos de 20 MB. /enviar ganha o parser próprio abaixo,
+ * que só roda DEPOIS de conferir o token.
+ */
+const jsonPequeno = express.json({ limit: '128kb' });
+app.use((req, res, next) => (req.method === 'POST' && req.path === '/enviar' ? next() : jsonPequeno(req, res, next)));
+
+const LIMITE_ANEXO_BYTES = 16 * 1024 * 1024;
+const jsonComAnexo = express.json({ limit: '24mb' });
+function lerCorpoComAnexo(req, res, next) {
+  jsonComAnexo(req, res, (erro) => {
+    if (!erro) return next();
+    if (erro.type === 'entity.too.large') return res.status(413).json({ erro: 'Anexo acima de 16 MB.' });
+    return res.status(400).json({ erro: 'Corpo inválido.' });
+  });
+}
+
+/**
+ * Anexo chega como { base64, mimetype, nome }. Imagem e vídeo mp4 saem como
+ * mídia (aparecem na conversa com a legenda); o resto sai como documento, que
+ * o WhatsApp abre com o nome original do arquivo.
+ */
+const TIPOS_IMAGEM = ['image/jpeg', 'image/png', 'image/webp'];
+function montarConteudo(mensagem, anexo) {
+  if (!anexo) return { ok: true, conteudo: { text: mensagem } };
+
+  const base64 = String(anexo.base64 || '').replace(/^data:[^;]+;base64,/, '');
+  const buffer = Buffer.from(base64, 'base64');
+  if (!buffer.length) return { ok: false, motivo: 'Anexo vazio ou ilegível.' };
+  if (buffer.length > LIMITE_ANEXO_BYTES) return { ok: false, motivo: 'Anexo acima de 16 MB.' };
+
+  const mimetype = String(anexo.mimetype || 'application/octet-stream').toLowerCase();
+  const nome = String(anexo.nome || 'arquivo').slice(0, 120);
+  const legenda = mensagem ? { caption: mensagem } : {};
+
+  if (TIPOS_IMAGEM.includes(mimetype)) return { ok: true, conteudo: { image: buffer, mimetype, ...legenda } };
+  if (mimetype === 'video/mp4') return { ok: true, conteudo: { video: buffer, mimetype, ...legenda } };
+  return { ok: true, conteudo: { document: buffer, mimetype, fileName: nome, ...legenda } };
+}
 
 function exigirToken(req, res, next) {
   if (!TOKEN) return next();
@@ -395,7 +436,7 @@ app.get('/contatos', exigirToken, (_req, res) => {
   res.json({ total: lista.length, contatos: lista });
 });
 
-app.post('/enviar', exigirToken, async (req, res) => {
+app.post('/enviar', exigirToken, lerCorpoComAnexo, async (req, res) => {
   if (situacao !== 'conectado') {
     return res.status(503).json({ erro: 'WhatsApp desconectado. Leia o QR em /qr.' });
   }
@@ -406,10 +447,15 @@ app.post('/enviar', exigirToken, async (req, res) => {
   const ehGrupo = RE_JID_GRUPO.test(bruto);
   const telefone = ehGrupo ? null : normalizar(bruto);
   const mensagem = String(req.body.mensagem || '').trim();
+  const anexo = req.body.anexo && typeof req.body.anexo === 'object' ? req.body.anexo : null;
   if (!ehGrupo && !telefone) {
     return res.status(400).json({ erro: 'Destino inválido. Use telefone com DDD ou um JID de grupo (…@g.us).' });
   }
-  if (!mensagem) return res.status(400).json({ erro: 'Mensagem vazia.' });
+  // Com anexo a legenda é opcional: uma imagem sozinha já é a mensagem.
+  if (!mensagem && !anexo) return res.status(400).json({ erro: 'Mensagem vazia.' });
+
+  const montado = montarConteudo(mensagem, anexo);
+  if (!montado.ok) return res.status(400).json({ erro: montado.motivo });
 
   const alvo = ehGrupo ? bruto : telefone;
   try {
@@ -418,12 +464,12 @@ app.post('/enviar', exigirToken, async (req, res) => {
       // nono dígito.
       const jid = ehGrupo ? bruto : await descobrirJid(telefone);
       if (!jid) return { ok: false, motivo: 'Esse número não tem WhatsApp.' };
-      const r = await socket.sendMessage(jid, { text: mensagem });
+      const r = await socket.sendMessage(jid, montado.conteudo);
       return { ok: true, id: r && r.key && r.key.id, jid };
     });
 
     if (!resultado.ok) return res.status(404).json({ erro: resultado.motivo });
-    log('enviado para', alvo);
+    log('enviado para', alvo, anexo ? `(com anexo ${anexo.mimetype || '?'})` : '');
     res.json({ enviado: true, id: resultado.id });
   } catch (erro) {
     log('falha no envio:', erro.message);

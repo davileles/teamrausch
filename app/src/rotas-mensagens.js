@@ -22,6 +22,7 @@ const destinatarios = require('./destinatarios');
 const { enviarTexto } = require('./mensageiro');
 const matriculas = require('./matriculas-store');
 const telefone = require('./telefone');
+const anexos = require('./anexos-store');
 
 module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   const rotas = express.Router();
@@ -102,11 +103,51 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   rotas.get('/destinatarios', (req, res) => responderDestinatarios(req.query, res));
   rotas.post('/destinatarios', (req, res) => responderDestinatarios(req.body || {}, res));
 
+  /* ------------------------------- anexos -------------------------------- */
+
+  /**
+   * O arquivo sobe cru (application/octet-stream), não em JSON: base64 incha
+   * 33% e o parser JSON global do app é de 256 KB. Nome e tipo vêm em
+   * cabeçalho. Devolve o id que cada POST /enviar cita em `anexoId`.
+   */
+  const lerArquivo = express.raw({ type: 'application/octet-stream', limit: anexos.LIMITE_BYTES });
+  rotas.post('/anexos', (req, res, next) => {
+    lerArquivo(req, res, (erro) => {
+      if (!erro) return next();
+      if (erro.type === 'entity.too.large') return res.status(413).json({ erro: 'Arquivo acima de 16 MB.' });
+      return res.status(400).json({ erro: 'Não consegui ler o arquivo.' });
+    });
+  }, (req, res) => {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) {
+      return res.status(400).json({ erro: 'Arquivo vazio. Envie como application/octet-stream.' });
+    }
+    let nome = req.get('X-Anexo-Nome') || '';
+    try { nome = decodeURIComponent(nome); } catch (_) { /* fica como veio */ }
+    try {
+      const r = anexos.salvar(req.body, { nome, tipo: req.get('X-Anexo-Tipo') });
+      if (!r.ok) return res.status(400).json({ erro: r.motivo });
+      res.status(201).json(r.anexo);
+    } catch (e) {
+      console.error('[mensagens] falha ao gravar anexo:', e.message);
+      res.status(500).json({ erro: 'Não consegui guardar o arquivo no servidor.' });
+    }
+  });
+
   /* ------------------------------- envio --------------------------------- */
 
   rotas.post('/enviar', async (req, res) => {
     const corpo = req.body || {};
     const m = corpo.matriculaId ? matriculas.porId(String(corpo.matriculaId)) : null;
+
+    // Anexo é conferido antes de tudo: se sumiu do volume, nenhum aluno do
+    // lote deve receber só o texto sem perceber que faltou o arquivo.
+    const anexo = corpo.anexoId ? anexos.ler(String(corpo.anexoId)) : null;
+    if (corpo.anexoId && !anexo) {
+      return res.status(410).json({
+        erro: 'O arquivo anexado não está mais no servidor (expirou ou o serviço reiniciou). Anexe de novo.',
+      });
+    }
+    const resumoAnexo = anexo ? { id: anexo.id, nome: anexo.nome, tipo: anexo.tipo, tamanho: anexo.tamanho } : null;
 
     // Destino avulso (um número digitado na mão) continua valendo: às vezes a
     // pessoa ainda não tem ficha.
@@ -121,13 +162,13 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
         matriculaId: m ? m.id : null, nome: m ? m.nome : null,
         texto: String(corpo.texto || ''), modeloId: corpo.modeloId || null,
         modeloNome: corpo.modeloNome || null, origem: corpo.origem || 'manual',
-        lote: corpo.lote || null, ok: false, motivo,
+        lote: corpo.lote || null, anexo: resumoAnexo, ok: false, motivo,
       });
       return res.status(400).json({ erro: motivo });
     }
 
     const bruto = String(corpo.texto || '').trim();
-    if (!bruto) return res.status(400).json({ erro: 'A mensagem está vazia.' });
+    if (!bruto && !anexo) return res.status(400).json({ erro: 'A mensagem está vazia.' });
 
     // PREENCHER AQUI, E NÃO SÓ NA TELA
     //   O disparo em massa manda o texto já preenchido, mas "Um aluno" com
@@ -149,7 +190,7 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       });
     }
 
-    const r = await enviarTexto(numero, texto);
+    const r = await enviarTexto(numero, texto, { anexo });
 
     modelos.registrar({
       matriculaId: m ? m.id : null,
@@ -160,6 +201,7 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       modeloNome: corpo.modeloNome || null,
       origem: corpo.origem || 'manual',
       lote: corpo.lote || null,
+      anexo: resumoAnexo,
       ok: r.ok,
       motivo: r.ok ? null : r.motivo,
     });

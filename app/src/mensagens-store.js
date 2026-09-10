@@ -266,6 +266,8 @@ function registrar(envio) {
     modeloNome: envio.modeloNome || null,
     origem: envio.origem || 'manual',   // manual | massa | agendado
     lote: envio.lote || null,
+    // Só o resumo (nome, tipo, tamanho): o arquivo em si fica em anexos-store.
+    anexo: envio.anexo || null,
     ok: Boolean(envio.ok),
     motivo: envio.motivo || null,
   };

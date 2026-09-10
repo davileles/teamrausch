@@ -73,9 +73,10 @@ async function enviarCodigo(telefone, codigo) {
  * Reaproveita `config.envio` (url, token e formato do corpo) para não haver um
  * segundo lugar onde configurar o WhatsApp.
  */
-async function enviarTexto(telefone, mensagem) {
+async function enviarTexto(telefone, mensagem, opcoes = {}) {
   const c = config.ler();
   const numero = String(telefone || '').replace(/\D/g, '');
+  const anexo = opcoes.anexo || null;
   if (!numero) return { ok: false, motivo: 'Aluno sem telefone cadastrado.' };
   if (!c.envio.url) return { ok: false, motivo: 'Endereço do serviço de WhatsApp não configurado.' };
 
@@ -90,14 +91,35 @@ async function enviarTexto(telefone, mensagem) {
   // O corpo é um molde de texto com {{marcadores}}, então a mensagem precisa
   // entrar já escapada para JSON: uma aspa ou uma quebra de linha crua
   // quebraria o corpo inteiro e o envio voltaria 400.
-  const corpo = preencher(c.envio.corpo, {
+  let corpo = preencher(c.envio.corpo, {
     telefone: numero,
-    mensagem: String(mensagem).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n'),
+    mensagem: String(mensagem || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n'),
     codigo: '',
   });
 
+  // ANEXO ENTRA COMO CAMPO A MAIS NO MESMO CORPO
+  //   O molde de Configurações → Técnica continua mandando no formato; o anexo
+  //   é acrescentado depois de preenchido. Por isso o molde precisa ser JSON:
+  //   um provedor de SMS com corpo em outro formato não tem onde pôr arquivo,
+  //   e é melhor recusar do que mandar só o texto fingindo que foi tudo.
+  if (anexo) {
+    let objeto;
+    try { objeto = JSON.parse(corpo); } catch (_) { objeto = null; }
+    if (!objeto || typeof objeto !== 'object') {
+      return { ok: false, motivo: 'O corpo do envio (Configurações → Técnica) não é JSON: anexo só funciona com o serviço de WhatsApp do estúdio.' };
+    }
+    objeto.anexo = {
+      base64: anexo.buffer.toString('base64'),
+      mimetype: anexo.tipo,
+      nome: anexo.nome,
+    };
+    corpo = JSON.stringify(objeto);
+  }
+
   const controle = new AbortController();
-  const t = setTimeout(() => controle.abort(), 10000);
+  // Com arquivo o serviço de WhatsApp ainda precisa subir a mídia para o
+  // servidor do WhatsApp antes de responder — 10 s não bastam para um PDF grande.
+  const t = setTimeout(() => controle.abort(), anexo ? 90000 : 10000);
   try {
     const r = await fetch(c.envio.url, {
       method: 'POST', headers: cabecalhos, body: corpo, signal: controle.signal,
@@ -108,7 +130,7 @@ async function enviarTexto(telefone, mensagem) {
     }
     return { ok: true };
   } catch (erro) {
-    return { ok: false, motivo: erro.message };
+    return { ok: false, motivo: erro.name === 'AbortError' ? 'O serviço de WhatsApp não respondeu a tempo.' : erro.message };
   } finally {
     clearTimeout(t);
   }

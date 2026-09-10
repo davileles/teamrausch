@@ -4313,7 +4313,10 @@ const MSG_DIAS = [['0','Domingo'],['1','Segunda'],['2','Terça'],['3','Quarta'],
   ['4','Quinta'],['5','Sexta'],['6','Sábado']];
 
 const msgEstado = { sub:'modelos', editando:null, publico:'todos', modeloId:'',
-  alunoId:'', modelos:[], marcadores:[], alunos:[], resumo:null, lote:null };
+  alunoId:'', modelos:[], marcadores:[], alunos:[], resumo:null, lote:null,
+  // Anexo por painel: { id, nome, tipo, tamanho, url } — `url` é a prévia local
+  // da imagem. Vive no estado porque os painéis são remontados o tempo todo.
+  anexos:{ individual:null, massa:null }, subindoAnexo:null };
 const msgMassa = { rodando:false, abortar:false, timer:null, fila:[], i:0, ok:0, erro:0 };
 
 function msgRotulo(lista, valor){
@@ -4375,6 +4378,8 @@ function msgCliques(e){
     document.getElementById('msg-modelos').innerHTML = msgPainelModelos();
     document.getElementById('msg-modelos').scrollIntoView({behavior:'smooth'}); return; }
   if (b.dataset.excluir) return msgExcluirModelo(b.dataset.excluir);
+  if (b.dataset.anexar) return msgEscolherArquivo(b.dataset.anexar);
+  if (b.dataset.anexoRemover) return msgRemoverAnexo(b.dataset.anexoRemover);
   if (b.id === 'mi-enviar') return msgEnviarIndividual();
   if (b.id === 'mx-disparar') return msgDispararMassa();
   if (b.id === 'mx-parar') return msgPararMassa();
@@ -4607,6 +4612,102 @@ async function msgBuscarDestinatarios({ publico, texto, modeloId, lote }){
   return r;
 }
 
+/* -------------------------------- anexos --------------------------------- */
+/**
+ * O arquivo sobe para o servidor assim que é escolhido, e não na hora do
+ * envio: no disparo em massa cada aluno só cita o id, sem o navegador subir o
+ * mesmo arquivo de novo a cada mensagem. Subir antes também mostra erro de
+ * tamanho ou de rede já na hora de anexar, e não no meio do lote.
+ *
+ * O <input type=file> é um só e fica fora da aba: o painel de massa se remonta
+ * ao sair da caixa de texto, e um input dentro dele podia sumir com o seletor
+ * de arquivos ainda aberto — o arquivo escolhido não chegaria a lugar nenhum.
+ */
+const MSG_ANEXO_MAX = 16 * 1024 * 1024;
+let msgArquivoInput = null;
+
+function msgTamanho(b){
+  return b >= 1048576 ? (b/1048576).toFixed(1).replace('.',',')+' MB' : Math.max(1, Math.round(b/1024))+' KB';
+}
+
+function msgBlocoAnexo(painel){
+  const x = msgEstado.anexos[painel];
+  const subindo = msgEstado.subindoAnexo === painel;
+  if (subindo) return `<p class="ajuda" style="margin-top:10px">Subindo arquivo…</p>`;
+  if (!x) return `<button class="leve" type="button" data-anexar="${painel}" style="margin-top:10px">📎 Anexar imagem ou arquivo</button>
+    <p class="ajuda" style="margin-top:6px">Imagem (JPG, PNG, WEBP) e vídeo MP4 saem com o texto como legenda;
+      PDF e outros arquivos saem como documento. Até 16 MB.</p>`;
+  const ehImg = /^image\/(jpeg|png|webp)$/.test(x.tipo);
+  return `<div style="display:flex;align-items:center;gap:12px;margin-top:10px;padding:10px;border:1px solid var(--linha-2);border-radius:var(--raio)">
+      ${ehImg && x.url ? `<img src="${esc(x.url)}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:var(--raio);flex:none">`
+        : `<span style="font-size:28px;flex:none">${ehImg?'🖼️':x.tipo==='video/mp4'?'🎬':'📄'}</span>`}
+      <span style="flex:1;min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.nome)}</b>
+        <small class="ajuda" style="margin:0">${msgTamanho(x.tamanho)} · ${ehImg?'vai como imagem':x.tipo==='video/mp4'?'vai como vídeo':'vai como documento'}</small></span>
+      <button class="leve" type="button" data-anexo-remover="${painel}" style="flex:none">Remover</button>
+    </div>`;
+}
+
+function msgRedesenharAnexo(painel){
+  const el = document.getElementById(painel==='massa' ? 'mx-anexo' : 'mi-anexo');
+  if (el) el.innerHTML = msgBlocoAnexo(painel);
+}
+
+function msgEscolherArquivo(painel){
+  if (msgMassa.rodando) return avisar('Termine ou pare o disparo antes de trocar o anexo.', 'erro');
+  if (!msgArquivoInput){
+    msgArquivoInput = document.createElement('input');
+    msgArquivoInput.type = 'file';
+    msgArquivoInput.accept = 'image/jpeg,image/png,image/webp,video/mp4,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
+    msgArquivoInput.style.display = 'none';
+    document.body.appendChild(msgArquivoInput);
+    msgArquivoInput.addEventListener('change', ()=>{
+      const f = msgArquivoInput.files && msgArquivoInput.files[0];
+      const alvo = msgArquivoInput.dataset.painel;
+      msgArquivoInput.value = '';
+      if (f) msgSubirAnexo(f, alvo);
+    });
+  }
+  msgArquivoInput.dataset.painel = painel;
+  msgArquivoInput.click();
+}
+
+async function msgSubirAnexo(arquivo, painel){
+  if (arquivo.size > MSG_ANEXO_MAX) return avisar(`Arquivo de ${msgTamanho(arquivo.size)}: o limite é 16 MB.`, 'erro');
+  if (!arquivo.size) return avisar('Arquivo vazio.', 'erro');
+
+  msgEstado.subindoAnexo = painel;
+  msgRedesenharAnexo(painel);
+  try{
+    // Sem api(): ela força Content-Type JSON, e o arquivo sobe cru.
+    const cab = { 'Content-Type':'application/octet-stream',
+      'X-Anexo-Nome': encodeURIComponent(arquivo.name || 'arquivo'),
+      'X-Anexo-Tipo': arquivo.type || 'application/octet-stream' };
+    const t = cofre.get(); if (t) cab.Authorization = 'Bearer '+t;
+    const r = await fetch('/agenda-api/mensagens/anexos', { method:'POST', headers:cab, body:arquivo });
+    const corpo = await r.json().catch(()=>({}));
+    if (r.status === 401 && eu){ sair(true); throw new Error('Sua sessão venceu. Entre de novo.'); }
+    if (!r.ok) throw new Error(corpo.erro || (r.status===413 ? 'Arquivo acima de 16 MB.' : 'Não consegui subir o arquivo.'));
+
+    msgRemoverAnexo(painel, true);
+    msgEstado.anexos[painel] = { ...corpo,
+      url: /^image\//.test(corpo.tipo) ? URL.createObjectURL(arquivo) : null };
+    avisar('Arquivo anexado.');
+  }catch(e){ avisar(e.message, 'erro'); }
+  finally{
+    msgEstado.subindoAnexo = null;
+    msgRedesenharAnexo(painel);
+  }
+}
+
+function msgRemoverAnexo(painel, silencioso){
+  if (!silencioso && msgMassa.rodando && painel==='massa')
+    return avisar('Termine ou pare o disparo antes de trocar o anexo.', 'erro');
+  const x = msgEstado.anexos[painel];
+  if (x && x.url) URL.revokeObjectURL(x.url);
+  msgEstado.anexos[painel] = null;
+  if (!silencioso) msgRedesenharAnexo(painel);
+}
+
 /* --------------------------- disparo individual -------------------------- */
 
 async function msgPainelIndividual(){
@@ -4637,7 +4738,8 @@ async function msgPainelIndividual(){
           <div class="chips-mat">${msgEstado.marcadores.map(x=>
             `<button class="chip" type="button" data-marcador="${x.chave}"
               title="${esc(x.descricao)}${x.exemplo?' · vira \''+esc(x.exemplo)+'\'':''}">{{${x.chave}}}</button>`).join('')}</div>
-          <p class="ajuda" id="mi-destino">Escolha o aluno para ver o número.</p></div>
+          <p class="ajuda" id="mi-destino">Escolha o aluno para ver o número.</p>
+          <div id="mi-anexo">${msgBlocoAnexo('individual')}</div></div>
         <button class="acao" id="mi-enviar">Enviar no WhatsApp</button>
       </div>`;
     msgTrocarIndividual();
@@ -4666,9 +4768,12 @@ async function msgTrocarModeloIndividual(){
 async function msgEnviarIndividual(){
   const a = msgEstado.alunos.find(x=>x.matriculaId===msgEstado.alunoId);
   const texto = (document.getElementById('mi-texto').value||'').trim();
+  const anexo = msgEstado.anexos.individual;
   if (!a) return avisar('Escolha o aluno.', 'erro');
-  if (!texto) return avisar('A mensagem está vazia.', 'erro');
-  if (!confirm(`Enviar para ${a.nome} (${a.telefoneFormatado})?`)) return;
+  if (msgEstado.subindoAnexo === 'individual') return avisar('Espere o arquivo terminar de subir.', 'erro');
+  if (!texto && !anexo) return avisar('A mensagem está vazia.', 'erro');
+  if (!confirm(`Enviar para ${a.nome} (${a.telefoneFormatado})?`
+    + (anexo ? `\n\nCom anexo: ${anexo.nome}` : ''))) return;
 
   const btn = document.getElementById('mi-enviar');
   btn.disabled = true; btn.textContent = 'Enviando…';
@@ -4676,10 +4781,12 @@ async function msgEnviarIndividual(){
     const modelo = msgEstado.modelos.find(m=>m.id===msgEstado.modeloId);
     await api('/mensagens/enviar', {method:'POST', body: JSON.stringify({
       matriculaId: a.matriculaId, texto, origem:'manual',
+      anexoId: anexo ? anexo.id : null,
       modeloId: modelo?modelo.id:null, modeloNome: modelo?modelo.nome:null,
     })});
     avisar('Mensagem enviada.');
     document.getElementById('mi-texto').value = '';
+    msgRemoverAnexo('individual');
   }catch(e){ avisar(e.message, 'erro'); }
   finally{ btn.disabled = false; btn.textContent = 'Enviar no WhatsApp'; }
 }
@@ -4718,7 +4825,8 @@ async function msgPainelMassa(){
             placeholder="Oi {{nome}}! …">${esc(texto)}</textarea>
           <div class="chips-mat">${msgEstado.marcadores.map(x=>
             `<button class="chip" type="button" data-marcador="${x.chave}"
-              title="${esc(x.descricao)}${x.exemplo?' · vira \''+esc(x.exemplo)+'\'':''}">{{${x.chave}}}</button>`).join('')}</div></div>
+              title="${esc(x.descricao)}${x.exemplo?' · vira \''+esc(x.exemplo)+'\'':''}">{{${x.chave}}}</button>`).join('')}</div>
+          <div id="mx-anexo">${msgBlocoAnexo('massa')}</div></div>
       </div>
 
       <div class="ficha">
@@ -4805,7 +4913,9 @@ function msgPausa(){
 function msgDispararMassa(){
   if (msgMassa.rodando) return;
   const texto = (document.getElementById('mx-texto').value||'').trim();
-  if (!texto) return avisar('A mensagem está vazia.', 'erro');
+  const anexo = msgEstado.anexos.massa;
+  if (msgEstado.subindoAnexo === 'massa') return avisar('Espere o arquivo terminar de subir.', 'erro');
+  if (!texto && !anexo) return avisar('A mensagem está vazia.', 'erro');
 
   const marcados = Array.from(document.querySelectorAll('#mx-lista .mx-chk:checked'))
     .map(c => msgEstado.alunos.find(a => a.matriculaId === c.value))
@@ -4814,6 +4924,7 @@ function msgDispararMassa(){
 
   const minutos = Math.ceil(marcados.length * ((MSG_PAUSA_MIN + MSG_PAUSA_MAX)/2) / 60000);
   if (!confirm(`Enviar para ${marcados.length} aluno(s)?\n\n`
+    + (anexo ? `Com anexo: ${anexo.nome} (${msgTamanho(anexo.tamanho)})\n\n` : '')
     + `O envio é um de cada vez, com intervalo de ${MSG_PAUSA_MIN/1000} a ${MSG_PAUSA_MAX/1000} `
     + `segundos — cerca de ${minutos} min no total.\n\n`
     + 'Mantenha esta aba aberta até o fim.')) return;
@@ -4827,7 +4938,7 @@ function msgDispararMassa(){
   document.getElementById('mx-disparar').disabled = true;
   document.getElementById('mx-parar').style.display = '';
   document.getElementById('mx-log').innerHTML = '';
-  msgLog('Lote ' + msgEstado.lote, 'var(--fraco)');
+  msgLog('Lote ' + msgEstado.lote + (anexo ? ' · 📎 ' + anexo.nome : ''), 'var(--fraco)');
 
   msgEnviarProximo(texto);
 }
@@ -4846,6 +4957,7 @@ async function msgEnviarProximo(texto){
     await api('/mensagens/enviar', {method:'POST', body: JSON.stringify({
       matriculaId: a.matriculaId,
       texto: a.previa || texto,
+      anexoId: msgEstado.anexos.massa ? msgEstado.anexos.massa.id : null,
       origem: 'massa', lote: msgEstado.lote,
       modeloId: modelo?modelo.id:null, modeloNome: modelo?modelo.nome:null,
     })});
@@ -4916,6 +5028,7 @@ async function msgPainelHistorico(){
           <span class="tags">${new Date(x.em).toLocaleString('pt-BR')} · ${esc(x.origem)}${
             x.modeloNome?' · '+esc(x.modeloNome):''} · ${x.ok?'enviada':'falhou'}</span>
           ${x.ok ? '' : `<p class="ajuda" style="color:var(--vermelho)">${esc(x.motivo||'')}</p>`}
+          ${x.anexo ? `<p class="ajuda">📎 ${esc(x.anexo.nome)} · ${msgTamanho(x.anexo.tamanho||0)}</p>` : ''}
           <p class="ajuda" style="white-space:pre-wrap">${esc(x.texto.slice(0,240))}${
             x.texto.length>240?'…':''}</p>
         </div>`).join('')}`
