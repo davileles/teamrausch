@@ -259,15 +259,23 @@ function porId(id) {
  * toques no botão, ou a pessoa que volta ao tablet achando que não confirmou,
  * não viram duas presenças no mesmo treino.
  */
-function registrarPresenca({ telefone, nome, data, hora, agendamentoId = null, origem = 'totem' }) {
+function registrarPresenca({
+  telefone, nome, data, hora, agendamentoId = null, origem = 'totem', liberadoPor = null,
+}) {
   const jaTem = presencaDe(telefone, data, hora);
   if (jaTem) return { ok: true, repetida: true, presenca: jaTem };
 
+  // `liberadoPor` guarda o telefone do administrador que autorizou a presença
+  // fora da janela. Sem ele, a liberação seria indistinguível de uma
+  // confirmação normal — e no mês seguinte ninguém saberia dizer quem deixou
+  // entrar quem, que é exatamente a pergunta que se faz quando o número não
+  // fecha.
   const registro = {
     id: crypto.randomBytes(8).toString('hex'),
     telefone, nome: nome || null, data, hora,
     agendamentoId,
     origem,
+    liberadoPor,
     criadoEm: new Date().toISOString(),
   };
   dados.presencas.push(registro);
