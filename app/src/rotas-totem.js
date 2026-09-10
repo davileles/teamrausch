@@ -326,7 +326,7 @@ rotas.post('/confirmar', comFreio(30), (req, res) => {
 rotas.post('/liberar', comFreio(8), (req, res) => {
   const telefone = lerBilhete(req.body.bilhete);
   if (!telefone) {
-    return res.status(400).json({ erro: 'A liberação expirou. Digite os 4 dígitos de novo.' });
+    return res.status(400).json({ erro: 'A liberação expirou. Comece de novo.' });
   }
 
   const aluno = store.aluno(telefone);
