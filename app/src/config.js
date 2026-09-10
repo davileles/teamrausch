@@ -75,6 +75,19 @@ const PADRAO = {
     { aulas: 100, titulo: 'Cem aulas',       emoji: '🏆' },
     { aulas: 200, titulo: 'Veterano',        emoji: '👑' },
   ],
+  /**
+   * TABLET DA ENTRADA
+   *
+   * Quanto tempo ao redor do horário da aula a confirmação de presença vale.
+   * Era `TOTEM_MINUTOS_ANTES` / `TOTEM_MINUTOS_DEPOIS` no Railway — virou
+   * configuração pelo mesmo motivo dos valores de frequência: é regra de
+   * estúdio, não infraestrutura, e mudar não deveria pedir deploy. As
+   * variáveis antigas não são mais lidas; podem sair do Railway.
+   */
+  totem: {
+    minutosAntes: 20,           // confirmação liberada X min antes da aula
+    minutosDepois: 20,          // e ainda aceita até X min depois de começar
+  },
   acesso: {
     // Senha do administrador. Guardamos só o hash com sal, nunca o texto.
     // null = administrador entra por código, como qualquer aluno.
