@@ -4932,6 +4932,7 @@ async function carregarConfig(){
     const fin = c.financeiro || {};
     const frq = c.frequencia || {};
     const msg = c.mensagens || {};
+    const tot = c.totem || {};
     const DIAS_SEM = [['0','Dom'],['1','Seg'],['2','Ter'],['3','Qua'],['4','Qui'],['5','Sex'],['6','Sáb']];
     const diasAlerta = Array.isArray(frq.alertaDias) ? frq.alertaDias.map(String) : ['1','2','3','4','5'];
     alvo.innerHTML = `
@@ -5087,6 +5088,18 @@ async function carregarConfig(){
           por não ter feito algo que ninguém registrou. Veja o que já foi gravado em
           <code>/presencas/resumo?token=SEU_PANEL_TOKEN</code>: se muitos mensalistas
           estiverem sem nenhuma presença, deixe desligado.</p></div>
+
+      <div class="dupla">
+        <div class="campo"><label for="c-totem-antes">Tolerância antes da aula (min)</label>
+          <input id="c-totem-antes" type="number" min="0" max="240" value="${Number(tot.minutosAntes ?? 20)}">
+          <p class="ajuda">A partir de quando o tablet libera a confirmação.</p></div>
+        <div class="campo"><label for="c-totem-depois">Tolerância depois da aula (min)</label>
+          <input id="c-totem-depois" type="number" min="0" max="240" value="${Number(tot.minutosDepois ?? 20)}">
+          <p class="ajuda">Até quando quem chegou atrasado ainda consegue confirmar.</p></div>
+      </div>
+      <p class="ajuda">Fora dessa janela o tablet não grava nada e diz o motivo. Janela larga
+        demais faz a confirmação da aula das 18h cair na das 19h; curta demais recusa quem
+        chegou cedo e trocou de roupa antes de bater no tablet.</p>
 
       <div class="dupla">
         <div class="campo"><label for="c-freq-ausente">Sumido a partir de (dias)</label>
@@ -5434,6 +5447,10 @@ async function salvarConfig(){
     financeiro: {
       valorFuncional: n('c-val-func'),
       valorCrosstraining: n('c-val-cross'),
+    },
+    totem: {
+      minutosAntes: n('c-totem-antes'),
+      minutosDepois: n('c-totem-depois'),
     },
     frequencia: {
       confirmacaoAtiva: v('c-freq-confirmacao') === '1',
