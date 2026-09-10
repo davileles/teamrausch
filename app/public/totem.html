@@ -60,6 +60,16 @@
   .resposta h2::after{content:'';display:block;width:48px;height:4px;margin:22px auto 0;background:var(--amarelo)}
   .resposta.nao h2::after{background:var(--preto)}
   .resposta p{font:500 19px/1.45 'Work Sans',sans-serif;margin-top:18px;max-width:420px;opacity:.94}
+  /* Ação que a pessoa precisa tomar, quando há uma. O título diz o que
+     aconteceu; este bloco diz o que fazer — por isso vem invertido (branco
+     sobre a cor da tela), para ser a segunda coisa lida de longe e não se
+     perder no fim do parágrafo. */
+  .resposta .acao{display:none;margin-top:28px;padding:14px 28px 12px;background:#fff;
+    color:var(--vermelho);font:400 clamp(36px,10vw,56px)/1 Anton,sans-serif;
+    letter-spacing:.03em;text-transform:uppercase}
+  .resposta.sim .acao{color:var(--liberado)}
+  .resposta.com-acao .acao{display:block}
+  .resposta.com-acao h2::after{display:none}
 
   /* ── telas do tablet ───────────────────────────────────────────────────
      Uma tela por vez, todas dentro do mesmo painel. Botões grandes porque a
@@ -103,11 +113,21 @@
     color:var(--texto)}
   .aviso-totem:empty{display:none}
 
+  /* Tela da liberação: as duas informações que importam são o estado (fora do
+     horário) e a ação (chamar o professor). O selo vermelho marca o estado; a
+     chamada grande, em uma linha, é a ação. */
+  .selo-fora{display:inline-block;background:var(--vermelho);color:#fff;
+    font:400 22px/1 Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
+    padding:10px 18px 8px;margin-bottom:16px}
+  .chamada.chamada-prof{font-size:clamp(34px,10vw,46px);line-height:1;margin-bottom:22px}
+
   @media (max-height:700px){
     .logo{width:104px;margin-bottom:20px}
     .chamada{font-size:24px;margin-bottom:18px}
     .visor{min-height:84px;font-size:32px}
     .teclas button{height:68px;font-size:28px}
+    .selo-fora{font-size:18px;margin-bottom:12px}
+    .chamada.chamada-prof{font-size:32px;margin-bottom:16px}
   }
 
   /* Alternador de tema: o ícone mostra para onde se vai, não onde se está. */
@@ -185,8 +205,8 @@
 
     <!-- ------------- fora do horário: liberação do professor ---------- -->
     <section class="tela" id="tela-liberar">
-      <div class="rotulo">Fora do horário</div>
-      <div class="chamada">Liberação<br>do professor</div>
+      <div class="selo-fora">Fora do horário</div>
+      <div class="chamada chamada-prof">Chame o professor</div>
       <p class="aviso-totem" id="lib-motivo"></p>
       <div class="visor" id="visor-prof" aria-live="polite"></div>
       <div class="teclas" id="teclas-prof">
@@ -209,7 +229,7 @@
 
   </div>
 
-  <div class="resposta" id="resposta"><h2 id="r-titulo"></h2><p id="r-texto"></p></div>
+  <div class="resposta" id="resposta"><h2 id="r-titulo"></h2><div class="acao" id="r-acao"></div><p id="r-texto"></p></div>
 
 <script>
 /* ── tablet da entrada ──────────────────────────────────────────────────
@@ -276,10 +296,11 @@ document.addEventListener('click', e=>{
 
 /* --------------------------- resposta ---------------------------------- */
 
-function responder(bom, titulo, texto, segundos, destino){
+function responder(bom, titulo, texto, segundos, destino, acao){
   const t = document.getElementById('resposta');
-  t.className = 'resposta mostrar ' + (bom ? 'sim' : 'nao');
+  t.className = 'resposta mostrar ' + (bom ? 'sim' : 'nao') + (acao ? ' com-acao' : '');
   document.getElementById('r-titulo').textContent = titulo;
+  document.getElementById('r-acao').textContent = acao || '';
   document.getElementById('r-texto').textContent = texto || '';
   clearTimeout(ocioso);
   // A tela cheia vermelha é o aviso: ela existe para ser vista de longe, do
@@ -339,10 +360,10 @@ async function confirmar(bilhete){
       // que se resolve. Explicar os quatro dígitos aqui seria ensinar, a quem
       // está do lado de fora da autorização, exatamente o que ela pede.
       document.getElementById('lib-motivo').textContent =
-        'Chame o professor para liberar seu acesso à aula das ' + r.horaSugerida + '.';
+        'Ele libera seu acesso à aula das ' + r.horaSugerida + '.';
       const quem = r.nome ? r.nome.split(' ')[0] + ', você' : 'Você';
       return responder(false, 'Fora do horário',
-        quem + ' está fora do horário.' + extra + ' Chame o professor.', 4, 'liberar');
+        quem + ' está fora do horário.' + extra, 4, 'liberar', 'Chame o professor');
     }
     responder(false, 'Fora do horário', r.motivo + extra + ' Fale com o estúdio.');
   }catch(e){ responder(false, 'Ops', e.message); }
