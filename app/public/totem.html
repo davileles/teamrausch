@@ -186,7 +186,7 @@
     <!-- ------------- fora do horário: liberação do professor ---------- -->
     <section class="tela" id="tela-liberar">
       <div class="rotulo">Fora do horário</div>
-      <div class="chamada">Chame o professor</div>
+      <div class="chamada">Liberação<br>do professor</div>
       <p class="aviso-totem" id="lib-motivo"></p>
       <div class="visor" id="visor-prof" aria-live="polite"></div>
       <div class="teclas" id="teclas-prof">
@@ -276,13 +276,18 @@ document.addEventListener('click', e=>{
 
 /* --------------------------- resposta ---------------------------------- */
 
-function responder(bom, titulo, texto, segundos){
+function responder(bom, titulo, texto, segundos, destino){
   const t = document.getElementById('resposta');
   t.className = 'resposta mostrar ' + (bom ? 'sim' : 'nao');
   document.getElementById('r-titulo').textContent = titulo;
   document.getElementById('r-texto').textContent = texto || '';
   clearTimeout(ocioso);
-  setTimeout(()=>{ t.className = 'resposta'; ir('menu'); }, (segundos || (bom ? 3 : 6)) * 1000);
+  // A tela cheia vermelha é o aviso: ela existe para ser vista de longe, do
+  // outro lado da sala, por quem não está olhando para o tablet. Fora do
+  // horário ela continua aparecendo — o que mudou é o que vem depois: em vez
+  // de voltar ao menu e encerrar o assunto, a tela entrega a liberação.
+  setTimeout(()=>{ t.className = 'resposta'; ir(destino || 'menu'); },
+    (segundos || (bom ? 3 : 6)) * 1000);
 }
 
 /* ---------------------- presença: 4 dígitos ---------------------------- */
@@ -330,12 +335,14 @@ async function confirmar(bilhete){
     if (r.podeLiberar){
       bilheteLib = r.bilhete;
       prof = ''; pintarProf();
-      const quem = r.nome ? r.nome.split(' ')[0] + ', v' : 'V';
+      // O aluno não precisa saber como o professor libera — só que é com ele
+      // que se resolve. Explicar os quatro dígitos aqui seria ensinar, a quem
+      // está do lado de fora da autorização, exatamente o que ela pede.
       document.getElementById('lib-motivo').textContent =
-        quem + 'ocê está fora do horário.' + extra
-        + ' Chame o professor: ele digita os 4 últimos dígitos do telefone dele'
-        + ' e libera sua presença na aula das ' + r.horaSugerida + '.';
-      return ir('liberar');
+        'Chame o professor para liberar seu acesso à aula das ' + r.horaSugerida + '.';
+      const quem = r.nome ? r.nome.split(' ')[0] + ', você' : 'Você';
+      return responder(false, 'Fora do horário',
+        quem + ' está fora do horário.' + extra + ' Chame o professor.', 4, 'liberar');
     }
     responder(false, 'Fora do horário', r.motivo + extra + ' Fale com o estúdio.');
   }catch(e){ responder(false, 'Ops', e.message); }
