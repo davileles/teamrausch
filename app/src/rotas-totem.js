@@ -162,6 +162,63 @@ function horarioDeAgora(meus, data, fuso) {
   return dentro[0] || null;
 }
 
+/**
+ * O horário da grade em que a pessoa chegou — não o dela, o do estúdio.
+ *
+ * Quem chega 10h05 entrou na aula das 10h, mesmo que a matrícula dela seja das
+ * 18h. É por isso que a busca é na grade do dia e não nos horários da pessoa:
+ * a liberação existe justamente para quem apareceu num horário que não é o
+ * seu, e creditar a presença no horário contratado deixaria a lista da aula
+ * das 10h sem a pessoa que estava dentro dela.
+ *
+ * A aula que já começou ganha da que vai começar: às 10h05 o estúdio está com
+ * a das 10h em andamento, e a das 11h ainda não é lugar nenhum. Sem nenhuma
+ * aula no dia — feriado, domingo — sobra a hora cheia do relógio, que é o
+ * melhor palpite possível e ainda deixa o registro conferível.
+ */
+function horaDaChegada(data, fuso) {
+  const slots = (agenda.listaDoDia(data).horarios || [])
+    .map((h) => ({ hora: h.hora, faltam: agenda.minutosAte(data, h.hora, fuso) }));
+
+  const comecadas = slots.filter((s) => s.faltam <= 0);
+  if (comecadas.length) {
+    return comecadas.sort((a, b) => b.faltam - a.faltam)[0].hora;   // a mais recente
+  }
+  const proximas = slots.filter((s) => s.faltam > 0);
+  if (proximas.length) {
+    return proximas.sort((a, b) => a.faltam - b.faltam)[0].hora;    // a que vem
+  }
+
+  const agoraHora = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: fuso, hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date());
+  return `${agoraHora.slice(0, 2)}:00`;
+}
+
+/**
+ * Administrador cujo telefone termina nestes quatro dígitos.
+ *
+ * A lista de administradores é a mesma da aba Configurações — quem já manda no
+ * sistema é quem pode liberar uma entrada fora do horário. Não há senha aqui
+ * de propósito: o professor está de pé ao lado do aluno, com fila atrás, e
+ * qualquer coisa além de quatro toques faria a recepção voltar ao caderno.
+ * O que segura a porta é o freio por tentativa mais o registro de quem liberou.
+ */
+function adminPorFinal(final) {
+  const digitos = String(final || '').replace(/\D/g, '');
+  if (digitos.length !== 4) return null;
+  const lista = config.ler().administradores || [];
+  return lista.find((t) => String(t || '').endsWith(digitos)) || null;
+}
+
+/** Nome do administrador, quando ele também tem cadastro de aluno. */
+function nomeDoAdmin(telefone) {
+  const direto = store.aluno(telefone);
+  if (direto && direto.nome) return direto.nome;
+  const achado = store.listarAlunos().find((a) => mesmoTelefone(a.telefone, telefone));
+  return (achado && achado.nome) || null;
+}
+
 /* ------------------------------ rotas ------------------------------------ */
 
 /**
@@ -221,9 +278,16 @@ rotas.post('/confirmar', comFreio(30), (req, res) => {
     const motivo = meus.length
       ? 'Seu check-in não bate com o horário agendado.'
       : 'Você não tem aula agendada para hoje.';
+    // Fora da janela deixou de ser fim de linha: o professor libera na hora,
+    // pelos quatro dígitos dele. Vai um bilhete novo porque o da busca pode
+    // estar quase vencendo, e o aluno ainda precisa chamar alguém — sem isto,
+    // a liberação morreria de expiração no meio da caminhada até a sala.
     return res.json({
       ok: false, motivo, nome: aluno.nome || null,
       horariosDeHoje: meus.map((h) => h.hora),
+      podeLiberar: true,
+      bilhete: emitirBilhete(telefone),
+      horaSugerida: horaDaChegada(data, fuso),
     });
   }
 
@@ -244,6 +308,76 @@ rotas.post('/confirmar', comFreio(30), (req, res) => {
     ok: true,
     nome: aluno.nome || null,
     hora: agora.hora,
+    repetida: r.repetida,
+  });
+});
+
+/**
+ * Presença liberada pelo professor, fora da janela do horário.
+ *
+ * O aluno chegou atrasado, veio num horário que não é o dele ou o cadastro não
+ * tem aula hoje. Antes disto a tela só sabia mandar procurar o estúdio, e o
+ * estúdio não tinha onde registrar — a pessoa treinava e o mês fechava
+ * dizendo que ela não apareceu.
+ *
+ * A presença entra no horário da grade em que ela chegou, não no da matrícula:
+ * quem entrou na aula das 10h aparece na aula das 10h.
+ */
+rotas.post('/liberar', comFreio(8), (req, res) => {
+  const telefone = lerBilhete(req.body.bilhete);
+  if (!telefone) {
+    return res.status(400).json({ erro: 'A liberação expirou. Digite os 4 dígitos de novo.' });
+  }
+
+  const aluno = store.aluno(telefone);
+  if (!aluno) return res.status(404).json({ erro: 'Cadastro não encontrado.' });
+  if (aluno.bloqueado) {
+    return res.json({ ok: false, motivo: 'Acesso suspenso. Fale com o estúdio.' });
+  }
+
+  const admin = adminPorFinal(req.body.final);
+  if (!admin) {
+    console.log(`[totem] liberação recusada — dígitos não são de administrador`
+      + ` (aluno: ${aluno.nome || telefone})`);
+    return res.json({ ok: false, motivo: 'Esses dígitos não são de um professor. Tente de novo.' });
+  }
+
+  // Liberar a si mesmo transformaria a autorização em formalidade: bastaria ser
+  // administrador para nunca mais ter horário. Quem libera é sempre outra
+  // pessoa, e é isso que faz o registro valer alguma coisa.
+  if (mesmoTelefone(admin, telefone)) {
+    return res.json({ ok: false, motivo: 'Peça a outro professor para liberar sua presença.' });
+  }
+
+  const c = config.ler();
+  const fuso = c.estudio.fuso;
+  const data = agenda.hoje(fuso);
+  const hora = horaDaChegada(data, fuso);
+
+  // Se por acaso ela tem agendamento neste mesmo horário, a presença fica
+  // amarrada a ele — assim a aula não conta a mesma pessoa duas vezes, uma
+  // como reserva e outra como liberação solta.
+  const meu = horariosDeHoje(telefone, data).find((h) => h.hora === hora);
+
+  const r = store.registrarPresenca({
+    telefone,
+    nome: aluno.nome,
+    data,
+    hora,
+    agendamentoId: meu ? meu.agendamentoId : null,
+    origem: 'totem-liberado',
+    liberadoPor: admin,
+  });
+
+  const professor = nomeDoAdmin(admin);
+  console.log(`[totem] presença LIBERADA ${data} ${hora} — ${aluno.nome || telefone}`
+    + ` por ${professor || admin}${r.repetida ? ' (repetida)' : ''}`);
+
+  res.json({
+    ok: true,
+    nome: aluno.nome || null,
+    hora,
+    professor: professor ? professor.split(' ')[0] : null,
     repetida: r.repetida,
   });
 });
