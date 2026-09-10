@@ -44,12 +44,34 @@ rotas.use(express.json());
 /**
  * Janela em que a confirmação vale, em minutos ao redor do horário da aula.
  *
- * Antes é maior que depois de propósito: as pessoas chegam cedo, trocam de
- * roupa e confirmam antes de entrar na sala. Quem confirma muito depois do
- * início ou já treinou e voltou ao tablet, ou está confirmando a aula errada.
+ * As pessoas chegam cedo, trocam de roupa e confirmam antes de entrar na sala;
+ * quem confirma muito depois do início ou já treinou e voltou ao tablet, ou
+ * está confirmando a aula errada. Os dois lados são editáveis em
+ * Configurações → Frequência e cobrança.
+ *
+ * LIDO A CADA CHAMADA, NÃO NO BOOT
+ *   Eram duas constantes de variável de ambiente. Como agora saem da tela,
+ *   ler uma vez no carregamento do módulo faria a troca só valer no próximo
+ *   deploy — o administrador salvaria e o tablet continuaria com o valor
+ *   velho até alguém reiniciar o serviço.
  */
-const MINUTOS_ANTES = Number(process.env.TOTEM_MINUTOS_ANTES || 45);
-const MINUTOS_DEPOIS = Number(process.env.TOTEM_MINUTOS_DEPOIS || 30);
+const PADRAO_ANTES = 20;
+const PADRAO_DEPOIS = 20;
+
+function janela() {
+  let t = {};
+  try {
+    t = config.ler().totem || {};
+  } catch (e) {
+    t = {};   // config ilegível: o padrão evita recusar quem está na frente do tablet
+  }
+  const antes = Number(t.minutosAntes);
+  const depois = Number(t.minutosDepois);
+  return {
+    antes: Number.isFinite(antes) && antes >= 0 ? antes : PADRAO_ANTES,
+    depois: Number.isFinite(depois) && depois >= 0 ? depois : PADRAO_DEPOIS,
+  };
+}
 
 /* ---------------------------- proteção ----------------------------------- */
 
@@ -131,9 +153,10 @@ function horariosDeHoje(telefone, data) {
 
 /** O horário de hoje que está acontecendo agora, dentro da janela. */
 function horarioDeAgora(meus, data, fuso) {
+  const { antes, depois } = janela();
   const dentro = meus
     .map((h) => ({ ...h, faltam: agenda.minutosAte(data, h.hora, fuso) }))
-    .filter((h) => h.faltam <= MINUTOS_ANTES && h.faltam >= -MINUTOS_DEPOIS)
+    .filter((h) => h.faltam <= antes && h.faltam >= -depois)
     // Duas aulas na janela ao mesmo tempo é raro; a mais próxima do agora ganha.
     .sort((a, b) => Math.abs(a.faltam) - Math.abs(b.faltam));
   return dentro[0] || null;
