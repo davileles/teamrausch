@@ -1106,6 +1106,24 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     if (f.alertaAtivo !== undefined) novo.frequencia.alertaAtivo = Boolean(f.alertaAtivo);
   }
 
+  // Janela do tablet da entrada. Zero dos dois lados é uma janela fechada: a
+  // confirmação passaria a ser recusada sempre, e o tablet viraria uma tela que
+  // só sabe dizer não. O teto de 240 é o que impede a aula das 6h aceitar
+  // confirmação de quem chegou para a das 18h.
+  if (novo.totem !== undefined) {
+    const t = novo.totem || {};
+    const erros = [
+      t.minutosAntes !== undefined && faixa(t.minutosAntes, 0, 240, 'Tolerância antes da aula'),
+      t.minutosDepois !== undefined && faixa(t.minutosDepois, 0, 240, 'Tolerância depois da aula'),
+    ].filter(Boolean);
+    if (erros.length) return res.status(400).json({ erro: erros[0] });
+    if (Number(t.minutosAntes) === 0 && Number(t.minutosDepois) === 0) {
+      return res.status(400).json({
+        erro: 'Uma das duas tolerâncias do totem precisa ser maior que zero.',
+      });
+    }
+  }
+
   if (novo.mensagens !== undefined) {
     const m = novo.mensagens || {};
     const erros = [
