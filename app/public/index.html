@@ -265,6 +265,31 @@
   .fila .quem b{font:600 15px 'Work Sans',sans-serif;display:block;color:var(--texto)}
   .fila .quem small{font:400 12.5px 'Work Sans',sans-serif;color:var(--fraco)}
 
+  /* ---- presença do totem na Lista do dia ----
+     Só acompanhamento: quem veio, em que horário e se precisou de liberação.
+     Verde cheio (e não texto verde) porque o verde da marca some sobre a
+     superfície escura. O aviso do Wellhub é o único vermelho da lista: é o
+     que custa dinheiro. */
+  .fila .pres{flex:0 0 auto;font:600 10.5px/1 'Work Sans',sans-serif;letter-spacing:.08em;
+    text-transform:uppercase;padding:6px 8px;border:1px solid var(--linha-2);color:var(--fraco);
+    white-space:nowrap}
+  .fila .pres.ok{background:var(--liberado);border-color:var(--liberado);color:#fff}
+  .fila .pres.lib{color:var(--amarelo);border-color:var(--borda-amarela);background:var(--amarelo-fundo)}
+  .fila .pres.outro{color:var(--apagado);border-color:var(--linha-3)}
+  .fila .pres.falta{color:var(--fraco-2);border-style:dashed}
+  .fila .quem .wh{display:block;margin-top:3px;color:var(--vermelho);font-weight:600}
+  .fila.wh-alerta{border-left:3px solid var(--vermelho)}
+  .fila.avulso{background:var(--fundo-2)}
+  .resumo-presenca{display:flex;flex-wrap:wrap;gap:6px 18px;margin:-4px 0 14px;
+    font:500 13px 'Work Sans',sans-serif;color:var(--apagado)}
+  .resumo-presenca b{font:400 17px Anton,sans-serif;color:var(--texto);margin-right:4px;letter-spacing:.02em}
+  .alerta-wh{background:var(--superficie);border:1px solid var(--borda-vermelha);
+    border-left:3px solid var(--vermelho);padding:14px 16px;margin-bottom:16px}
+  .alerta-wh h3{color:var(--vermelho);margin:0 0 6px;border-left-color:var(--vermelho)}
+  .alerta-wh ul{list-style:none;font:500 14px/1.6 'Work Sans',sans-serif;color:var(--texto)}
+  .alerta-wh li small{color:var(--fraco);margin-left:6px}
+  .alerta-wh p.ajuda{margin:8px 0 0}
+
   /* ---- números do aluno ---- */
   .numeros{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;
     background:var(--linha);margin-bottom:10px}
@@ -1675,28 +1700,92 @@ async function carregarPerfil(){
 /* --------------------------- lista do dia ------------------------------- */
 let dataDoDia = null;
 
+/* Marca de presença do totem. Não aparece em aula que ainda não fechou a janela
+   do tablet ('aguardando') nem em data futura: ali não há o que acompanhar. */
+function marcaPresenca(p){
+  if (!p) return '';
+  const ch = p.chegada ? ` ${esc(p.chegada)}` : '';
+  switch (p.estado){
+    case 'confirmou':     return `<span class="pres ok" title="Confirmou no totem">Veio${ch}</span>`;
+    case 'liberado':      return `<span class="pres lib" title="Chegou fora do horário e o professor liberou">Liberado${ch}</span>`;
+    case 'outro-horario': return `<span class="pres outro" title="Confirmou em outra aula hoje">Veio às ${esc(p.hora)}</span>`;
+    case 'nao-confirmou': return `<span class="pres falta" title="Não confirmou no totem">Não confirmou</span>`;
+    default: return '';
+  }
+}
+
+function origemAluno(a){
+  if (a.origem === 'reserva') return esc(String(a.telefone||'').replace(/^55/,''));
+  if (a.origem === 'extra') return 'aula extra';
+  if (a.origem === 'presenca') return 'não estava na lista';
+  return 'grade fixa';
+}
+
+function filaDoDia(a){
+  const p = a.presenca || {};
+  const extra = [
+    origemAluno(a),
+    p.estado === 'liberado' && p.liberadoPor ? `liberado por ${esc(p.liberadoPor.split(' ')[0])}` : '',
+    p.estado === 'sem-telefone' ? 'sem telefone, não confirma no totem' : '',
+  ].filter(Boolean).join(' · ');
+  return `<div class="fila${a.semCheckinWellhub?' wh-alerta':''}${a.origem==='presenca'?' avulso':''}">
+    <div class="quem"><b>${esc(a.nome)}</b><small>${extra}${
+      a.semCheckinWellhub ? '<span class="wh">Sem check-in do Wellhub neste dia</span>' : ''}</small></div>
+    ${marcaPresenca(p)}
+    ${a.id ? `<button class="leve cancelar" data-id="${a.id}">Remover</button>` : ''}
+  </div>`;
+}
+
 async function carregarDia(){
   const alvo = document.getElementById('aba-dia');
   try{
     const r = await api('/admin/dia'+(dataDoDia?`?data=${dataDoDia}`:''));
     dataDoDia = r.data;
+    const pr = r.presenca || {};
+    const futuro = r.data > r.hoje;
+    const wh = pr.wellhubSemCheckin || [];
+
+    const resumo = futuro ? '' : `<div class="resumo-presenca">
+        <span><b>${pr.confirmaram||0}</b>no horário</span>
+        <span><b>${pr.liberados||0}</b>liberados fora do horário</span>
+        ${pr.outroHorario ? `<span><b>${pr.outroHorario}</b>em outro horário</span>` : ''}
+        <span><b>${pr.naoConfirmaram||0}</b>não confirmaram</span>
+      </div>`;
+
+    // O único bloco que pede ação: aula dada a aluno Wellhub sem check-in é
+    // repasse que não entra. Dá tempo de avisar o aluno ainda no mesmo dia.
+    const alerta = wh.length ? `<div class="alerta-wh">
+        <h3>Wellhub sem check-in · ${wh.length}</h3>
+        <ul>${wh.map(x=>`<li>${esc(x.nome)}<small>aula das ${esc(x.hora)}</small></li>`).join('')}</ul>
+        <p class="ajuda">Confirmaram no totem e não têm check-in do Wellhub nesta data. Sem o
+          check-in, a aula não gera repasse. Check-in que ainda não chegou do portal ou que
+          ficou sem vínculo com a ficha também aparece aqui.</p>
+      </div>` : '';
+
+    const blocos = r.horarios.map(h=>`
+        <div class="hora-bloco">
+        <h3>${h.hora} · ${h.inscritos ?? h.alunos.length} de ${h.capacidade}${
+          // Aula que ainda não fechou a janela do tablet não tem contagem: "0
+          // presentes" às 13h para a turma das 18h só assusta.
+          h.alunos.some(a=>a.presenca && ['confirmou','liberado','nao-confirmou'].includes(a.presenca.estado))
+            ? ` · ${h.presentes||0} ${h.presentes===1?'presente':'presentes'}` : ''}</h3>
+        ${h.alunos.length ? h.alunos.map(filaDoDia).join('')
+          : '<div class="vazio">Ninguém neste horário.</div>'}
+        </div>`);
+    if ((r.foraDaGrade||[]).length){
+      blocos.push(`<div class="hora-bloco"><h3>Fora da grade · ${r.foraDaGrade.length}</h3>
+        ${r.foraDaGrade.map(a=>filaDoDia({...a, origem:'presenca'})).join('')}</div>`);
+    }
+
     alvo.innerHTML = `<h2>Lista do dia</h2>
       <div class="campo"><label for="in-dia">Data</label>
       <input id="in-dia" type="date" value="${r.data}"></div>` +
-      (r.horarios.length ? '<div class="horas-dia">' + r.horarios.map(h=>`
-        <div class="hora-bloco">
-        <h3>${h.hora} · ${h.alunos.length} de ${h.capacidade}</h3>
-        ${h.alunos.length ? h.alunos.map(a=>`<div class="fila">
-            <div class="quem"><b>${esc(a.nome)}</b><small>${
-              a.origem === 'reserva'
-                ? esc(String(a.telefone||'').replace(/^55/,''))
-                : a.origem === 'extra' ? 'aula extra' : 'grade fixa'
-            }</small></div>
-            ${a.id ? `<button class="leve cancelar" data-id="${a.id}">Remover</button>` : ''}
-            </div>`).join('')
-          : '<div class="vazio">Ninguém neste horário.</div>'}
-        </div>`).join('') + '</div>'
-        : '<div class="vazio">Sem horários nesta data.</div>');
+      resumo + alerta +
+      (blocos.length ? '<div class="horas-dia">' + blocos.join('') + '</div>'
+        : '<div class="vazio">Sem horários nesta data.</div>') +
+      (futuro ? '' : `<p class="ajuda" style="margin-top:14px">A presença do totem é só
+        acompanhamento: não entra na frequência nem gera cobrança. A cobrança continua
+        sendo pelo check-in do Wellhub.</p>`);
     document.getElementById('in-dia').addEventListener('change', e=>{ dataDoDia = e.target.value; carregarDia(); });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
@@ -4840,9 +4929,9 @@ async function msgPainelMassa(){
           e nunca abriram o app. A conta é feita na hora do envio: quem entrar depois deste
           disparo sai da lista sozinho no próximo.</p>`:''}
         ${(publico==='devedores'||publico==='ausentes')?`<p class="ajuda">
-          Só alunos Wellhub por enquanto: o mensalista não faz check-in no portal,
-          então a conta dele daria zero e ele cairia aqui sem dever nada. Entra
-          sozinho quando a confirmação de presença no estúdio estiver no ar.</p>`:''}
+          Só alunos Wellhub, contados pelo check-in: é ele que gera o repasse. O
+          mensalista não entra — a mensalidade já está paga e a presença dele no
+          totem é só acompanhamento.</p>`:''}
         <div class="dupla" style="margin-bottom:12px">
           <button class="leve" id="mx-todos">Marcar todos</button>
           <button class="leve" id="mx-nenhum">Desmarcar</button>
@@ -5190,17 +5279,9 @@ async function carregarConfig(){
         da cobrança. Estas opções eram variáveis de ambiente — mudar pedia acesso ao
         servidor. Agora valem no minuto seguinte a salvar.</p>
 
-      <div class="campo"><label for="c-freq-confirmacao">Contar a presença do totem</label>
-        <select id="c-freq-confirmacao">
-          <option value="0"${frq.confirmacaoAtiva?'':' selected'}>Não — só o check-in do Wellhub</option>
-          <option value="1"${frq.confirmacaoAtiva?' selected':''}>Sim — totem e Wellhub</option>
-        </select>
-        <p class="ajuda"><b>Confira antes de ligar.</b> O tablet grava presença desde
-          sempre, mas se ele não estiver no fluxo da entrada, ligar isto faz todo
-          mensalista aparecer com zero treinos e virar devedor no dia seguinte — cobrado
-          por não ter feito algo que ninguém registrou. Veja o que já foi gravado em
-          <code>/presencas/resumo?token=SEU_PANEL_TOKEN</code>: se muitos mensalistas
-          estiverem sem nenhuma presença, deixe desligado.</p></div>
+      <p class="ajuda"><b>A cobrança é só de alunos Wellhub e só pelo check-in.</b> É o
+        check-in que gera repasse; o mensalista já pagou, venha ou não. A presença
+        confirmada no totem é acompanhamento: aparece na Lista do dia e não entra aqui.</p>
 
       <div class="dupla">
         <div class="campo"><label for="c-totem-antes">Tolerância antes da aula (min)</label>
@@ -5566,7 +5647,6 @@ async function salvarConfig(){
       minutosDepois: n('c-totem-depois'),
     },
     frequencia: {
-      confirmacaoAtiva: v('c-freq-confirmacao') === '1',
       ausenteDias: n('c-freq-ausente'),
       janelaDias: n('c-freq-janela'),
       alertaAtivo: v('c-freq-ativo') === '1',

@@ -3,32 +3,33 @@
 /**
  * app/src/presencas.js — davileles/teamrausch
  *
- * De onde vem "o aluno treinou neste dia". Hoje há uma fonte só — o check-in
- * do portal do Wellhub. Quando o módulo de confirmação de presença no estúdio
- * existir, ele entra aqui e mais nada muda de lugar.
+ * Duas perguntas diferentes moram aqui, e cada uma tem a sua fonte.
  *
- * POR QUE ESTE ARQUIVO EXISTE ANTES DA SEGUNDA FONTE
- *   Quatro lugares perguntavam direto ao `checkins-store` quem treinou quando:
- *   o painel de frequência, o aviso diário, a ficha do aluno e a lista de
- *   destinatários das mensagens. Ligar a confirmação de presença significaria
- *   lembrar dos quatro — e o que fosse esquecido continuaria cobrando alguém
- *   que apareceu. Agora é um lugar só.
+ * 1. COBRANÇA — "este aluno está gerando o que deveria?"
+ *    Só o check-in do Wellhub. O repasse vem por check-in validado no portal:
+ *    aluno Wellhub que não faz check-in é aula que o estúdio não recebe. O
+ *    mensalista já pagou, venha ou não — não há o que cobrar dele.
  *
- * COMO A SEGUNDA FONTE FICOU
- *   O tablet da entrada grava em `agenda-store.presencas` — registro próprio,
- *   não um campo do agendamento, porque quem treina na grade fixa da matrícula
- *   não tem agendamento nenhum para marcar. `deConfirmacao()` traduz telefone
- *   em matrícula e devolve as datas.
+ *    Frequência, aviso diário, os públicos "Devendo treino" e "Sumidos", o
+ *    botão Cobrar e a ficha do aluno leem `mapaPorMatricula` /
+ *    `datasDaMatricula`, que devolvem só check-in. A presença do totem NÃO
+ *    entra nessa conta, nem para o Wellhub: somá-la faria o aluno que veio e
+ *    esqueceu o check-in parecer em dia — justamente o caso em que o dinheiro
+ *    se perde.
  *
- *   Falta só ligar: Configurações → Frequência → "Contar a presença do totem".
- *   Enquanto estiver desligado, o tablet registra e nada mais muda — dá para
- *   acumular alguns dias de confirmação e conferir em /presencas/resumo antes
- *   de deixar isso valer nas cobranças de frequência.
+ * 2. GESTÃO — "quem veio, em que horário, e com liberação?"
+ *    O tablet da entrada. Serve para acompanhar a turma e ensinar a vir no
+ *    horário certo. Ausência não gera cobrança, e trocar para outra aula no
+ *    mesmo dia é livre. Aparece na Lista do dia por `doDia`, com um cruzamento
+ *    que interessa ao caixa: aluno Wellhub que confirmou no totem e não tem
+ *    check-in naquele dia.
  *
- * DIA, NÃO APARIÇÃO
- *   As duas fontes podem falar do mesmo treino: o aluno passa o QR do Wellhub
- *   e a recepção confirma a presença dele. União de datas, sem repetir — a
- *   grade conta dias, e contar duas vezes faria a pessoa parecer adiantada.
+ * A CHAVE QUE SAIU
+ *   Existia `frequencia.confirmacaoAtiva` ("Contar a presença do totem"), que
+ *   somava as duas fontes. Ligada, ela punha o mensalista na cobrança e
+ *   escondia o check-in esquecido do Wellhub — o contrário do que o estúdio
+ *   precisa. Foi removida; configs antigas que ainda a tenham gravada são
+ *   limpas na leitura (`config.js`) e nada mais a consulta.
  */
 
 const checkins = require('./checkins-store');
@@ -36,126 +37,143 @@ const agendaStore = require('./agenda-store');
 const matriculas = require('./matriculas-store');
 const config = require('./config');
 
-/**
- * Vira true quando o módulo de confirmação estiver no ar. Enquanto for false,
- * quem não é Wellhub não tem como provar que treinou, e cobrar essa pessoa é
- * acusar quem veio.
- *
- * LIDO A CADA CHAMADA, NÃO NO BOOT
- *   Era uma constante de variável de ambiente. Como agora está em
- *   Configurações → Frequência, ler uma vez no carregamento do módulo faria a
- *   troca na tela só valer no próximo deploy — e o administrador ficaria
- *   olhando um botão que salva e não muda nada.
- */
-function confirmacaoAtiva() {
-  try {
-    return config.ler().frequencia.confirmacaoAtiva === true;
-  } catch (e) {
-    return false;   // config ilegível: o seguro é não cobrar ninguém
-  }
-}
+/* ------------------------------ cobrança --------------------------------- */
 
 /**
- * Datas com presença confirmada no estúdio, por matrícula.
- * Enquanto o módulo não existe, devolve vazio — e a união abaixo vira só o
- * Wellhub, que é exatamente o comportamento de hoje.
- *
- * @returns {Map<string, string[]>} matriculaId → ['AAAA-MM-DD', …]
- */
-function deConfirmacao(janela = {}) {
-  if (!confirmacaoAtiva()) return new Map();
-
-  // A presença guarda telefone, que é a chave do cadastro de login; a
-  // frequência conta por matrícula. `matriculas.porTelefone` é a mesma ponte
-  // usada no resto do sistema — compara os 8 dígitos finais, então DDI e nono
-  // dígito digitados de formas diferentes continuam sendo a mesma pessoa.
-  //
-  // Presença de quem não tem ficha simplesmente não entra: não há a quem
-  // creditar, e inventar uma matrícula aqui poluiria a base de cobrança.
-  const porMatricula = new Map();
-  const cache = new Map();
-
-  for (const p of agendaStore.listarPresencas(janela)) {
-    if (!cache.has(p.telefone)) {
-      const m = matriculas.porTelefone(p.telefone);
-      cache.set(p.telefone, m ? m.id : null);
-    }
-    const id = cache.get(p.telefone);
-    if (!id) continue;
-    const datas = porMatricula.get(id) || new Set();
-    datas.add(p.data);
-    porMatricula.set(id, datas);
-  }
-
-  return new Map([...porMatricula].map(([id, datas]) => [id, [...datas].sort()]));
-}
-
-/** Junta duas fontes sem repetir data. */
-function unir(a, b) {
-  if (!b.size) return a;
-  const fora = new Map(a);
-  for (const [id, datas] of b) {
-    const juntas = new Set(fora.get(id) || []);
-    for (const d of datas) juntas.add(d);
-    fora.set(id, [...juntas].sort());
-  }
-  return fora;
-}
-
-/**
- * Todas as datas em que cada aluno treinou, de qualquer fonte.
- * Mesma assinatura de `checkins.mapaPorMatricula` de propósito: quem chamava
- * um chama o outro sem mudar mais nada.
+ * Datas com check-in do Wellhub, por matrícula. Mesma assinatura de
+ * `checkins.mapaPorMatricula` — os quatro lugares que cobram continuam
+ * chamando por aqui, e é aqui que se decide que a fonte é uma só.
  */
 function mapaPorMatricula(janela = {}) {
-  return unir(checkins.mapaPorMatricula(janela), deConfirmacao(janela));
+  return checkins.mapaPorMatricula(janela);
 }
 
-/** Datas de um aluno só. */
+/** Datas com check-in de um aluno só. */
 function datasDaMatricula(matriculaId) {
-  const doEstudio = deConfirmacao().get(matriculaId) || [];
-  const doWellhub = checkins.datasDaMatricula(matriculaId) || [];
-  if (!doEstudio.length) return doWellhub;
-  return [...new Set([...doWellhub, ...doEstudio])].sort();
+  return checkins.datasDaMatricula(matriculaId) || [];
 }
 
 /**
- * Quais vínculos têm dado suficiente para serem cobrados por frequência.
- *
- * Não é uma preferência de negócio — é o limite do que o sistema sabe. O
- * mensalista não faz check-in no portal, então o realizado dele fecha em zero
- * contra a meta da grade e ele apareceria como crítico todos os meses. Com a
- * confirmação de presença ligada, ele passa a ter dado e entra sozinho.
+ * Quem pode ser cobrado por frequência: só Wellhub. Não é limite de dado —
+ * é regra de negócio. Mensalidade paga não depende de aparecer.
  */
 function vinculosComDado() {
-  return confirmacaoAtiva() ? ['wellhub', 'mensalista'] : ['wellhub'];
+  return ['wellhub'];
 }
 
-/**
- * `frequencia.painel` aceita um vínculo só, ou null para todos. Enquanto
- * houver uma fonte só, isto devolve 'wellhub'; com as duas, devolve null.
- */
+/** `frequencia.painel` aceita um vínculo só. */
 function vinculoParaPainel() {
-  const v = vinculosComDado();
-  return v.length > 1 ? null : v[0];
+  return 'wellhub';
 }
 
 function situacao() {
   return {
-    fontes: confirmacaoAtiva() ? ['wellhub', 'estudio'] : ['wellhub'],
-    confirmacaoAtiva: confirmacaoAtiva(),
-    vinculosComDado: vinculosComDado(),
+    cobranca: { fonte: 'checkin-wellhub', vinculos: vinculosComDado() },
+    totem: { uso: 'gestao', contaNaCobranca: false },
   };
+}
+
+/* ------------------------------- gestão ---------------------------------- */
+
+function finalDoTelefone(t) {
+  const d = String(t || '').replace(/\D/g, '');
+  return d.length >= 8 ? d.slice(-8) : null;
+}
+
+/** Hora local (HH:MM) de um ISO, no fuso do estúdio. */
+function horaLocal(iso, fuso) {
+  if (!iso) return null;
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: fuso, hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date(iso));
+  } catch (e) { return null; }
+}
+
+/** Nome de quem liberou, pelo telefone do administrador. */
+function nomeDoAdmin(telefone) {
+  if (!telefone) return null;
+  const direto = agendaStore.aluno(telefone);
+  if (direto && direto.nome) return direto.nome;
+  const alvo = finalDoTelefone(telefone);
+  const achado = agendaStore.listarAlunos().find((a) => finalDoTelefone(a.telefone) === alvo);
+  return (achado && achado.nome) || null;
+}
+
+/**
+ * Presenças de um dia, prontas para a Lista do dia.
+ *
+ * @returns {{
+ *   registros: object[],               // uma linha por confirmação no totem
+ *   porFinal: Map<string, object[]>,    // 8 últimos dígitos → registros do dia
+ *   semCheckinWellhub: Set<string>,     // finais de quem é Wellhub, veio e não tem check-in
+ * }}
+ */
+function doDia(data) {
+  const fuso = config.ler().estudio.fuso;
+  const fichas = new Map();
+  const fichaDe = (tel) => {
+    if (!fichas.has(tel)) fichas.set(tel, matriculas.porTelefone(tel) || null);
+    return fichas.get(tel);
+  };
+
+  const registros = agendaStore.presencasDaData(data).map((p) => {
+    const m = fichaDe(p.telefone);
+    return {
+      telefone: p.telefone,
+      final: finalDoTelefone(p.telefone),
+      nome: (m && m.nome) || p.nome || null,
+      hora: p.hora,
+      chegada: horaLocal(p.criadoEm, fuso),
+      liberado: p.origem === 'totem-liberado',
+      liberadoPor: p.liberadoPor ? (nomeDoAdmin(p.liberadoPor) || null) : null,
+      matriculaId: m ? m.id : null,
+      contaId: m ? (m.contaDe || m.id) : null,
+      vinculo: m ? (m.vinculo || null) : null,
+    };
+  });
+
+  const porFinal = new Map();
+  for (const r of registros) {
+    if (!r.final) continue;
+    if (!porFinal.has(r.final)) porFinal.set(r.final, []);
+    porFinal.get(r.final).push(r);
+  }
+  for (const lista of porFinal.values()) lista.sort((a, b) => String(a.hora).localeCompare(String(b.hora)));
+
+  // CHECK-IN POR CONTA, NÃO POR FICHA
+  //   Em conta compartilhada o check-in cai na ficha do titular, é dele o
+  //   Wellhub ID. Então a pergunta é "quantas pessoas desta conta vieram hoje"
+  //   contra "quantos check-ins a conta tem hoje": se vieram mais do que
+  //   passaram no portal, todas as que vieram ficam marcadas — o sistema não
+  //   tem como saber qual delas passou.
+  const checkinsPorConta = new Map();
+  // `mapaPorMatricula` de um dia só: uma data por check-in, sem varrer a base
+  // com os nomes resolvidos como `listar` faria.
+  for (const [matriculaId, datas] of checkins.mapaPorMatricula({ de: data, ate: data })) {
+    const m = matriculas.porId(matriculaId);
+    const conta = m ? (m.contaDe || m.id) : matriculaId;
+    checkinsPorConta.set(conta, (checkinsPorConta.get(conta) || 0) + datas.length);
+  }
+
+  const vieramPorConta = new Map();
+  for (const r of registros) {
+    if (r.vinculo !== 'wellhub' || !r.contaId || !r.final) continue;
+    if (!vieramPorConta.has(r.contaId)) vieramPorConta.set(r.contaId, new Set());
+    vieramPorConta.get(r.contaId).add(r.final);
+  }
+
+  const semCheckinWellhub = new Set();
+  for (const [conta, finais] of vieramPorConta) {
+    if ((checkinsPorConta.get(conta) || 0) < finais.size) {
+      for (const f of finais) semCheckinWellhub.add(f);
+    }
+  }
+
+  return { registros, porFinal, semCheckinWellhub };
 }
 
 module.exports = {
   mapaPorMatricula, datasDaMatricula, vinculosComDado, vinculoParaPainel,
-  situacao, confirmacaoAtiva,
+  situacao, doDia, finalDoTelefone,
 };
-
-// Compatibilidade: `presencas.CONFIRMACAO_ATIVA` continua funcionando para quem
-// já lia a constante, mas agora responde o valor de agora, não o do boot.
-Object.defineProperty(module.exports, 'CONFIRMACAO_ATIVA', {
-  enumerable: true,
-  get: confirmacaoAtiva,
-});

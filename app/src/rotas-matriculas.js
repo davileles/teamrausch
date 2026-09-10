@@ -222,9 +222,9 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   /** Panorama: quem está em dia e quem deve treino na janela. */
   rotas.get('/frequencia', (req, res) => {
     const dias = Number(req.query.dias) > 0 ? Number(req.query.dias) : alertas.JANELA_DIAS;
-    // Sem `vinculo` na querystring avalia só Wellhub, que é quem faz check-in.
-    // `vinculo=todos` inclui mensalista, útil quando você registrar presença
-    // deles por outro caminho.
+    // Sem `vinculo` na querystring avalia só Wellhub, que é quem faz check-in e
+    // quem se cobra. `vinculo=todos` existe para consulta: o mensalista entra
+    // com a conta de check-in (quase sempre zero), não com a presença do totem.
     const vinculo = req.query.vinculo === 'todos' ? null : (req.query.vinculo || 'wellhub');
     const painel = alertas.montarPainel({ dias, vinculo, ate: req.query.ate || undefined });
 

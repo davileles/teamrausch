@@ -220,18 +220,13 @@ function tokenPainelConfere(req) {
 /* ---------------------------------------------------------------------------
    CONFERÊNCIA DA PRESENÇA DO TOTEM
 
-   O tablet da entrada grava presença desde sempre, mas enquanto
-   PRESENCA_CONFIRMACAO_ATIVA for false esses registros não contam em lugar
-   nenhum: não entram na frequência, não tiram ninguém do público "Sumidos" e
-   não aparecem em tela alguma. Ligar a chave sem olhar é apostar que o tablet
-   está sendo usado — e se não estiver, o mensalista entra na conta com zero
-   treinos e vira crítico no dia seguinte, cobrado por não ter feito algo que
-   ninguém registrou.
+   A presença do tablet é gestão: aparece na Lista do dia e nunca entra na
+   cobrança, que é só check-in do Wellhub (ver `presencas.js`).
 
-   Isto mostra o que já foi gravado: quanto por dia, quanto casa com uma ficha
-   e quanto não casa. Presença que não casa com matrícula é presença perdida —
-   o telefone digitado no tablet não bate com nenhum cadastro, e ela não vai
-   creditar ninguém mesmo depois da chave ligada.
+   Isto é o panorama de uso: quanto por dia, quanto casa com uma ficha e
+   quanto não casa. Presença que não casa com matrícula não aparece com nome
+   certo na Lista do dia nem entra no cruzamento com o Wellhub — o telefone
+   digitado no tablet não bate com nenhum cadastro.
 
    Protegido por PANEL_TOKEN, GET, para abrir do celular.
 --------------------------------------------------------------------------- */
@@ -261,19 +256,14 @@ app.get('/presencas/resumo', (req, res) => {
     else semFicha.push({ data: p.data, hora: p.hora, nome: p.nome || null, telefone: p.telefone });
   }
 
-  // Quantos mensalistas passariam a ter dado de treino com a chave ligada. É o
-  // número que decide: baixo demais e ligar transforma a maioria em devedora.
+  // Adesão ao tablet entre os mensalistas: quantos já confirmaram alguma vez.
   const mensalistas = matriculas.listar().filter((m) => m.ativo && m.vinculo === 'mensalista');
   const mensalistasComPresenca = mensalistas.filter((m) => comFicha.has(m.id)).length;
 
   res.json({
     ok: true,
     janela: { de, ate, dias },
-    confirmacaoAtiva: presencas.CONFIRMACAO_ATIVA,
-    aviso: presencas.CONFIRMACAO_ATIVA
-      ? 'A confirmação já conta na frequência.'
-      : 'A confirmação está sendo gravada mas ainda NÃO conta na frequência '
-        + '(PRESENCA_CONFIRMACAO_ATIVA=false).',
+    uso: presencas.situacao(),
     total: lista.length,
     alunosDistintos: comFicha.size,
     semFicha: semFicha.length,

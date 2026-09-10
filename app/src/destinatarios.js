@@ -196,12 +196,11 @@ function montar(publico = 'todos', opcoes = {}) {
   let lista;
 
   if (publico === 'devedores' || publico === 'ausentes') {
-    // QUEM ENTRA AQUI DEPENDE DE QUEM TEM DADO DE PRESENÇA
-    //   Não é preferência de negócio: sem registro de treino, o realizado do
-    //   aluno fecha em zero contra a meta da grade e ele vira crítico todo
-    //   mês. Cobrar por isso é acusar quem veio. Hoje só o Wellhub registra;
-    //   quando a confirmação de presença no estúdio entrar, `presencas.js`
-    //   passa a incluir o mensalista e estes dois públicos crescem sozinhos.
+    // SÓ WELLHUB, POR REGRA DE NEGÓCIO
+    //   O repasse do Wellhub depende do check-in: quem não passa no portal é
+    //   aula que o estúdio não recebe, e é isso que estes públicos cobram. O
+    //   mensalista já pagou, venha ou não — a presença dele no totem é
+    //   acompanhamento (Lista do dia), nunca cobrança. Ver `presencas.js`.
     const painel = alertas.montarPainel({ vinculo: presencas.vinculoParaPainel() });
 
     const todas = matriculas.listar();

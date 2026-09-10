@@ -132,11 +132,8 @@ const PADRAO = {
    * não vê diferença até editar na tela, e a partir daí a tela manda.
    */
   frequencia: {
-    // Conta a presença do totem como treino, ao lado do check-in do Wellhub.
-    // Enquanto for false, só o Wellhub conta — e o mensalista fica fora dos
-    // públicos "Sumidos" e "Devendo treino", porque não teria como provar que
-    // treinou e apareceria como devedor todo mês.
-    confirmacaoAtiva: String(process.env.PRESENCA_CONFIRMACAO_ATIVA || 'false') === 'true',
+    // Cobrança é só Wellhub e só por check-in. A presença do totem é gestão
+    // (Lista do dia) e não tem chave aqui — ver `presencas.js`.
     // Dias sem aparecer a partir dos quais o aluno entra no público "Sumidos".
     // Cada modelo de mensagem pode ter o seu; este é o valor de quem não tem.
     ausenteDias: Number(process.env.PRESENCA_AUSENTE_DIAS || 10),
@@ -205,6 +202,20 @@ function telefoneSimples(entrada) {
   return n.length === 11 ? '55' + n : null;
 }
 
+/**
+ * Chaves que saíram do sistema e não devem sobreviver num config.json antigo.
+ *
+ * `frequencia.confirmacaoAtiva` somava a presença do totem à cobrança — o que
+ * punha o mensalista (que já pagou) entre os devedores e escondia o check-in
+ * esquecido do Wellhub. A presença do totem agora é só gestão (`presencas.js`).
+ * Limpa na leitura e na gravação, para não reaparecer na tela nem voltar ao
+ * disco no próximo salvar.
+ */
+function semChavesRemovidas(c) {
+  if (c && c.frequencia) delete c.frequencia.confirmacaoAtiva;
+  return c;
+}
+
 function ler() {
   if (atual) return atual;
   try {
@@ -216,6 +227,8 @@ function ler() {
     console.error('[config] não consegui ler, usando os padrões:', erro.message);
     atual = { ...PADRAO };
   }
+
+  semChavesRemovidas(atual);
 
   // Sem administrador ninguém abre a aba de configurações. Este é o primeiro.
   if (!atual.administradores.length && process.env.ADMIN_INICIAL) {
@@ -231,7 +244,7 @@ function ler() {
 }
 
 function gravar(novo) {
-  atual = fundir(ler(), novo);
+  atual = semChavesRemovidas(fundir(ler(), novo));
   fs.mkdirSync(DIR, { recursive: true });
   const temp = `${ARQUIVO}.tmp`;
   fs.writeFileSync(temp, JSON.stringify(atual, null, 2));

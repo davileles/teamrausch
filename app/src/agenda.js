@@ -4,6 +4,9 @@ const config = require('./config');
 const store = require('./agenda-store');
 const matriculas = require('./matriculas-store');
 const grade = require('./grade');
+// Só a Lista do dia usa. `presencas` não depende deste arquivo, então não há
+// ciclo de require.
+const presencas = require('./presencas');
 
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
 const NOME_DO_DIA = {
@@ -698,42 +701,163 @@ function soltarAulaFixa(minha, data, item, { credito = false, motivo } = {}) {
 }
 
 /** Lista de presença de um dia, para o administrador. */
-function listaDoDia(data) {
+/**
+ * Quem é esperado em cada horário do dia: grade fixa + reservas do app.
+ *
+ * `presenca: true` (só a tela Lista do dia pede) acrescenta a marca do totem
+ * em cada aluno e quem confirmou num horário sem estar inscrito nele. O tablet
+ * chama sem a opção de propósito: ele pergunta "onde esta pessoa é esperada",
+ * e quem foi liberado às 10h não passou a ser esperado às 10h — senão a
+ * segunda passada no tablet entraria como horário normal, sem professor.
+ */
+function listaDoDia(data, opcoes = {}) {
   const c = config.ler();
+  const fuso = c.estudio.fuso;
   const dia = montarDia(data, null, null);
   const fixos = fixosDoDia(data);
 
+  const base = dia.horarios.map((h) => {
+    const naGrade = fixos.get(h.hora) || [];
+    const telsFixos = new Set(naGrade.map((f) => f.telefone).filter(Boolean));
+    const alunos = [
+      ...naGrade.map((f) => ({
+        id: null,
+        matriculaId: f.matriculaId,
+        nome: f.nome || 'Sem nome',
+        telefone: f.telefone || null,
+        vinculo: f.vinculo || null,
+        origem: f.origem,          // 'fixo' | 'extra'
+        criadoEm: null,
+      })),
+      ...store.doHorario(data, h.hora)
+        .filter((r) => !telsFixos.has(r.telefone))
+        .map((r) => ({
+          id: r.id,
+          matriculaId: null,
+          nome: r.nome || 'Sem nome',
+          telefone: r.telefone,
+          vinculo: null,
+          origem: 'reserva',
+          criadoEm: r.criadoEm,
+        })),
+    ].sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+
+    return { ...h, alunos };
+  });
+
+  if (!opcoes.presenca) return { ...dia, horarios: base, hoje: hoje(fuso) };
+
+  // PRESENÇA É GESTÃO, NÃO COBRANÇA
+  //   A marca de cada aluno diz se ele confirmou no totem, se foi liberado fora
+  //   do horário ou se veio em outra aula do dia. Serve para acompanhar a turma
+  //   e ensinar a chegar na hora; não mexe em frequência nem gera cobrança —
+  //   isso continua sendo só o check-in do Wellhub (`presencas.js`).
+  const pres = presencas.doDia(data);
+  const final = presencas.finalDoTelefone;
+  const tolerancia = Number((c.totem && c.totem.minutosDepois) ?? 20);
+  const horasDaGrade = new Set(dia.horarios.map((h) => h.hora));
+
+  function marcar(aluno, hora) {
+    const f = final(aluno.telefone);
+    const doDia = f ? (pres.porFinal.get(f) || []) : [];
+    const aqui = doDia.find((p) => p.hora === hora);
+    const outra = aqui ? null : doDia[0] || null;
+
+    let presenca;
+    if (aqui) {
+      presenca = {
+        estado: aqui.liberado ? 'liberado' : 'confirmou',
+        chegada: aqui.chegada, liberadoPor: aqui.liberadoPor,
+      };
+    } else if (outra) {
+      presenca = { estado: 'outro-horario', hora: outra.hora, chegada: outra.chegada };
+    } else if (!f) {
+      // Aluno sem telefone na ficha não tem como confirmar no tablet. Marcar
+      // "não confirmou" seria culpar a pessoa por um cadastro incompleto.
+      presenca = { estado: 'sem-telefone' };
+    } else if (minutosAte(data, hora, fuso) < -tolerancia) {
+      // Só depois de fechada a janela do tablet. Antes disso a pessoa ainda
+      // pode chegar, e marcar "não confirmou" às 9h59 da aula das 10h seria
+      // ruído na tela de quem está organizando a sala.
+      presenca = { estado: 'nao-confirmou' };
+    } else {
+      presenca = { estado: 'aguardando' };
+    }
+    return {
+      ...aluno,
+      presenca,
+      semCheckinWellhub: Boolean(f && pres.semCheckinWellhub.has(f)),
+    };
+  }
+
+  const horarios = base.map((h) => {
+    const inscritos = h.alunos.map((a) => {
+      // Reserva feita pelo app não traz a ficha; o vínculo é o que decide o
+      // aviso de check-in do Wellhub, então busca pelo telefone.
+      if (a.origem !== 'reserva') return marcar(a, h.hora);
+      const m = matriculas.porTelefone(a.telefone);
+      return marcar({ ...a, matriculaId: m ? m.id : null, vinculo: m ? (m.vinculo || null) : null }, h.hora);
+    });
+
+    // Quem confirmou neste horário sem estar na lista dele: trocou de aula no
+    // mesmo dia sem remarcar, ou foi liberado pelo professor. Entra na turma
+    // para a lista mostrar quem de fato estava na sala, mas não ocupa vaga na
+    // contagem de lotação.
+    const finaisInscritos = new Set(inscritos.map((a) => final(a.telefone)).filter(Boolean));
+    const avulsos = pres.registros
+      .filter((p) => p.hora === h.hora && p.final && !finaisInscritos.has(p.final))
+      .map((p) => marcar({
+        id: null, matriculaId: p.matriculaId, nome: p.nome || 'Sem nome',
+        telefone: p.telefone, vinculo: p.vinculo, origem: 'presenca', criadoEm: null,
+      }, h.hora));
+
+    const alunos = [...inscritos, ...avulsos]
+      .sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+
+    return {
+      ...h,
+      alunos,
+      inscritos: inscritos.length,
+      presentes: alunos.filter((a) => ['confirmou', 'liberado'].includes(a.presenca.estado)).length,
+    };
+  });
+
+  // Confirmação num horário que não existe na grade do dia (sala aberta fora
+  // do previsto, grade editada depois). Sem este bloco ela sumiria da tela.
+  const foraDaGrade = pres.registros
+    .filter((p) => !horasDaGrade.has(p.hora))
+    .map((p) => ({
+      id: null, matriculaId: p.matriculaId, nome: p.nome || 'Sem nome', telefone: p.telefone,
+      vinculo: p.vinculo, origem: 'presenca', criadoEm: null, hora: p.hora,
+      presenca: { estado: p.liberado ? 'liberado' : 'confirmou', chegada: p.chegada, liberadoPor: p.liberadoPor },
+      semCheckinWellhub: Boolean(p.final && pres.semCheckinWellhub.has(p.final)),
+    }));
+
+  const todos = [...horarios.flatMap((h) => h.alunos), ...foraDaGrade];
+  const contar = (estado) => todos.filter((a) => a.presenca.estado === estado).length;
+
+  // Um nome por pessoa: quem aparece em dois horários (inscrita num, presente
+  // noutro) não pode contar duas vezes no aviso do Wellhub.
+  const wellhubSemCheckin = [];
+  const vistos = new Set();
+  for (const r of pres.registros) {
+    if (!r.final || !pres.semCheckinWellhub.has(r.final) || vistos.has(r.final)) continue;
+    vistos.add(r.final);
+    wellhubSemCheckin.push({ nome: r.nome || 'Sem nome', hora: r.hora, matriculaId: r.matriculaId });
+  }
+
   return {
     ...dia,
-    horarios: dia.horarios.map((h) => {
-      const naGrade = fixos.get(h.hora) || [];
-      const telsFixos = new Set(naGrade.map((f) => f.telefone).filter(Boolean));
-      const alunos = [
-        ...naGrade.map((f) => ({
-          id: null,
-          matriculaId: f.matriculaId,
-          nome: f.nome || 'Sem nome',
-          telefone: f.telefone || null,
-          vinculo: f.vinculo || null,
-          origem: f.origem,          // 'fixo' | 'extra'
-          criadoEm: null,
-        })),
-        ...store.doHorario(data, h.hora)
-          .filter((r) => !telsFixos.has(r.telefone))
-          .map((r) => ({
-            id: r.id,
-            matriculaId: null,
-            nome: r.nome || 'Sem nome',
-            telefone: r.telefone,
-            vinculo: null,
-            origem: 'reserva',
-            criadoEm: r.criadoEm,
-          })),
-      ].sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
-
-      return { ...h, alunos };
-    }),
-    hoje: hoje(c.estudio.fuso),
+    horarios,
+    foraDaGrade,
+    presenca: {
+      confirmaram: contar('confirmou'),
+      liberados: contar('liberado'),
+      outroHorario: contar('outro-horario'),
+      naoConfirmaram: contar('nao-confirmou'),
+      wellhubSemCheckin,
+    },
+    hoje: hoje(fuso),
   };
 }
 

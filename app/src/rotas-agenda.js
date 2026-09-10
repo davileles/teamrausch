@@ -889,7 +889,7 @@ rotas.post('/agenda/trocar', exigirLogin, (req, res) => {
 
 rotas.get('/admin/dia', exigirLogin, exigirAdmin, (req, res) => {
   const data = String(req.query.data || agenda.hoje(config.ler().estudio.fuso));
-  res.json(agenda.listaDoDia(data));
+  res.json(agenda.listaDoDia(data, { presenca: true }));
 });
 
 rotas.get('/admin/config', exigirLogin, exigirAdmin, (_req, res) => {
@@ -1100,9 +1100,10 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     if (f.textoCobranca !== undefined) {
       novo.frequencia.textoCobranca = String(f.textoCobranca).slice(0, 1200);
     }
-    if (f.confirmacaoAtiva !== undefined) {
-      novo.frequencia.confirmacaoAtiva = Boolean(f.confirmacaoAtiva);
-    }
+    // `confirmacaoAtiva` não existe mais: a presença do totem é gestão e nunca
+    // entra na cobrança. Se uma tela antiga ainda mandar o campo, ele é
+    // descartado aqui em vez de voltar a ser gravado.
+    if (novo.frequencia) delete novo.frequencia.confirmacaoAtiva;
     if (f.alertaAtivo !== undefined) novo.frequencia.alertaAtivo = Boolean(f.alertaAtivo);
   }
 
