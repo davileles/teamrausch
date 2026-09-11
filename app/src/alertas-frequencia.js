@@ -107,17 +107,55 @@ function montarPainel(opcoes = {}) {
 
 /* -------------------------------- texto ---------------------------------- */
 
+const plural = (n, um, varios) => (n === 1 ? um : varios);
+
+/**
+ * Uma linha por devedor, abrindo com o número que decidiu a cor.
+ *
+ * A LINHA TEM QUE EXPLICAR A MARCA
+ *   Quem tem pacote é classificado pelo ritmo do mês (`frequencia.classificar`),
+ *   mas esta linha imprimia a janela de sete dias e a grade projetada. Resultado:
+ *   "🟡 — 3/3 (faltam 0) · mês 3/6", uma marca amarela sem nenhum número que a
+ *   justificasse, porque o 3 de 4 devidos até hoje não aparecia em lugar nenhum.
+ *
+ *   Agora a ordem é: o motivo (ritmo, ou a aritmética do fechamento quando ela
+ *   vence), o pacote do mês e, por último, a semana — que continua útil para
+ *   saber se a pessoa já voltou, mas não é o que a pôs na lista.
+ *
+ *   Sem pacote (sem meta), a classificação ainda é a da janela, e a linha
+ *   segue mostrando a janela.
+ */
 function linha(a) {
   const marca = a.situacao === 'critico' ? '🔴' : '🟡';
-  const falta = Math.abs(a.saldo);
   const desde = a.ultimoCheckin
     ? `último em ${a.ultimoCheckin.split('-').reverse().slice(0, 2).join('/')}`
     : 'nenhum check-in registrado';
-  // O número do mês é o que vale no fechamento; o da janela é o que dá tempo
-  // de corrigir. Os dois na mesma linha evitam cobrar quem já repôs.
-  const mes = a.mes ? ` · mês ${a.mes.realizado}/${a.mes.esperado}` : '';
-  return `${marca} ${a.nome} — ${a.realizado}/${a.esperado} `
-    + `(falta${falta === 1 ? '' : 'm'} ${falta})${mes} · ${desde}`;
+  const m = a.mes || {};
+
+  if (!m.meta) {
+    const falta = Math.abs(a.saldo);
+    return `${marca} ${a.nome} — semana ${a.realizado}/${a.esperado} `
+      + `(${plural(falta, 'falta', 'faltam')} ${falta}) · ${desde}`;
+  }
+
+  let motivo;
+  if (m.risco === 'impossivel') {
+    motivo = `⛔ não fecha mais (${plural(m.faltam, 'falta', 'faltam')} ${m.faltam}, `
+      + `${plural(m.diasRestantes, 'resta', 'restam')} ${m.diasRestantes} `
+      + `${plural(m.diasRestantes, 'dia', 'dias')})`;
+  } else if (m.risco === 'no-limite') {
+    motivo = m.diasRestantes === 1
+      ? '⏳ só fecha vindo hoje'
+      : `⏳ só fecha vindo todos os ${m.diasRestantes} dias`;
+    if (m.atrasoNoRitmo > 0) motivo += ` · ritmo ${m.realizado}/${m.devido}`;
+  } else {
+    motivo = `ritmo ${m.realizado}/${m.devido} `
+      + `(${plural(m.atrasoNoRitmo, 'falta', 'faltam')} ${m.atrasoNoRitmo})`;
+  }
+
+  // Semana sem aula prevista e sem treino vira "0/0", que só ocupa espaço.
+  const semana = a.esperado || a.realizado ? ` · semana ${a.realizado}/${a.esperado}` : '';
+  return `${marca} ${a.nome} — ${motivo} · pacote ${m.realizado}/${m.meta}${semana} · ${desde}`;
 }
 
 function montarTexto(painel) {
