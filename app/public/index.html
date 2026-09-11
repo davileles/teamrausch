@@ -350,6 +350,9 @@
     text-overflow:ellipsis;white-space:nowrap}
   .msg-alvo em{font-style:normal;font-size:11.5px;color:var(--fraco);white-space:nowrap}
   .msg-alvo.sem-tel{opacity:.5;cursor:not-allowed}
+  .mx-busca{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+  .mx-busca input{margin:0}
+  .mx-busca .marcar{margin-top:2px}
   .subabas{display:flex;gap:0;margin:18px 0 22px;border-bottom:1px solid var(--linha)}
   .subabas button{flex:1;background:transparent;border:none;border-bottom:3px solid transparent;
     padding:14px 10px;cursor:pointer;font:400 13px Anton,sans-serif;letter-spacing:.08em;
@@ -4405,7 +4408,11 @@ const msgEstado = { sub:'modelos', editando:null, publico:'todos', modeloId:'',
   alunoId:'', modelos:[], marcadores:[], alunos:[], resumo:null, lote:null,
   // Anexo por painel: { id, nome, tipo, tamanho, url } — `url` é a prévia local
   // da imagem. Vive no estado porque os painéis são remontados o tempo todo.
-  anexos:{ individual:null, massa:null }, subindoAnexo:null };
+  anexos:{ individual:null, massa:null }, subindoAnexo:null,
+  // Seleção do disparo em massa. A lista é remontada ao sair da caixa de texto
+  // e ao trocar de modelo; sem guardar aqui, a escolha feita aluno a aluno
+  // voltava para o padrão (todos marcados) a cada remontagem.
+  marcados:null, marcadosPublico:null, buscaMassa:'', soMarcados:false };
 const msgMassa = { rodando:false, abortar:false, timer:null, fila:[], i:0, ok:0, erro:0 };
 
 function msgRotulo(lista, valor){
@@ -4893,6 +4900,15 @@ async function msgPainelMassa(){
     const r = await msgBuscarDestinatarios({ publico, texto, lote: msgEstado.lote });
     msgEstado.publico = publico;
 
+    // Mesmo público de antes: vale a seleção guardada. Público novo: padrão.
+    const manter = !!msgEstado.marcados && msgEstado.marcadosPublico === publico;
+    const marcado = a => a.temTelefone && (manter
+      ? msgEstado.marcados.has(a.matriculaId) : !a.jaEnviado);
+    // Quem clicou na busca logo depois de editar o texto não perde o cursor
+    // quando a remontagem (disparada pelo blur) termina.
+    const ativo = document.activeElement;
+    const cursorBusca = ativo && ativo.id === 'mx-busca' ? ativo.selectionStart : null;
+
     alvo.innerHTML = `
       <div class="ficha">
         <div class="dupla">
@@ -4932,16 +4948,26 @@ async function msgPainelMassa(){
           Só alunos Wellhub, contados pelo check-in: é ele que gera o repasse. O
           mensalista não entra — a mensalidade já está paga e a presença dele no
           totem é só acompanhamento.</p>`:''}
+        <div class="mx-busca">
+          <input id="mx-busca" type="search" autocomplete="off"
+            value="${esc(msgEstado.buscaMassa)}" placeholder="Buscar aluno por nome ou telefone"
+            title="Enter marca o aluno quando sobra um só na busca">
+          <p class="ajuda" id="mx-busca-dica" style="margin:0">Digite o nome e tecle Enter para
+            marcar quando sobrar um aluno só — o campo limpa para o próximo.</p>
+          <label class="marcar"><input type="checkbox" id="mx-so-marcados"
+            ${msgEstado.soMarcados?'checked':''}> Mostrar só os marcados</label>
+        </div>
         <div class="dupla" style="margin-bottom:12px">
           <button class="leve" id="mx-todos">Marcar todos</button>
-          <button class="leve" id="mx-nenhum">Desmarcar</button>
+          <button class="leve" id="mx-nenhum">Desmarcar todos</button>
         </div>
         <p class="ajuda" id="mx-contagem"></p>
         <div id="mx-lista" style="max-height:340px;overflow:auto;border:1px solid var(--linha);padding:8px">
           ${r.alunos.length ? r.alunos.map(a=>`
-            <label class="msg-alvo${a.temTelefone?'':' sem-tel'}">
+            <label class="msg-alvo${a.temTelefone?'':' sem-tel'}"
+              data-busca="${esc(msgChaveBusca(a.nome) + ' ' + String(a.telefoneFormatado||'').replace(/\D/g,''))}">
               <input type="checkbox" class="mx-chk" value="${esc(a.matriculaId)}"
-                ${a.temTelefone && !a.jaEnviado ? 'checked' : ''} ${a.temTelefone?'':'disabled'}>
+                ${marcado(a) ? 'checked' : ''} ${a.temTelefone?'':'disabled'}>
               <span><b>${esc(a.nome)}</b><small>${esc(a.motivo || '—')}</small></span>
               <em id="mx-st-${esc(a.matriculaId)}">${
                 !a.temTelefone ? 'sem telefone' : a.jaEnviado ? 'já recebeu' : ''}</em>
@@ -4956,9 +4982,94 @@ async function msgPainelMassa(){
         <div id="mx-log" style="max-height:220px;overflow:auto;font:400 12.5px 'Work Sans',sans-serif"></div>
       </div>`;
 
-    document.getElementById('mx-lista').addEventListener('change', msgContar);
+    document.getElementById('mx-lista').addEventListener('change', ()=>{
+      msgContar();
+      // Com "só marcados", quem acabou de ser desmarcado sai da vista.
+      if (msgEstado.soMarcados) msgFiltrarMassa();
+    });
+    const busca = document.getElementById('mx-busca');
+    busca.addEventListener('input', ()=>{
+      msgEstado.buscaMassa = busca.value;
+      msgFiltrarMassa();
+    });
+    busca.addEventListener('keydown', msgEnterBuscaMassa);
+    document.getElementById('mx-so-marcados').addEventListener('change', e=>{
+      msgEstado.soMarcados = e.target.checked;
+      msgFiltrarMassa();
+    });
+    if (cursorBusca !== null){
+      busca.focus();
+      try{ busca.setSelectionRange(cursorBusca, cursorBusca); }catch(_){}
+    }
     msgContar();
+    msgFiltrarMassa();
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* ------------------------- busca na lista de massa ----------------------- */
+
+/** Minúsculas e sem acento: "José" acha "jose" e vice-versa. */
+function msgChaveBusca(t){
+  return String(t??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+}
+
+/**
+ * Filtra só na tela — a lista já veio inteira do servidor, então digitar não
+ * remonta nada e não mexe nas marcações. Cada palavra digitada precisa
+ * aparecer no nome ("ana silva" acha "Ana Paula Silva"); termo com número
+ * procura nos dígitos do telefone.
+ */
+function msgFiltrarMassa(){
+  const lista = document.getElementById('mx-lista'); if (!lista) return;
+  const termos = msgChaveBusca(msgEstado.buscaMassa).split(/\s+/).filter(Boolean)
+    .map(t => /\d/.test(t) ? t.replace(/\D/g,'') : t).filter(Boolean);
+  const itens = lista.querySelectorAll('.msg-alvo');
+  let visiveis = 0;
+  itens.forEach(el => {
+    const chave = el.dataset.busca || '';
+    const chk = el.querySelector('.mx-chk');
+    const ok = termos.every(t => chave.includes(t))
+      && (!msgEstado.soMarcados || (chk && chk.checked));
+    el.hidden = !ok;
+    if (ok) visiveis++;
+  });
+  const filtrando = termos.length > 0 || msgEstado.soMarcados;
+  const vazio = document.getElementById('mx-busca-vazio');
+  if (vazio) vazio.remove();
+  if (filtrando && !visiveis && itens.length){
+    lista.insertAdjacentHTML('beforeend',
+      '<div class="vazio" id="mx-busca-vazio">Nenhum aluno bate com a busca.</div>');
+  }
+  const todos = document.getElementById('mx-todos');
+  const nenhum = document.getElementById('mx-nenhum');
+  if (todos) todos.textContent = filtrando ? `Marcar os ${visiveis} da busca` : 'Marcar todos';
+  if (nenhum) nenhum.textContent = filtrando ? `Desmarcar os ${visiveis} da busca` : 'Desmarcar todos';
+  msgContar();
+}
+
+/** Enter com um aluno só na busca: marca, limpa o campo e espera o próximo nome. */
+function msgEnterBuscaMassa(e){
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const dica = document.getElementById('mx-busca-dica');
+  const vis = Array.from(document.querySelectorAll('#mx-lista .msg-alvo:not([hidden])'));
+  if (vis.length !== 1){
+    if (dica) dica.textContent = vis.length
+      ? `${vis.length} alunos na busca — continue digitando até sobrar um.`
+      : 'Nenhum aluno bate com a busca.';
+    return;
+  }
+  const chk = vis[0].querySelector('.mx-chk');
+  const nome = (vis[0].querySelector('b')||{}).textContent || 'Aluno';
+  if (!chk || chk.disabled){
+    if (dica) dica.textContent = `${nome} está sem telefone e não pode receber.`;
+    return;
+  }
+  chk.checked = true;
+  e.target.value = '';
+  msgEstado.buscaMassa = '';
+  msgFiltrarMassa();
+  if (dica) dica.textContent = `✓ ${nome} marcado. Digite o próximo nome.`;
 }
 
 async function msgTrocarModeloMassa(){
@@ -4974,16 +5085,24 @@ async function msgTrocarPublicoMassa(){
   await msgPainelMassa();
 }
 
+/** Com busca ativa, age só sobre quem está aparecendo na lista. */
 function msgMarcarTodos(marcar){
-  document.querySelectorAll('#mx-lista .mx-chk:not(:disabled)')
+  document.querySelectorAll('#mx-lista .msg-alvo:not([hidden]) .mx-chk:not(:disabled)')
     .forEach(c => { c.checked = !!marcar; });
-  msgContar();
+  if (msgEstado.soMarcados) msgFiltrarMassa(); else msgContar();
 }
 
 function msgContar(){
-  const n = document.querySelectorAll('#mx-lista .mx-chk:checked').length;
+  const marcados = Array.from(document.querySelectorAll('#mx-lista .mx-chk:checked'));
+  if (document.getElementById('mx-lista')){
+    msgEstado.marcados = new Set(marcados.map(c => c.value));
+    msgEstado.marcadosPublico = msgEstado.publico;
+  }
+  const total = document.querySelectorAll('#mx-lista .msg-alvo').length;
+  const vis = document.querySelectorAll('#mx-lista .msg-alvo:not([hidden])').length;
   const el = document.getElementById('mx-contagem');
-  if (el) el.textContent = `${n} marcado(s) para envio`;
+  if (el) el.textContent = `${marcados.length} marcado(s) para envio`
+    + (vis < total ? ` · mostrando ${vis} de ${total}` : '');
 }
 
 function msgLog(texto, cor){
@@ -5052,6 +5171,11 @@ async function msgEnviarProximo(texto){
     })});
     msgMassa.ok++;
     if (st) st.textContent = 'enviada';
+    // Sai da seleção: disparar de novo depois de parar não repete quem já recebeu.
+    const chk = document.querySelector(`#mx-lista .mx-chk[value="${CSS.escape(a.matriculaId)}"]`);
+    if (chk) chk.checked = false;
+    if (msgEstado.marcados) msgEstado.marcados.delete(a.matriculaId);
+    msgContar();
     msgLog('✓ ' + a.nome);
   }catch(e){
     msgMassa.erro++;
