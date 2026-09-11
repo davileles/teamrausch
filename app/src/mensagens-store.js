@@ -31,8 +31,12 @@ const backup = backupGithub.criar(CAMINHO_BACKUP, 'Mensagens do estúdio');
 /** Manual sai por decisão sua; os outros dois o agendador dispara sozinho. */
 const MODOS = ['manual', 'programado', 'recorrente'];
 /** Quem recebe. `devedores` é calculado na hora do envio, não fica congelado.
- *  `sem_app` idem: quem entrar no app hoje sai da lista no disparo de amanhã. */
-const PUBLICOS = ['todos', 'wellhub', 'mensalista', 'devedores', 'ausentes', 'sem_app'];
+ *  `sem_app` idem: quem entrar no app hoje sai da lista no disparo de amanhã.
+ *  `criticos` e `atrasados` são as duas metades de `devedores`, separadas para
+ *  cada grupo poder receber um tom diferente. `devedores` continua existindo
+ *  porque há modelos salvos apontando para ele. */
+const PUBLICOS = ['todos', 'wellhub', 'mensalista', 'devedores', 'criticos', 'atrasados',
+  'ausentes', 'sem_app'];
 /** Só para modo `recorrente`. */
 const GATILHOS = ['aniversario', 'dia_do_mes', 'dia_da_semana', 'diario'];
 

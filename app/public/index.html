@@ -4391,9 +4391,13 @@ async function mostrarBackup(){
 const MSG_PAUSA_MIN = 7000;
 const MSG_PAUSA_MAX = 18000;
 
-const MSG_PUBLICOS = [['ausentes','Sumidos'],['devedores','Devendo treino'],
+// Em ordem alfabética do rótulo, que é o que aparece no seletor.
+const MSG_PUBLICOS = [['atrasados','Atrasados (Wellhub)'],['criticos','Críticos (Wellhub)'],
+  ['devedores','Devendo treino (atrasados + críticos)'],
   ['mensalista','Mensalistas'],['sem_app','Nunca entraram no app'],
-  ['todos','Todos os ativos'],['wellhub','Wellhub']];
+  ['ausentes','Sumidos'],['todos','Todos os ativos'],['wellhub','Wellhub']];
+/** Públicos que só existem para aluno Wellhub, contados pelo check-in. */
+const MSG_PUBLICOS_WELLHUB = ['atrasados','criticos','devedores','ausentes'];
 const MSG_MODOS = [['manual','Manual — você dispara pela tela'],
   ['programado','Programado — uma data e hora'],
   ['recorrente','Recorrente — repete sempre']];
@@ -4941,10 +4945,14 @@ async function msgPainelMassa(){
         ${publico==='devedores'?`<p class="ajuda">${
           r.alunos.filter(a=>a.situacao==='critico').length} crítico(s) ·
           ${r.alunos.filter(a=>a.situacao==='atrasado').length} atrasado(s).</p>`:''}
+        ${publico==='criticos'?`<p class="ajuda">Duas ou mais aulas atrás do ritmo do mês,
+          ou com o que falta já sem caber nos dias que restam.</p>`:''}
+        ${publico==='atrasados'?`<p class="ajuda">Uma aula atrás do ritmo do mês, ou em dia
+          mas no limite para fechar o pacote.</p>`:''}
         ${publico==='sem_app'?`<p class="ajuda">Alunos ativos que têm telefone cadastrado
           e nunca abriram o app. A conta é feita na hora do envio: quem entrar depois deste
           disparo sai da lista sozinho no próximo.</p>`:''}
-        ${(publico==='devedores'||publico==='ausentes')?`<p class="ajuda">
+        ${MSG_PUBLICOS_WELLHUB.includes(publico)?`<p class="ajuda">
           Só alunos Wellhub, contados pelo check-in: é ele que gera o repasse. O
           mensalista não entra — a mensalidade já está paga e a presença dele no
           totem é só acompanhamento.</p>`:''}

@@ -3,7 +3,8 @@
 /**
  * app/src/destinatarios.js — davileles/teamrausch
  *
- * Traduz um "público" (todos, wellhub, mensalista, devedores) na lista de
+ * Traduz um "público" (todos, wellhub, mensalista, devedores, criticos,
+ * atrasados, ausentes, sem_app) na lista de
  * alunos que vai receber a mensagem, já com os valores dos marcadores.
  *
  * FICA SEPARADO DAS ROTAS DE PROPÓSITO
@@ -35,6 +36,12 @@ function ausenteDiasPadrao() {
   const n = Number(config.ler().frequencia.ausenteDias);
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 10;
 }
+
+/**
+ * Públicos contados pelo check-in do Wellhub. O mensalista fica de fora de
+ * todos eles — ver o comentário "SÓ WELLHUB" em `montar`.
+ */
+const PUBLICOS_WELLHUB = new Set(['devedores', 'criticos', 'atrasados', 'ausentes']);
 
 /** Diferença em dias entre uma data 'AAAA-MM-DD' e hoje. */
 function diasDesde(iso, hoje) {
@@ -180,8 +187,8 @@ function motivoDe(f, m) {
 }
 
 /**
- * @param {string} publico  todos | wellhub | mensalista | devedores | ausentes
- *                           | sem_app
+ * @param {string} publico  todos | wellhub | mensalista | devedores | criticos
+ *                           | atrasados | ausentes | sem_app
  * @param {object} opcoes   { aniversarioEm, ausenteDias, ausenteAte }
  */
 function montar(publico = 'todos', opcoes = {}) {
@@ -195,7 +202,7 @@ function montar(publico = 'todos', opcoes = {}) {
     ? Math.round(Number(opcoes.ausenteAte)) : 0;
   let lista;
 
-  if (publico === 'devedores' || publico === 'ausentes') {
+  if (PUBLICOS_WELLHUB.has(publico)) {
     // SÓ WELLHUB, POR REGRA DE NEGÓCIO
     //   O repasse do Wellhub depende do check-in: quem não passa no portal é
     //   aula que o estúdio não recebe, e é isso que estes públicos cobram. O
@@ -208,6 +215,15 @@ function montar(publico = 'todos', opcoes = {}) {
 
     if (publico === 'devedores') {
       ids = new Set(frequencia.devedores(painel).map((a) => a.matriculaId));
+    } else if (publico === 'criticos' || publico === 'atrasados') {
+      // AS DUAS METADES DE "DEVEDORES", PELA MESMA CLASSIFICAÇÃO
+      //   Filtra a situação que o painel já calculou, em vez de refazer a conta:
+      //   assim a soma de críticos + atrasados é sempre igual a "Devendo
+      //   treino", e a aba Frequência nunca discorda do disparo.
+      const alvo = publico === 'criticos' ? 'critico' : 'atrasado';
+      ids = new Set(painel.alunos
+        .filter((a) => a.situacao === alvo)
+        .map((a) => a.matriculaId));
     } else {
       // Ausente é outra pergunta: não "está atrás da meta", e sim "sumiu".
       // Quem treina 1× por semana pode estar em dia com o pacote e não
