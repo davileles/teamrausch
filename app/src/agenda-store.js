@@ -210,6 +210,16 @@ function historicoDoAluno(telefone) {
     .sort((x, y) => (x.data + x.hora).localeCompare(y.data + y.hora));
 }
 
+/**
+ * Todos os agendamentos, opcionalmente numa janela de datas. Existe para o
+ * histórico acumulado de aulas poder semear o passado numa varredura só, em
+ * vez de chamar `historicoDoAluno` uma vez por aluno.
+ */
+function listarAgendamentos({ de, ate } = {}) {
+  return dados.agendamentos.filter((a) =>
+    (!de || a.data >= de) && (!ate || a.data <= ate));
+}
+
 function jaTem(telefone, data, hora) {
   return doHorario(data, hora).some((a) => a.telefone === telefone);
 }
@@ -316,6 +326,7 @@ module.exports = {
   aluno, salvarAluno, listarAlunos, removerAluno, trocarTelefone, backup,
   guardarCodigo, conferirCodigo, pedidosNaUltimaHora,
   abrirSessao, sessao, fecharSessao,
-  daData, doHorario, doAluno, historicoDoAluno, jaTem, contarNoDia, reservar, cancelar, porId,
+  daData, doHorario, doAluno, historicoDoAluno, listarAgendamentos,
+  jaTem, contarNoDia, reservar, cancelar, porId,
   alunosPorFinal, registrarPresenca, presencaDe, presencasDaData, listarPresencas,
 };

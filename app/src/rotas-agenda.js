@@ -11,6 +11,8 @@ const { enviarCodigo } = require('./mensageiro');
 // Só pelos destinatários e pelo canal de e-mail: o aviso de primeiro acesso
 // reaproveita a mesma lista dos avisos do Wellhub em vez de abrir uma segunda.
 const poller = require('./poller-portal');
+const historicoAulas = require('./historico-aulas');
+const conquistas = require('./conquistas-mensagens');
 
 const rotas = express.Router();
 
@@ -590,24 +592,37 @@ rotas.get('/auth/eu', (req, res) => {
 /**
  * Números para a aba Meus dados.
  *
- * Importante: contamos horários RESERVADOS que já passaram, não presença
- * confirmada. Quem reservou e não apareceu entra na conta. Enquanto o
- * check-in do Wellhub não estiver ligado, é o melhor que temos — e a tela
- * diz isso ao aluno em vez de fingir precisão.
+ * CONTAMOS PRESENÇA, NÃO RESERVA
+ *   Aula é dia em que a pessoa apareceu: confirmação no tablet da entrada ou
+ *   check-in do Wellhub, um dia contando uma vez. Reserva não entra — quem
+ *   reservou e faltou apareceria com o mesmo número de quem veio, e a
+ *   conquista que dispara em cima disso viraria parabéns por aula que não
+ *   aconteceu.
+ *
+ *   O total vem de `historico-aulas.js`, que é acumulado: os registros de
+ *   presença e de check-in são expurgados por idade, e uma soma feita direto
+ *   em cima deles andaria para trás sozinha.
  */
 function numerosDoAluno(telefone) {
   const c = config.ler();
   const hoje = agenda.hoje(c.estudio.fuso);
   const historico = store.historicoDoAluno(telefone);
-
-  const passados = historico.filter((a) => a.data < hoje);
   const futuros = historico.filter((a) => a.data >= hoje);
 
-  const mes = hoje.slice(0, 7);
-  const noMes = passados.filter((a) => a.data.startsWith(mes)).length;
+  // Dias distintos com presença que ainda estão na janela viva. O total geral
+  // vem do acumulado; estes servem para os recortes recentes (mês, sequência,
+  // horário preferido), que só fazem sentido sobre dado detalhado.
+  const diasPresenca = historicoAulas.diasVivosDoTelefone(telefone);
+  const passados = [];
+  for (const [data, horas] of diasPresenca) {
+    if (data >= hoje) continue;
+    for (const hora of horas) passados.push({ data, hora });
+  }
+  passados.sort((x, y) => (x.data + x.hora).localeCompare(y.data + y.hora));
 
-  // Dias distintos: dois horários no mesmo dia contam como uma ida.
+  const mes = hoje.slice(0, 7);
   const diasDistintos = [...new Set(passados.map((a) => a.data))];
+  const noMes = diasDistintos.filter((d) => d.startsWith(mes)).length;
 
   // Semanas seguidas com pelo menos uma ida, contando de trás para frente a
   // partir da semana atual. Semanas é a unidade certa aqui: o estúdio não
@@ -635,21 +650,32 @@ function numerosDoAluno(telefone) {
   for (const a of passados) porHora[a.hora] = (porHora[a.hora] || 0) + 1;
   const favorito = Object.entries(porHora).sort((x, y) => y[1] - x[1])[0];
 
-  const primeira = passados[0] ? passados[0].data : null;
+  // Primeira aula: a presença mais antiga só vale até onde o registro existe,
+  // e o tablet é recente. A data de início da matrícula, quando há, é a
+  // verdadeira — sem ela o veterano veria "sua primeira aula foi em março".
+  const ficha = matriculas.porTelefone(telefone);
+  const maisAntigo = [historico[0] ? historico[0].data : null, diasDistintos.sort()[0] || null]
+    .filter(Boolean).sort()[0] || null;
+  const primeira = (ficha && ficha.desde) || maisAntigo;
 
-  // Conquistas: as já alcançadas e a próxima, com quanto falta.
+  const total = historicoAulas.porTelefone(telefone).total;
+
+  // Conquistas: as já alcançadas e a próxima, com quanto falta. O texto da
+  // mensagem não vai para a tela do aluno — ele recebe no WhatsApp, e ver o
+  // molde com {{nome}} antes estragaria a surpresa.
   const marcos = (c.conquistas || [])
     .filter((m) => Number(m.aulas) > 0)
-    .sort((x, y) => Number(x.aulas) - Number(y.aulas));
-  const alcancadas = marcos.filter((m) => passados.length >= Number(m.aulas));
-  const proxima = marcos.find((m) => passados.length < Number(m.aulas)) || null;
+    .map((m) => ({ aulas: Number(m.aulas), titulo: m.titulo, emoji: m.emoji }))
+    .sort((x, y) => x.aulas - y.aulas);
+  const alcancadas = marcos.filter((m) => total >= m.aulas);
+  const proxima = marcos.find((m) => total < m.aulas) || null;
 
   return {
     conquistas: alcancadas,
     proximaConquista: proxima
-      ? { ...proxima, faltam: Number(proxima.aulas) - passados.length }
+      ? { ...proxima, faltam: proxima.aulas - total }
       : null,
-    total: passados.length,
+    total,
     dias: diasDistintos.length,
     noMes,
     semanasSeguidas: sequencia,
@@ -1045,7 +1071,14 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
         return res.status(400).json({ erro: `Número de aulas inválido: ${m.aulas}` });
       }
       if (!titulo) return res.status(400).json({ erro: `Dê um nome à conquista de ${aulas} aulas.` });
-      limpas.push({ aulas, titulo: titulo.slice(0, 40), emoji: String(m.emoji || '').trim().slice(0, 4) });
+      // O texto vai inteiro para o WhatsApp, com quebras de linha. String
+      // vazia é resposta válida: significa "use o modelo geral".
+      const mensagem = String(m.mensagem === undefined ? '' : m.mensagem).slice(0, 900);
+      limpas.push({
+        aulas, titulo: titulo.slice(0, 40),
+        emoji: String(m.emoji || '').trim().slice(0, 4),
+        mensagem,
+      });
     }
     // Sem repetir a mesma quantidade: duas conquistas no mesmo número
     // apareceriam juntas e ninguém entenderia por quê.
@@ -1224,6 +1257,36 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
 
 rotas.get('/admin/backup', exigirLogin, exigirAdmin, (_req, res) => {
   res.json(store.backup.situacao());
+});
+
+/* ---------------------------- conquistas --------------------------------- */
+
+rotas.get('/admin/conquistas/situacao', exigirLogin, exigirAdmin, (_req, res) => {
+  res.json(conquistas.situacao());
+});
+
+/**
+ * Pré-visualização: quem receberia parabéns agora e com que texto. Não envia
+ * nada e não anota nada — dá para conferir a lista antes de confiar no
+ * automático.
+ */
+rotas.get('/admin/conquistas/previa', exigirLogin, exigirAdmin, async (_req, res) => {
+  try {
+    const r = await conquistas.rodar({ avisar: false });
+    res.json(r);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+/** Disparo manual, para não depender do horário ao testar. */
+rotas.post('/admin/conquistas/rodar', exigirLogin, exigirAdmin, async (_req, res) => {
+  try {
+    const r = await conquistas.rodar({});
+    res.json(r);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
 });
 
 /* --------------------- cadastro interno e grade fixa ---------------------- */

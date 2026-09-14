@@ -66,15 +66,42 @@ const PADRAO = {
     },
     datasBloqueadas: [],        // ['2026-12-25']
   },
-  // Marcos que o aluno vê na aba Meus dados. Editáveis em Configurações.
+  /**
+   * Marcos que o aluno vê na aba Meus dados e que disparam o parabéns no
+   * WhatsApp. Editáveis em Configurações → Conquistas, texto incluído.
+   *
+   * `mensagem` aceita {{nome}}, {{conquista}}, {{aulas}}, {{emoji}},
+   * {{total}}, {{proximaConquista}} e {{faltam}}. Vazia, vale
+   * `conquistasAviso.mensagemPadrao` — conquista sem texto não nasce muda.
+   */
   conquistas: [
-    { aulas: 1,   titulo: 'Primeira aula',  emoji: '🎉' },
-    { aulas: 10,  titulo: 'Pegando o ritmo', emoji: '💪' },
-    { aulas: 25,  titulo: 'Já é rotina',     emoji: '🔥' },
-    { aulas: 50,  titulo: 'Meio century',    emoji: '⭐' },
-    { aulas: 100, titulo: 'Cem aulas',       emoji: '🏆' },
-    { aulas: 200, titulo: 'Veterano',        emoji: '👑' },
+    { aulas: 1, titulo: 'Primeira aula', emoji: '🎉',
+      mensagem: '🎉 *Primeira aula concluída!*\n\n{{nome}}, você começou — e começar é a parte que a maioria adia.\n\nTe esperamos no próximo horário. É o segundo treino que transforma isso em rotina. 💪' },
+    { aulas: 10, titulo: 'Pegando o ritmo', emoji: '💪',
+      mensagem: '💪 *10 aulas!*\n\n{{nome}}, dez treinos no corpo. A respiração e a disposição já estão diferentes do primeiro dia.\n\nDaqui pra frente o corpo começa a cobrar quando você falta. Isso é bom sinal.' },
+    { aulas: 25, titulo: 'Já é rotina', emoji: '🔥',
+      mensagem: '🔥 *25 aulas — já é rotina!*\n\n{{nome}}, 25 treinos não é empolgação de começo. É hábito.\n\nVocê passou da fase em que a maioria para. Orgulho de ter você aqui.' },
+    { aulas: 50, titulo: 'Meio century', emoji: '⭐',
+      mensagem: '⭐ *50 aulas!*\n\n{{nome}}, meio century. Cinquenta vezes que você escolheu vir treinar em vez de deixar pra depois.\n\nCompara com o seu primeiro dia. Essa diferença é sua.' },
+    { aulas: 100, titulo: 'Cem aulas', emoji: '🏆',
+      mensagem: '🏆 *100 aulas!*\n\n{{nome}}, três casas. Cem treinos.\n\nIsso não se compra nem se acelera — só se constrói aparecendo. Pra quem está começando agora, você é a referência.\n\nPassa aqui na recepção que tem uma coisinha te esperando. 😉' },
+    { aulas: 200, titulo: 'Veterano', emoji: '👑',
+      mensagem: '👑 *200 aulas — Veterano!*\n\n{{nome}}, duzentos treinos. Pouquíssima gente chega aqui.\n\nVocê viu turma entrar, viu turma sair, e continuou vindo. Obrigado por fazer parte disso. 🙏' },
   ],
+  /**
+   * PARABÉNS AUTOMÁTICO DE CONQUISTA
+   *
+   * Sai à noite, depois da última aula: ninguém quer receber parabéns às 6h da
+   * manhã, e o aluno que treinou às 19h precisa estar contado antes do envio.
+   * A conta de aulas é a de `historico-aulas.js` — presença no tablet ou
+   * check-in do Wellhub, um dia conta uma vez.
+   */
+  conquistasAviso: {
+    ativo: true,
+    hora: '20:30',
+    avisarGrupo: true,          // resumo do que saiu para as listas do estúdio
+    mensagemPadrao: '{{emoji}} *{{conquista}}!*\n\n{{nome}}, você acabou de fechar {{aulas}} aulas no estúdio. Continua vindo. 💪',
+  },
   /**
    * TABLET DA ENTRADA
    *
@@ -216,6 +243,24 @@ function semChavesRemovidas(c) {
   return c;
 }
 
+/**
+ * Conquista salva antes deste recurso não tem o campo `mensagem`, e `fundir`
+ * troca array inteiro por array inteiro — sem isto os textos de fábrica não
+ * chegariam a quem já tinha configurado a lista. Só preenche quando a chave
+ * está AUSENTE: texto apagado de propósito na tela chega como string vazia e
+ * continua vazio, senão apagar não apagaria nada.
+ */
+function comTextosDeFabrica(c) {
+  if (!c || !Array.isArray(c.conquistas)) return c;
+  const fabrica = new Map(PADRAO.conquistas.map((m) => [Number(m.aulas), m.mensagem]));
+  for (const m of c.conquistas) {
+    if (m && m.mensagem === undefined && fabrica.has(Number(m.aulas))) {
+      m.mensagem = fabrica.get(Number(m.aulas));
+    }
+  }
+  return c;
+}
+
 function ler() {
   if (atual) return atual;
   try {
@@ -229,6 +274,7 @@ function ler() {
   }
 
   semChavesRemovidas(atual);
+  comTextosDeFabrica(atual);
 
   // Sem administrador ninguém abre a aba de configurações. Este é o primeiro.
   if (!atual.administradores.length && process.env.ADMIN_INICIAL) {

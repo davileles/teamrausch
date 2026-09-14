@@ -321,6 +321,8 @@
   .linha-c{display:grid;grid-template-columns:1fr 1fr;gap:8px;
     padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--linha)}
   .linha-c .c-titulo{grid-column:1 / -1}
+  .linha-c .c-mensagem{grid-column:1 / -1;min-height:110px;resize:vertical;
+    font:500 13px 'Work Sans',sans-serif;line-height:1.5}
   .linha-c button{grid-column:1 / -1}
   .linha-c:last-of-type{border-bottom:none}
 
@@ -1632,8 +1634,7 @@ async function carregarPerfil(){
     const numeros = n.total === 0
       ? `<div class="vazio">Seus números aparecem aqui depois da primeira aula.</div>`
       : `<div class="numeros">
-          ${cartao(n.total, n.total === 1 ? 'horário feito' : 'horários feitos',
-                   n.dias !== n.total ? `em ${n.dias} ${n.dias===1?'dia':'dias'}` : '')}
+          ${cartao(n.total, n.total === 1 ? 'aula feita' : 'aulas feitas')}
           ${cartao(n.noMes, 'neste mês')}
           ${n.semanasSeguidas > 1
             ? cartao(n.semanasSeguidas, 'semanas seguidas', 'sem faltar nenhuma')
@@ -1654,8 +1655,9 @@ async function carregarPerfil(){
 
       <h3>Meus números</h3>
       ${numeros}
-      <p class="ajuda" style="font-size:11.5px">Contamos os horários que você reservou e
-        que já passaram. Reserva cancelada não entra na conta.</p>
+      <p class="ajuda" style="font-size:11.5px">Contamos as aulas em que você apareceu:
+        presença confirmada no tablet da entrada ou check-in do Wellhub. Dois horários no
+        mesmo dia contam como uma aula.</p>
 
       <h3>Meu cadastro</h3>
       <div class="ficha">
@@ -4145,11 +4147,13 @@ async function carregarGradeDoDia(){
 const DIAS = [['seg','Segunda'],['ter','Terça'],['qua','Quarta'],['qui','Quinta'],
               ['sex','Sexta'],['sab','Sábado'],['dom','Domingo']];
 
-function linhaConquista(aulas='', titulo='', emoji=''){
+function linhaConquista(aulas='', titulo='', emoji='', mensagem=''){
   return `<div class="linha-c">
     <input type="number" min="1" max="100000" value="${aulas}" class="c-aulas" placeholder="aulas">
     <input value="${esc(emoji)}" class="c-emoji" maxlength="4" placeholder="🏅" style="text-align:center">
     <input value="${esc(titulo)}" class="c-titulo" maxlength="40" placeholder="Nome da conquista">
+    <textarea class="c-mensagem" maxlength="900"
+      placeholder="Mensagem de parabéns no WhatsApp. Vazio usa o texto geral.">${esc(mensagem)}</textarea>
     <button class="leve c-remover" aria-label="Remover conquista">Remover</button></div>`;
 }
 
@@ -5377,10 +5381,41 @@ async function carregarConfig(){
 
       <h3>Conquistas</h3>
       <p class="ajuda">Marcos que o aluno vê na aba Meus dados. Ele ganha a conquista ao
-        atingir o número de aulas. Deixe a lista vazia para desligar.</p>
+        atingir o número de <b>aulas em que apareceu</b> — presença confirmada no tablet
+        da entrada ou check-in do Wellhub, um dia contando uma vez. Reserva não conta.
+        Deixe a lista vazia para desligar.</p>
+      <p class="ajuda">Cada marco tem o texto que vai para o WhatsApp do aluno quando ele
+        bate a marca. Marcadores: <code>{{nome}}</code>, <code>{{conquista}}</code>,
+        <code>{{aulas}}</code>, <code>{{emoji}}</code>, <code>{{total}}</code>,
+        <code>{{proximaConquista}}</code> e <code>{{faltam}}</code>.</p>
       <div id="lista-conquistas">${(c.conquistas||[]).map(m=>
-        linhaConquista(m.aulas, m.titulo, m.emoji)).join('')}</div>
+        linhaConquista(m.aulas, m.titulo, m.emoji, m.mensagem)).join('')}</div>
       <button class="leve" id="c-add-conquista">+ Conquista</button>
+
+      <div class="dupla">
+        <div class="campo"><label for="c-conq-ativo">Parabéns automático</label>
+          <select id="c-conq-ativo">
+            <option value="1"${(c.conquistasAviso||{}).ativo===false?'':' selected'}>Ligado</option>
+            <option value="0"${(c.conquistasAviso||{}).ativo===false?' selected':''}>Desligado</option>
+          </select>
+          <p class="ajuda">Ligado, a mensagem sai sozinha no dia em que o aluno bate o marco.</p></div>
+        <div class="campo"><label for="c-conq-hora">Horário do disparo</label>
+          <input id="c-conq-hora" type="time" value="${esc((c.conquistasAviso||{}).hora || '20:30')}">
+          <p class="ajuda">Depois da última aula: quem treinou à noite precisa estar contado.</p></div>
+      </div>
+      <div class="campo"><label for="c-conq-grupo">Resumo para o estúdio</label>
+        <select id="c-conq-grupo">
+          <option value="1"${(c.conquistasAviso||{}).avisarGrupo===false?'':' selected'}>Sim — avisar quem bateu o quê</option>
+          <option value="0"${(c.conquistasAviso||{}).avisarGrupo===false?' selected':''}>Não</option>
+        </select>
+        <p class="ajuda">Vai para as listas de aviso do estúdio depois do envio, para
+          alguém puxar o assunto na porta no dia seguinte.</p></div>
+      <div class="campo"><label for="c-conq-padrao">Texto geral</label>
+        <textarea id="c-conq-padrao" maxlength="900" style="min-height:90px">${esc((c.conquistasAviso||{}).mensagemPadrao || '')}</textarea>
+        <p class="ajuda">Usado por qualquer conquista que esteja sem texto próprio.</p></div>
+      <p class="ajuda"><b>A primeira noite não envia nada.</b> Todo aluno com histórico já
+        bateu marcos, então a primeira passada só anota o que cada um tem hoje. A partir
+        daí, só marco novo.</p>
 
       <h3>Administradores</h3>
       <div class="campo"><label for="c-admins">Telefones com DDD</label>
@@ -5745,11 +5780,18 @@ async function salvarConfig(){
       aulas: Number(l.querySelector('.c-aulas').value),
       emoji: l.querySelector('.c-emoji').value,
       titulo: l.querySelector('.c-titulo').value,
+      mensagem: l.querySelector('.c-mensagem').value,
     }))
     .filter(m=>m.aulas > 0 && m.titulo.trim());
 
   const corpo = {
     conquistas,
+    conquistasAviso: {
+      ativo: v('c-conq-ativo') === '1',
+      hora: v('c-conq-hora') || '20:30',
+      avisarGrupo: v('c-conq-grupo') === '1',
+      mensagemPadrao: v('c-conq-padrao'),
+    },
     estudio: {
       nome: v('c-nome'), fuso: v('c-fuso'), recado: v('c-recado'),
       alerta: v('c-alerta'), alertaAte: v('c-alerta-ate'),

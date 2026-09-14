@@ -11,6 +11,7 @@ const alertasFrequencia = require('./alertas-frequencia');
 const aniversariantes = require('./aniversariantes-dia');
 const relatorioDiario = require('./relatorio-diario');
 const agendadorMensagens = require('./agendador-mensagens');
+const conquistas = require('./conquistas-mensagens');
 const planilhaAlunos = require('./planilha-alunos');
 const configApp = require('./config');
 const { lerCheckin } = require('./payload-map');
@@ -691,4 +692,5 @@ app.listen(PORTA, () => {
   agendadorMensagens.iniciar(); // modelos programados e recorrentes
   aniversariantes.iniciar(); // lista dos aniversariantes do dia para a operação
   relatorioDiario.iniciar(); // fechamento do dia anterior para o grupo do operador
+  conquistas.iniciar(); // parabéns automático quando o aluno bate um marco de aulas
 });
