@@ -5494,6 +5494,37 @@ async function carregarConfig(){
         <p class="ajuda">O que o botão "Cobrar" da aba Frequência sugere. Aceita
           {{nome}}, {{mesRealizado}} e {{mesEsperado}}.</p></div>
 
+      <h3>Agradecimento pela meta do mês</h3>
+      <p class="ajuda">Quando o aluno Wellhub fecha os check-ins combinados no mês — 8 para
+        quem treina 2x por semana, 12 para quem treina 3x — ele recebe um obrigado no
+        WhatsApp. Uma vez por aluno por mês, com a mesma conta da aba Frequência.</p>
+      <div class="dupla">
+        <div class="campo"><label for="c-meta-ativo">Agradecimento automático</label>
+          <select id="c-meta-ativo">
+            <option value="1"${(c.metaMensalAviso||{}).ativo===false?'':' selected'}>Ligado</option>
+            <option value="0"${(c.metaMensalAviso||{}).ativo===false?' selected':''}>Desligado</option>
+          </select>
+          <p class="ajuda">Ligado, sai sozinho na noite em que o aluno fecha a meta.</p></div>
+        <div class="campo"><label for="c-meta-hora">Horário do disparo</label>
+          <input id="c-meta-hora" type="time" value="${esc((c.metaMensalAviso||{}).hora || '20:45')}">
+          <p class="ajuda">Depois da última aula, para o check-in da noite estar contado.</p></div>
+      </div>
+      <div class="campo"><label for="c-meta-grupo">Resumo para o estúdio</label>
+        <select id="c-meta-grupo">
+          <option value="1"${(c.metaMensalAviso||{}).avisarGrupo===false?'':' selected'}>Sim — avisar quem fechou a meta</option>
+          <option value="0"${(c.metaMensalAviso||{}).avisarGrupo===false?' selected':''}>Não</option>
+        </select></div>
+      <div class="campo"><label for="c-meta-texto">Texto do agradecimento</label>
+        <textarea id="c-meta-texto" maxlength="900" style="min-height:120px"
+          placeholder="Vazio usa o texto padrão">${esc((c.metaMensalAviso||{}).mensagem || '')}</textarea>
+        <p class="ajuda">Marcadores: <code>{{nome}}</code>, <code>{{meta}}</code>,
+          <code>{{realizado}}</code>, <code>{{porSemana}}</code>, <code>{{mes}}</code> e
+          <code>{{estudio}}</code>. Vazio usa o texto padrão.</p></div>
+      <button class="leve" id="c-meta-previa">Ver quem receberia agora</button>
+      <div id="c-meta-previa-saida" class="ajuda" style="white-space:pre-wrap;margin-top:8px"></div>
+      <p class="ajuda"><b>A primeira noite não envia nada.</b> Quem já fechou a meta deste mês
+        antes do recurso existir é só anotado. A partir daí, só quem fechar depois.</p>
+
       <h3>Envio automático de mensagens</h3>
       <div class="dupla">
         <div class="campo"><label for="c-msg-ativo">Agendador</label>
@@ -5647,6 +5678,21 @@ async function carregarConfig(){
     selCanal.addEventListener('change', pintarAviso);
     pintarAviso();
 
+    document.getElementById('c-meta-previa').addEventListener('click', async ()=>{
+      const saida = document.getElementById('c-meta-previa-saida');
+      saida.textContent = 'Consultando…';
+      try{
+        const r = await api('/admin/meta-mensal/previa');
+        const lista = r.pendentes || [];
+        if (!lista.length) { saida.textContent = 'Ninguém para agradecer agora.'; return; }
+        saida.textContent = (r.seraSemeado
+          ? 'Primeira passada: estes serão só anotados, sem envio.\n\n' : '')
+          + lista.map(p=>`• ${p.nome} — ${p.realizado}/${p.meta} (${p.mesNome})`
+            + `${p.telefone ? '' : ' ⚠️ sem telefone'}`).join('\n')
+          + '\n\nTexto do primeiro:\n' + lista[0].texto;
+      }catch(e){ saida.textContent = 'Não consegui consultar: ' + (e.message || e); }
+    });
+
     document.getElementById('c-add-conquista').addEventListener('click', ()=>{
       document.getElementById('lista-conquistas')
         .insertAdjacentHTML('beforeend', linhaConquista());
@@ -5786,6 +5832,12 @@ async function salvarConfig(){
 
   const corpo = {
     conquistas,
+    metaMensalAviso: {
+      ativo: v('c-meta-ativo') === '1',
+      hora: v('c-meta-hora') || '20:45',
+      avisarGrupo: v('c-meta-grupo') === '1',
+      mensagem: document.getElementById('c-meta-texto').value,
+    },
     conquistasAviso: {
       ativo: v('c-conq-ativo') === '1',
       hora: v('c-conq-hora') || '20:30',

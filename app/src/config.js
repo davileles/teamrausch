@@ -103,6 +103,21 @@ const PADRAO = {
     mensagemPadrao: '{{emoji}} *{{conquista}}!*\n\n{{nome}}, você acabou de fechar {{aulas}} aulas no estúdio. Continua vindo. 💪',
   },
   /**
+   * AGRADECIMENTO PELA META DO MÊS
+   *
+   * Aluno Wellhub que fecha os check-ins combinados no mês (2x/semana = 8,
+   * 3x/semana = 12) recebe um obrigado no WhatsApp. Sai uma vez por aluno por
+   * mês, à noite, depois das conquistas. `mensagem` vazia usa o texto padrão
+   * de `meta-mensal-mensagens.js`. Marcadores: {{nome}}, {{nomeCompleto}},
+   * {{meta}}, {{realizado}}, {{porSemana}}, {{mes}} e {{estudio}}.
+   */
+  metaMensalAviso: {
+    ativo: true,
+    hora: '20:45',
+    avisarGrupo: true,
+    mensagem: '',
+  },
+  /**
    * TABLET DA ENTRADA
    *
    * Quanto tempo ao redor do horário da aula a confirmação de presença vale.

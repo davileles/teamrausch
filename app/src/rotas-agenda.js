@@ -13,6 +13,7 @@ const { enviarCodigo } = require('./mensageiro');
 const poller = require('./poller-portal');
 const historicoAulas = require('./historico-aulas');
 const conquistas = require('./conquistas-mensagens');
+const metaMensal = require('./meta-mensal-mensagens');
 
 const rotas = express.Router();
 
@@ -1140,6 +1141,18 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     if (f.alertaAtivo !== undefined) novo.frequencia.alertaAtivo = Boolean(f.alertaAtivo);
   }
 
+  if (novo.metaMensalAviso !== undefined) {
+    const mm = novo.metaMensalAviso || {};
+    if (mm.hora !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(mm.hora))) {
+      return res.status(400).json({ erro: 'Horário do agradecimento da meta inválido. Use HH:MM.' });
+    }
+    if (mm.ativo !== undefined) mm.ativo = Boolean(mm.ativo);
+    if (mm.avisarGrupo !== undefined) mm.avisarGrupo = Boolean(mm.avisarGrupo);
+    // String vazia é válida: significa "use o texto padrão".
+    if (mm.mensagem !== undefined) mm.mensagem = String(mm.mensagem).slice(0, 900);
+    novo.metaMensalAviso = mm;
+  }
+
   // Janela do tablet da entrada. Zero dos dois lados é uma janela fechada: a
   // confirmação passaria a ser recusada sempre, e o tablet viraria uma tela que
   // só sabe dizer não. O teto de 240 é o que impede a aula das 6h aceitar
@@ -1284,6 +1297,30 @@ rotas.post('/admin/conquistas/rodar', exigirLogin, exigirAdmin, async (_req, res
   try {
     const r = await conquistas.rodar({});
     res.json(r);
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+/* ---------------------------- meta do mês -------------------------------- */
+
+rotas.get('/admin/meta-mensal/situacao', exigirLogin, exigirAdmin, (_req, res) => {
+  res.json(metaMensal.situacao());
+});
+
+/** Quem receberia o agradecimento agora e com que texto. Não envia nem anota. */
+rotas.get('/admin/meta-mensal/previa', exigirLogin, exigirAdmin, async (_req, res) => {
+  try {
+    res.json(await metaMensal.rodar({ avisar: false }));
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+/** Disparo manual, para não depender do horário ao testar. */
+rotas.post('/admin/meta-mensal/rodar', exigirLogin, exigirAdmin, async (_req, res) => {
+  try {
+    res.json(await metaMensal.rodar({}));
   } catch (e) {
     res.status(500).json({ erro: e.message });
   }
