@@ -36,6 +36,37 @@ let situacao = 'iniciando'; // iniciando | aguardando-qr | conectado | desconect
 let numeroConectado = null;
 let tentativas = 0;
 
+/* ------------------------- reenvio (retry) ------------------------------ */
+// Quando o celular do destinatário não consegue decifrar a mensagem, ele pede
+// ao remetente para mandar de novo. O Baileys só atende se `getMessage`
+// devolver a mensagem original — sem isso ela fica em "Aguardando mensagem".
+// Guardamos as enviadas em memória por 24h (máx. 1000).
+const ENVIADAS_TTL = 24 * 60 * 60 * 1000;
+const ENVIADAS_MAX = 1000;
+const enviadas = new Map(); // key.id -> { message, em }
+
+function guardarEnviada(r) {
+  if (!r || !r.key || !r.key.id || !r.message) return;
+  enviadas.set(r.key.id, { message: r.message, em: Date.now() });
+  while (enviadas.size > ENVIADAS_MAX) enviadas.delete(enviadas.keys().next().value);
+}
+
+async function buscarEnviada(key) {
+  const item = key && key.id && enviadas.get(key.id);
+  if (!item) return undefined;
+  if (Date.now() - item.em > ENVIADAS_TTL) { enviadas.delete(key.id); return undefined; }
+  return item.message;
+}
+
+// Cache mínimo com a interface que o Baileys usa (get/set/del/flushAll).
+const contadorRetry = new Map();
+const msgRetryCounterCache = {
+  get: (k) => contadorRetry.get(k),
+  set: (k, v) => { contadorRetry.set(k, v); if (contadorRetry.size > 5000) contadorRetry.delete(contadorRetry.keys().next().value); return true; },
+  del: (k) => contadorRetry.delete(k),
+  flushAll: () => contadorRetry.clear(),
+};
+
 /* --------------------------- caderno de nomes ---------------------------- */
 /**
  * O WhatsApp NÃO entrega o nome dos participantes junto com o grupo:
@@ -133,6 +164,8 @@ async function conectar() {
     logger: registro,
     browser: Browsers.ubuntu('Chrome'),
     markOnlineOnConnect: false,
+    getMessage: buscarEnviada,
+    msgRetryCounterCache,
   });
 
   socket.ev.on('creds.update', saveCreds);
@@ -465,6 +498,7 @@ app.post('/enviar', exigirToken, lerCorpoComAnexo, async (req, res) => {
       const jid = ehGrupo ? bruto : await descobrirJid(telefone);
       if (!jid) return { ok: false, motivo: 'Esse número não tem WhatsApp.' };
       const r = await socket.sendMessage(jid, montado.conteudo);
+      guardarEnviada(r);
       return { ok: true, id: r && r.key && r.key.id, jid };
     });
 
