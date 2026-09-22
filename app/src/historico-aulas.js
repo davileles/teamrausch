@@ -25,9 +25,20 @@
  *   um histórico que o sistema não guarda.
  *
  * O QUE CONTA COMO AULA
- *   Dia distinto com presença: confirmação no tablet da entrada OU check-in do
- *   Wellhub. Dois horários no mesmo dia são uma aula só. Reserva NÃO conta —
- *   parabenizar pelas 50 aulas quem faltou em 12 delas queima a mensagem.
+ *   Dia distinto com presença. Dois horários no mesmo dia são uma aula só.
+ *   Reserva NÃO conta — parabenizar pelas 50 aulas quem faltou em 12 delas
+ *   queima a mensagem.
+ *
+ *   Aluno Wellhub: todo dia com check-in, mais os dias em que confirmou no
+ *   totem SEM check-in, desde que naquele mês ele já tivesse batido o teto de
+ *   check-ins do Wellhub (TETO_MES, 12). Passado o teto, quem continua vindo
+ *   paga à parte e o check-in não existe mais — o totem é a única prova. Antes
+ *   do teto, totem sem check-in é check-in esquecido: não vira aula aqui, para
+ *   a conquista não esconder o repasse perdido. A cobrança do Wellhub
+ *   (`frequencia.js`) continua só com check-in e não é tocada por esta regra.
+ *
+ *   Mensalista, ficha dependente de conta compartilhada (o check-in cai no
+ *   titular) e telefone sem ficha: a confirmação no totem conta sempre.
  *
  * A SEMEADURA (uma vez só)
  *   O tablet é novo; presença antiga não existe. Se o número começasse do zero,
@@ -99,6 +110,20 @@ function acrescentar(mapa, matriculaId, data) {
 }
 
 /**
+ * O totem deste dia conta para uma ficha Wellhub? Só sem check-in no dia e com
+ * o teto do mês já batido em data anterior. `checkinsDaFicha` precisa cobrir o
+ * mês inteiro da data, não só a janela pedida — por isso o chamador busca
+ * desde o dia 1º.
+ */
+function totemContaWellhub(checkinsDaFicha, data) {
+  if (checkinsDaFicha.has(data)) return false;   // o dia já conta pelo check-in
+  const inicio = frequencia.inicioDoMes(data);
+  let antes = 0;
+  for (const d of checkinsDaFicha) if (d >= inicio && d < data) antes += 1;
+  return antes >= frequencia.TETO_MES;
+}
+
+/**
  * Dias com presença de verdade, por matrícula, numa janela.
  * @returns {Map<string, Set<string>>}
  */
@@ -106,11 +131,30 @@ function diasComPresenca({ de, ate } = {}) {
   const mapa = new Map();
   const daMatricula = indiceDeTelefones();
 
-  for (const p of agendaStore.listarPresencas({ de, ate })) {
-    acrescentar(mapa, daMatricula(p.telefone), p.data);
+  // Check-ins desde o 1º do mês de `de`: a regra do teto olha o mês inteiro.
+  const desdeMes = de ? frequencia.inicioDoMes(de) : undefined;
+  const checkinsPorFicha = new Map();
+  for (const [matriculaId, datas] of checkins.mapaPorMatricula({ de: desdeMes, ate })) {
+    checkinsPorFicha.set(matriculaId, new Set(datas));
+    for (const d of datas) {
+      if (!de || d >= de) acrescentar(mapa, matriculaId, d);
+    }
   }
-  for (const [matriculaId, datas] of checkins.mapaPorMatricula({ de, ate })) {
-    for (const d of datas) acrescentar(mapa, matriculaId, d);
+
+  const fichas = new Map();
+  const fichaDe = (id) => {
+    if (!fichas.has(id)) fichas.set(id, matriculas.porId(id) || null);
+    return fichas.get(id);
+  };
+
+  for (const p of agendaStore.listarPresencas({ de, ate })) {
+    const matriculaId = daMatricula(p.telefone);
+    if (!matriculaId) continue;
+    const ficha = fichaDe(matriculaId);
+    const regraWellhub = ficha && ficha.vinculo === 'wellhub' && !ficha.contaDe;
+    if (regraWellhub
+      && !totemContaWellhub(checkinsPorFicha.get(matriculaId) || new Set(), p.data)) continue;
+    acrescentar(mapa, matriculaId, p.data);
   }
   return mapa;
 }
@@ -195,14 +239,10 @@ function total(matriculaId) {
   if (!matriculaId) return 0;
   const base = Number(dados.totais[matriculaId]) || 0;
   const de = dados.consolidadoAte ? grade.somarDias(dados.consolidadoAte, 1) : undefined;
-  const dias = new Set(checkins.datasDaMatricula(matriculaId, { de }));
-
-  const daMatricula = indiceDeTelefones();
-  for (const p of agendaStore.listarPresencas({ de })) {
-    if (daMatricula(p.telefone) === matriculaId) dias.add(p.data);
-  }
-
-  return base + dias.size;
+  // Mesma regra de `diasComPresenca` — duas contas diferentes fariam a tela e
+  // a mensagem de conquista discordarem do número.
+  const dias = diasComPresenca({ de }).get(matriculaId);
+  return base + (dias ? dias.size : 0);
 }
 
 /**
