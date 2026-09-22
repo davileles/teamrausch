@@ -130,6 +130,16 @@
     .chamada.chamada-prof{font-size:32px;margin-bottom:16px}
   }
 
+  /* Ligar a TV (Chromecast). Canto oposto ao do tema, mesmo peso visual: é
+     coisa da recepção, não de quem está entrando. Some quando não há receptor
+     configurado. Verde quando o mural já está rodando. */
+  .btn-tv{position:fixed;top:18px;left:18px;z-index:5;width:44px;height:44px;
+    background:transparent;border:1px solid var(--linha);color:var(--apagado);border-radius:2px;
+    cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;opacity:.55}
+  .btn-tv[hidden]{display:none}
+  .btn-tv:hover{opacity:1}
+  .btn-tv.ligada{opacity:1;background:var(--liberado);border-color:var(--liberado);color:#fff}
+
   /* Alternador de tema: o ícone mostra para onde se vai, não onde se está. */
   .tema{background:transparent;border:1px solid var(--linha-3);color:var(--apagado);
     border-radius:var(--raio,2px);cursor:pointer;padding:0;width:40px;height:40px;
@@ -173,6 +183,7 @@
 </head>
 <body>
   <button class="tema" type="button" aria-label="Alternar tema claro ou escuro" title="Alternar tema claro/escuro"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="i-sol"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.1M12 19.3v2.1M4.5 4.5l1.5 1.5M18 18l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.5 19.5l1.5-1.5M18 6l1.5-1.5"/></g><path class="i-lua" d="M20.2 14.6A8.5 8.5 0 0 1 9.4 3.8 8.7 8.7 0 1 0 20.2 14.6Z"/></svg></button>
+  <button class="btn-tv" id="btn-tv" type="button" hidden aria-label="Ligar o mural na TV" title="Ligar o mural na TV"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M2 12a9 9 0 0 1 8 8"/><path d="M2 16a5 5 0 0 1 4 4"/><path d="M2 20h.01"/></svg></button>
   <div class="painel">
     <img src="/logo.png" alt="Team Rausch Studio" class="logo">
 
@@ -443,6 +454,55 @@ document.addEventListener('keydown', e=>{
     if (final.length === 4) buscarFinal();
   }
 });
+</script>
+<script>
+/* ── ligar a TV ─────────────────────────────────────────────────────────
+   O mural (`/tv.html`) roda DENTRO do Chromecast, como app receptor. Este
+   botão só dá a partida: depois disso o tablet pode recarregar, voltar ao
+   menu ou ser desligado que a TV continua girando sozinha. Só aparece com o
+   ID do receptor salvo em Configurações → Mural da TV.                    */
+(function(){
+  var btn = document.getElementById('btn-tv');
+  var appId = null;
+
+  function pintar(){
+    try{
+      var ctx = cast.framework.CastContext.getInstance();
+      btn.classList.toggle('ligada', ctx.getCastState() === cast.framework.CastState.CONNECTED);
+    }catch(e){}
+  }
+
+  window.__onGCastApiAvailable = function(disponivel){
+    if (!disponivel || !appId) return;
+    var ctx = cast.framework.CastContext.getInstance();
+    ctx.setOptions({
+      receiverApplicationId: appId,
+      autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
+    });
+    ctx.addEventListener(cast.framework.CastContextEventType.CAST_STATE_CHANGED, pintar);
+    btn.hidden = false;
+    pintar();
+  };
+
+  fetch('/tv-api/cast', {cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(c){
+      if (!c || !c.appId || c.ativo === false) return;
+      appId = c.appId;
+      var s = document.createElement('script');
+      s.src = 'https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1';
+      document.body.appendChild(s);
+    })
+    .catch(function(){ /* sem TV configurada, sem botão */ });
+
+  btn.addEventListener('click', function(){
+    try{
+      cast.framework.CastContext.getInstance().requestSession()
+        .then(pintar)
+        .catch(function(e){ if (e !== 'cancel') console.error('cast', e); });
+    }catch(e){ console.error('cast', e); }
+  });
+})();
 </script>
 </body>
 </html>

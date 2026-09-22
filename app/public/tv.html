@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mural · Team Rausch</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ── Team Rausch · mural da TV ──────────────────────────────────────────
+     Mesma paleta do totem no tema escuro. Tudo em vw: o Chromecast antigo
+     desenha em 1280×720 e a TV amplia; em px a tela ficaria certa num
+     monitor e minúscula na parede.                                       */
+  :root{--preto:#08090B;--superficie:#15181C;--linha:#2A2F36;--texto:#F5F5F3;
+    --apagado:#A6ABB2;--vermelho:#E01F26;--amarelo:#F5C518}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden;background:var(--preto);color:var(--texto);
+    font-family:'Work Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased;cursor:none}
+
+  .topo{position:fixed;top:0;left:0;right:0;height:11vh;display:flex;align-items:center;
+    justify-content:space-between;padding:0 4vw;border-bottom:.3vh solid var(--linha)}
+  .topo img{height:6.5vh;width:auto}
+  .relogio{text-align:right}
+  .relogio b{display:block;font:400 4.4vh Anton,sans-serif;letter-spacing:.04em}
+  .relogio span{font:500 1.8vh 'Work Sans',sans-serif;color:var(--apagado);text-transform:capitalize}
+
+  .palco{position:fixed;top:11vh;bottom:1.2vh;left:0;right:0}
+  .slide{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:0 7vw;opacity:0;transition:opacity .8s ease}
+  .slide.ativo{opacity:1}
+
+  .rotulo{font:600 1.35vw 'Work Sans',sans-serif;letter-spacing:.28em;text-transform:uppercase;
+    color:var(--amarelo);margin-bottom:2.2vh;display:flex;align-items:center;gap:1vw}
+  .rotulo::before{content:'';width:3.2vw;height:.5vh;background:var(--vermelho)}
+  .titulo{font:400 6.6vw/1 Anton,sans-serif;letter-spacing:.01em;text-transform:uppercase}
+
+  /* aniversário */
+  .aniv{display:flex;align-items:center;gap:5vw}
+  .aniv .bolo{font-size:13vw;line-height:1}
+  .aniv .nomes{margin-top:2vh;display:flex;flex-direction:column;gap:.6vh}
+  .aniv .nomes div{font:400 5vw/1.05 Anton,sans-serif;color:var(--amarelo);text-transform:uppercase}
+  .aniv .nomes.muitos div{font-size:3.6vw}
+  .aniv p{margin-top:3vh;font:500 1.7vw 'Work Sans',sans-serif;color:var(--apagado)}
+
+  /* conquistas */
+  .lista{margin-top:4vh;display:flex;flex-direction:column;gap:1.6vh}
+  .item{display:grid;grid-template-columns:5vw 1fr auto auto;align-items:center;gap:2vw;
+    background:var(--superficie);border-left:.45vw solid var(--vermelho);padding:1.9vh 2vw}
+  .item .em{font-size:3.2vw;text-align:center;line-height:1}
+  .item .quem{font:400 2.7vw/1 Anton,sans-serif;text-transform:uppercase}
+  .item .oque{font:500 1.5vw 'Work Sans',sans-serif;color:var(--apagado);margin-top:.6vh}
+  .item .aulas{font:400 2.4vw Anton,sans-serif;color:var(--amarelo)}
+  .item .aulas small{font:600 .95vw 'Work Sans',sans-serif;letter-spacing:.18em;color:var(--apagado);margin-left:.4vw}
+  .item .quando{font:600 .95vw 'Work Sans',sans-serif;letter-spacing:.2em;text-transform:uppercase;
+    padding:.8vh .9vw;border:1px solid var(--linha);color:var(--apagado)}
+  .item .quando.hoje{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
+
+  /* aviso */
+  .aviso .texto{margin-top:3vh;font:500 3.6vw/1.3 'Work Sans',sans-serif;max-width:78vw;white-space:pre-line}
+  .aviso .texto.longo{font-size:2.6vw}
+
+  /* sem nada para mostrar */
+  .vazio{align-items:center;text-align:center}
+  .vazio img{height:26vh;width:auto;margin-bottom:5vh}
+  .vazio .titulo{font-size:5vw}
+  .vazio p{margin-top:2vh;font:500 1.6vw 'Work Sans',sans-serif;color:var(--apagado)}
+
+  .barra{position:fixed;left:0;right:0;bottom:0;height:1.2vh;background:var(--superficie)}
+  .barra i{display:block;height:100%;width:0;background:var(--vermelho)}
+  .pontos{position:fixed;right:4vw;bottom:3vh;display:flex;gap:.6vw}
+  .pontos i{width:.7vw;height:.7vw;border-radius:50%;background:var(--linha)}
+  .pontos i.ativo{background:var(--amarelo)}
+</style>
+</head>
+<body>
+  <header class="topo">
+    <img src="/logo.png" alt="Team Rausch Studio">
+    <div class="relogio"><b id="hora">--:--</b><span id="data"></span></div>
+  </header>
+  <main class="palco" id="palco"></main>
+  <div class="pontos" id="pontos"></div>
+  <div class="barra"><i id="progresso"></i></div>
+
+<script>
+/* ── mural da TV ─────────────────────────────────────────────────────────
+   Busca /tv-api/feed, gira os slides e rebusca de tempos em tempos. Também é
+   o receptor do Chromecast: aberto dentro do Chromecast (user agent "CrKey"),
+   carrega o SDK do Cast e desliga o tempo de ociosidade — sem isso o aparelho
+   fecha o app depois de alguns minutos sem vídeo tocando.                  */
+(function(){
+  var FEED_A_CADA = 5 * 60 * 1000;       // avisos e conquistas novos em até 5 min
+  var RECARREGAR_A_CADA = 6 * 3600 * 1000; // pega versão nova da página sem ninguém mexer
+  var NO_CHROMECAST = /CrKey/i.test(navigator.userAgent);
+
+  if (NO_CHROMECAST) {
+    var s = document.createElement('script');
+    s.src = 'https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js';
+    s.onload = function(){
+      try {
+        var ctx = cast.framework.CastReceiverContext.getInstance();
+        ctx.start({ disableIdleTimeout: true, skipPlayersLoad: true, statusText: 'Mural do estúdio' });
+      } catch (e) { console.error('cast', e); }
+    };
+    document.head.appendChild(s);
+  }
+
+  var palco = document.getElementById('palco');
+  var pontos = document.getElementById('pontos');
+  var barra = document.getElementById('progresso');
+  var feed = { slides: [], segundosPorSlide: 12 };
+  var indice = -1, timer = null;
+
+  function esc(t){ return String(t == null ? '' : t).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  function relogio(){
+    var agora = new Date();
+    document.getElementById('hora').textContent =
+      agora.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    document.getElementById('data').textContent =
+      agora.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' });
+  }
+
+  function htmlDo(s){
+    if (s.tipo === 'aniversario') {
+      var um = s.nomes.length === 1;
+      return '<div class="aniv"><div class="bolo">🎂</div><div>'
+        + '<div class="rotulo">' + (um ? 'Aniversariante do dia' : 'Aniversariantes do dia') + '</div>'
+        + '<div class="titulo">Parabéns!</div>'
+        + '<div class="nomes' + (s.nomes.length > 2 ? ' muitos' : '') + '">'
+        + s.nomes.map(function(n){ return '<div>' + esc(n) + '</div>'; }).join('') + '</div>'
+        + '<p>Cruzou no estúdio hoje? Não esquece dos parabéns.</p>'
+        + '</div></div>';
+    }
+    if (s.tipo === 'conquistas') {
+      return '<div class="rotulo">Conquistas</div><div class="titulo">Mandaram bem</div>'
+        + '<div class="lista">' + s.itens.map(function(c){
+          return '<div class="item"><div class="em">' + esc(c.emoji) + '</div>'
+            + '<div><div class="quem">' + esc(c.nome) + '</div><div class="oque">' + esc(c.titulo) + '</div></div>'
+            + '<div class="aulas">' + esc(c.aulas) + '<small>' + (c.aulas === 1 ? 'AULA' : 'AULAS') + '</small></div>'
+            + '<div class="quando ' + esc(c.quando) + '">' + esc(c.quando) + '</div></div>';
+        }).join('') + '</div>';
+    }
+    if (s.tipo === 'aviso') {
+      return '<div class="aviso"><div class="rotulo">Aviso</div>'
+        + '<div class="texto' + (String(s.texto).length > 140 ? ' longo' : '') + '">' + esc(s.texto) + '</div></div>';
+    }
+    return '<img src="/logo.png" alt=""><div class="titulo">Bom treino</div>'
+      + '<p>' + esc(feed.estudio || '') + '</p>';
+  }
+
+  function lista(){
+    var s = (feed.ativo === false ? [] : feed.slides) || [];
+    return s.length ? s : [{ tipo: 'vazio' }];
+  }
+
+  function mostrar(i){
+    var slides = lista();
+    indice = i % slides.length;
+    var s = slides[indice];
+
+    var novo = document.createElement('section');
+    novo.className = 'slide' + (s.tipo === 'vazio' ? ' vazio' : '');
+    novo.innerHTML = htmlDo(s);
+    palco.appendChild(novo);
+    // força o navegador a desenhar antes de trocar a opacidade (senão não há transição)
+    void novo.offsetWidth;
+    novo.classList.add('ativo');
+    var antigos = palco.querySelectorAll('.slide:not(:last-child)');
+    for (var k = 0; k < antigos.length; k++) {
+      (function(el){ el.classList.remove('ativo'); setTimeout(function(){ el.remove(); }, 900); })(antigos[k]);
+    }
+
+    pontos.innerHTML = slides.length > 1
+      ? slides.map(function(_, j){ return '<i' + (j === indice ? ' class="ativo"' : '') + '></i>'; }).join('')
+      : '';
+
+    var ms = (Number(feed.segundosPorSlide) || 12) * 1000;
+    barra.style.transition = 'none'; barra.style.width = '0';
+    void barra.offsetWidth;
+    if (slides.length > 1) { barra.style.transition = 'width ' + ms + 'ms linear'; barra.style.width = '100%'; }
+
+    clearTimeout(timer);
+    timer = setTimeout(function(){ mostrar(indice + 1); }, ms);
+  }
+
+  function assinatura(f){ return JSON.stringify([f.ativo, f.segundosPorSlide, f.slides]); }
+
+  function buscar(){
+    fetch('/tv-api/feed', { cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(novo){
+        var mudou = assinatura(novo) !== assinatura(feed);
+        feed = novo;
+        // Só recomeça a volta se o conteúdo mudou; senão segue de onde estava.
+        if (mudou || indice < 0) mostrar(0);
+      })
+      .catch(function(e){
+        // Sem rede, a TV continua com o último conteúdo que tinha.
+        console.error('feed', e);
+        if (indice < 0) mostrar(0);
+      });
+  }
+
+  relogio(); setInterval(relogio, 15000);
+  buscar(); setInterval(buscar, FEED_A_CADA);
+  setTimeout(function(){ location.reload(); }, RECARREGAR_A_CADA);
+})();
+</script>
+</body>
+</html>

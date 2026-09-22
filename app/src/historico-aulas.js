@@ -244,4 +244,7 @@ function situacao() {
 
 module.exports = {
   semear, consolidar, total, totais, porTelefone, diasVivosDoTelefone, situacao,
+  // O mural da TV precisa saber em que dia cada aula caiu para dizer se o
+  // marco foi batido hoje ou ontem — mesma regra de "o que conta como aula".
+  diasComPresenca,
 };

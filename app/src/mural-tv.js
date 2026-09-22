@@ -1,0 +1,194 @@
+'use strict';
+
+/**
+ * app/src/mural-tv.js — davileles/teamrausch
+ *
+ * O que a TV do estúdio mostra: aniversariantes do dia, conquistas batidas
+ * hoje e ontem, e os avisos que estiverem valendo.
+ *
+ * NADA É GRAVADO AQUI
+ *   Tudo é derivado na hora do que já existe. Aniversário vem do mesmo
+ *   `aniversariantes-dia.listar` que avisa a recepção às 5h30; a contagem de
+ *   aulas vem de `historico-aulas`, a mesma das conquistas e da aba Meus
+ *   dados. Uma terceira conta de "quantas aulas" acabaria divergindo, e a TV
+ *   parabenizaria por 50 quem o WhatsApp parabenizou por 49.
+ *
+ * COMO SE SABE QUE O MARCO FOI HOJE OU ONTEM
+ *   Um dia conta no máximo uma aula. Então, com o total de agora e sabendo se
+ *   houve aula hoje e ontem, dá para voltar no tempo:
+ *     fim de ontem   = total − (veio hoje ? 1 : 0)
+ *     início de ontem = fim de ontem − (veio ontem ? 1 : 0)
+ *   O marco caiu ontem se está entre o início e o fim de ontem; hoje, se está
+ *   entre o fim de ontem e o total. Não depende do envio do WhatsApp ter dado
+ *   certo — aluno sem telefone também aparece na TV.
+ *
+ * SÓ PRIMEIRO NOME E INICIAL
+ *   A rota é aberta, como a do tablet: a TV é só um endereço, sem login para
+ *   dar errado num sábado de manhã. Então o que sai daqui é "Ana S." e nunca
+ *   telefone, plano ou sobrenome inteiro.
+ */
+
+const config = require('./config');
+const frequencia = require('./frequencia');
+const grade = require('./grade');
+const historico = require('./historico-aulas');
+const matriculas = require('./matriculas-store');
+const aniversariantes = require('./aniversariantes-dia');
+
+/** O feed é o mesmo para qualquer TV; montar de novo a cada pedido é à toa. */
+const CACHE_MS = 60 * 1000;
+let cache = { em: 0, feed: null };
+
+function log(...a) { console.log(new Date().toISOString(), '[mural-tv]', ...a); }
+
+function cfg() {
+  try { return config.ler().mural || {}; } catch (e) { return {}; }
+}
+
+/** "ana paula souza" → "Ana S." — o bastante para a turma reconhecer. */
+function nomeCurto(nome) {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return '';
+  const cap = (s) => s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1).toLocaleLowerCase('pt-BR');
+  const primeiro = cap(partes[0]);
+  if (partes.length === 1) return primeiro;
+  // Pula "da", "de", "dos"… para a inicial ser do sobrenome de verdade.
+  const ultimo = partes[partes.length - 1];
+  return `${primeiro} ${ultimo.charAt(0).toLocaleUpperCase('pt-BR')}.`;
+}
+
+/* ------------------------------ aniversário ------------------------------ */
+
+function aniversariantesDeHoje(hoje) {
+  try {
+    const { alunos } = aniversariantes.listar(hoje);
+    return (alunos || [])
+      .map((a) => nomeCurto(a.nome))
+      .filter(Boolean)
+      .sort((x, y) => x.localeCompare(y, 'pt-BR'));
+  } catch (e) {
+    log('aniversariantes falhou:', e.message);
+    return [];
+  }
+}
+
+/* ------------------------------- conquistas ------------------------------ */
+
+function marcosDoConfig() {
+  let lista = [];
+  try { lista = config.ler().conquistas || []; } catch (e) { lista = []; }
+  return lista
+    .filter((m) => Number(m.aulas) > 0)
+    .map((m) => ({ aulas: Number(m.aulas), titulo: m.titulo, emoji: m.emoji || '🏅' }))
+    .sort((a, b) => a.aulas - b.aulas);
+}
+
+function conquistasRecentes(hoje) {
+  const marcos = marcosDoConfig();
+  if (!marcos.length) return [];
+
+  const ontem = grade.somarDias(hoje, -1);
+  let totais; let dias;
+  try {
+    totais = historico.totais();
+    dias = historico.diasComPresenca({ de: ontem, ate: hoje });
+  } catch (e) {
+    log('conquistas falhou:', e.message);
+    return [];
+  }
+
+  const saida = [];
+  for (const ficha of matriculas.listar()) {
+    if (!ficha.ativo) continue;
+    const total = totais.get(ficha.id) || 0;
+    if (!total) continue;
+
+    const vieram = dias.get(ficha.id) || new Set();
+    const fimOntem = total - (vieram.has(hoje) ? 1 : 0);
+    const inicioOntem = fimOntem - (vieram.has(ontem) ? 1 : 0);
+    if (inicioOntem === total) continue;   // não treinou nem hoje nem ontem
+
+    // Um marco por pessoa, o mais alto — igual ao WhatsApp.
+    const batidos = marcos.filter((m) => m.aulas > inicioOntem && m.aulas <= total);
+    if (!batidos.length) continue;
+    const m = batidos[batidos.length - 1];
+    const nome = nomeCurto(ficha.nome);
+    if (!nome) continue;
+
+    saida.push({
+      nome, emoji: m.emoji, titulo: m.titulo, aulas: m.aulas,
+      quando: m.aulas <= fimOntem ? 'ontem' : 'hoje',
+    });
+  }
+
+  // Hoje primeiro, depois do marco maior para o menor.
+  return saida.sort((a, b) => (a.quando === b.quando ? b.aulas - a.aulas : (a.quando === 'hoje' ? -1 : 1)));
+}
+
+/* --------------------------------- avisos -------------------------------- */
+
+function avisosAtivos(hoje) {
+  const c = config.ler();
+  const lista = [];
+
+  // O aviso em destaque do app também vale para a TV: é o mesmo recado
+  // ("dia 7 não abre"), e cadastrar duas vezes é pedir para um ficar velho.
+  const destaque = String((c.estudio || {}).alerta || '').trim();
+  const destaqueAte = String((c.estudio || {}).alertaAte || '').trim();
+  if (destaque && (!destaqueAte || hoje <= destaqueAte)) lista.push({ texto: destaque });
+
+  for (const a of (cfg().avisos || [])) {
+    const texto = String(a.texto || '').trim();
+    if (!texto) continue;
+    if (a.de && hoje < a.de) continue;
+    if (a.ate && hoje > a.ate) continue;
+    if (lista.some((x) => x.texto === texto)) continue;
+    lista.push({ texto });
+  }
+  return lista;
+}
+
+/* ---------------------------------- feed --------------------------------- */
+
+const POR_SLIDE_CONQUISTAS = 5;
+const POR_SLIDE_ANIVERSARIO = 4;
+
+function montar() {
+  const c = config.ler();
+  const hoje = frequencia.hojeLocal();
+  const m = cfg();
+
+  const aniv = aniversariantesDeHoje(hoje);
+  const conq = conquistasRecentes(hoje);
+  const avisos = avisosAtivos(hoje);
+
+  const slides = [];
+  for (let i = 0; i < aniv.length; i += POR_SLIDE_ANIVERSARIO) {
+    slides.push({ tipo: 'aniversario', nomes: aniv.slice(i, i + POR_SLIDE_ANIVERSARIO) });
+  }
+  for (let i = 0; i < conq.length; i += POR_SLIDE_CONQUISTAS) {
+    slides.push({ tipo: 'conquistas', itens: conq.slice(i, i + POR_SLIDE_CONQUISTAS) });
+  }
+  for (const a of avisos) slides.push({ tipo: 'aviso', texto: a.texto });
+
+  const segundos = Number(m.segundosPorSlide);
+  return {
+    geradoEm: new Date().toISOString(),
+    data: hoje,
+    estudio: (c.estudio || {}).nome || '',
+    ativo: m.ativo !== false,
+    segundosPorSlide: Number.isFinite(segundos) && segundos >= 5 && segundos <= 120 ? segundos : 12,
+    slides,
+  };
+}
+
+function feed() {
+  if (cache.feed && Date.now() - cache.em < CACHE_MS) return cache.feed;
+  cache = { em: Date.now(), feed: montar() };
+  return cache.feed;
+}
+
+/** Salvar a configuração tem de aparecer na TV já na próxima volta. */
+function invalidar() { cache = { em: 0, feed: null }; }
+
+module.exports = { feed, invalidar, nomeCurto };

@@ -130,6 +130,22 @@ const PADRAO = {
     minutosAntes: 20,           // confirmação liberada X min antes da aula
     minutosDepois: 20,          // e ainda aceita até X min depois de começar
   },
+  /**
+   * MURAL DA TV
+   *
+   * A TV do estúdio (Chromecast) roda `/tv.html`, que gira aniversariantes do
+   * dia, conquistas de hoje e ontem e os avisos abaixo. O aviso em destaque do
+   * app (`estudio.alerta`) entra sozinho — não precisa repetir aqui.
+   *
+   * `castAppId` é o ID do receptor registrado no Google Cast Developer
+   * Console. Vazio, o botão "Ligar TV" não aparece no tablet.
+   */
+  mural: {
+    ativo: true,
+    segundosPorSlide: 12,
+    avisos: [],                 // [{ texto, de: 'AAAA-MM-DD', ate: 'AAAA-MM-DD' }]
+    castAppId: '',
+  },
   acesso: {
     // Senha do administrador. Guardamos só o hash com sal, nunca o texto.
     // null = administrador entra por código, como qualquer aluno.

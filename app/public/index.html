@@ -4157,6 +4157,15 @@ function linhaConquista(aulas='', titulo='', emoji='', mensagem=''){
     <button class="leve c-remover" aria-label="Remover conquista">Remover</button></div>`;
 }
 
+function linhaAvisoTv(texto='', de='', ate=''){
+  return `<div class="linha-c linha-tv">
+    <textarea class="c-mensagem tv-texto" maxlength="280" style="min-height:64px"
+      placeholder="Ex.: Sábado tem aulão às 9h, traga um amigo!">${esc(texto)}</textarea>
+    <input type="date" class="tv-de" value="${esc(de)}" title="Mostrar a partir de">
+    <input type="date" class="tv-ate" value="${esc(ate)}" title="Mostrar até">
+    <button class="leve tv-remover" type="button" aria-label="Remover aviso da TV">Remover</button></div>`;
+}
+
 /* --------- grade de horários: gerador, cópia entre dias e contagem -------- */
 
 /**
@@ -5308,6 +5317,7 @@ async function carregarConfig(){
     const frq = c.frequencia || {};
     const msg = c.mensagens || {};
     const tot = c.totem || {};
+    const mur = c.mural || {};
     const DIAS_SEM = [['0','Dom'],['1','Seg'],['2','Ter'],['3','Qua'],['4','Qui'],['5','Sex'],['6','Sáb']];
     const diasAlerta = Array.isArray(frq.alertaDias) ? frq.alertaDias.map(String) : ['1','2','3','4','5'];
     alvo.innerHTML = `
@@ -5341,6 +5351,32 @@ async function carregarConfig(){
       <div class="campo"><label for="c-alerta-ate">Mostrar até (opcional)</label>
         <input id="c-alerta-ate" type="date" value="${esc(c.estudio.alertaAte||'')}">
         <p class="ajuda">Depois desta data o aviso some sozinho. Em branco, fica até você apagar.</p></div>
+
+      <h3>Mural da TV</h3>
+      <p class="ajuda">A TV do estúdio gira sozinha os aniversariantes do dia, as conquistas
+        de hoje e de ontem e os avisos abaixo. O aviso em destaque acima também aparece lá —
+        não precisa repetir. Na TV sai só o primeiro nome e a inicial do sobrenome.
+        <a href="/tv.html" target="_blank" rel="noopener">Abrir o mural</a></p>
+      <div class="dupla">
+        <div class="campo"><label for="c-mural-ativo">Mural</label>
+          <select id="c-mural-ativo">
+            <option value="1"${mur.ativo===false?'':' selected'}>Ligado</option>
+            <option value="0"${mur.ativo===false?' selected':''}>Desligado</option>
+          </select>
+          <p class="ajuda">Desligado, a TV mostra só o logo e o relógio.</p></div>
+        <div class="campo"><label for="c-mural-seg">Tempo de cada tela (s)</label>
+          <input id="c-mural-seg" type="number" min="5" max="120" value="${Number(mur.segundosPorSlide ?? 12)}"></div>
+      </div>
+      <div class="campo"><label>Avisos da TV</label>
+        <div id="lista-avisos-tv">${(mur.avisos||[]).map(a=>linhaAvisoTv(a.texto, a.de, a.ate)).join('')}</div>
+        <button class="leve" id="c-add-aviso-tv" type="button">+ Aviso na TV</button>
+        <p class="ajuda">Datas em branco: começa já e fica até você apagar. Aviso vencido some
+          sozinho da TV, mas continua aqui até você remover.</p></div>
+      <div class="campo"><label for="c-mural-cast">ID do receptor Chromecast</label>
+        <input id="c-mural-cast" maxlength="8" placeholder="A1B2C3D4" value="${esc(mur.castAppId||'')}"
+          style="text-transform:uppercase">
+        <p class="ajuda">Gerado no Google Cast Developer Console. Com ele salvo, aparece no
+          canto do tablet da entrada o botão que liga o mural na TV.</p></div>
 
       <h3>Regras de agendamento</h3>
       <div class="dupla">
@@ -5730,6 +5766,14 @@ async function carregarConfig(){
       }catch(e){ saida.textContent = 'Não consegui consultar: ' + (e.message || e); }
     });
 
+    document.getElementById('c-add-aviso-tv').addEventListener('click', ()=>{
+      document.getElementById('lista-avisos-tv')
+        .insertAdjacentHTML('beforeend', linhaAvisoTv());
+    });
+    alvo.addEventListener('click', e=>{
+      const r = e.target.closest('.tv-remover');
+      if (r) r.closest('.linha-tv').remove();
+    });
     document.getElementById('c-add-conquista').addEventListener('click', ()=>{
       document.getElementById('lista-conquistas')
         .insertAdjacentHTML('beforeend', linhaConquista());
@@ -5908,6 +5952,18 @@ async function salvarConfig(){
     totem: {
       minutosAntes: n('c-totem-antes'),
       minutosDepois: n('c-totem-depois'),
+    },
+    mural: {
+      ativo: v('c-mural-ativo') === '1',
+      segundosPorSlide: n('c-mural-seg'),
+      castAppId: v('c-mural-cast'),
+      avisos: [...document.querySelectorAll('#lista-avisos-tv .linha-tv')]
+        .map(l=>({
+          texto: l.querySelector('.tv-texto').value.trim(),
+          de: l.querySelector('.tv-de').value,
+          ate: l.querySelector('.tv-ate').value,
+        }))
+        .filter(a=>a.texto),
     },
     frequencia: {
       ausenteDias: n('c-freq-ausente'),

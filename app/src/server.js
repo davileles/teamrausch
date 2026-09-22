@@ -37,6 +37,9 @@ app.use('/agenda-api', require('./rotas-agenda').rotas);
 // Tablet da entrada: confirmação de presença e cadastro, sem login
 app.use('/totem-api', require('./rotas-totem').rotas);
 
+// Mural da TV do estúdio (Chromecast) — leitura aberta, só primeiro nome
+app.use('/tv-api', require('./rotas-tv').rotas);
+
 function log(...args) { console.log(new Date().toISOString(), ...args); }
 
 /* ---------------------------------------------------------------------------

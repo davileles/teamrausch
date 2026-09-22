@@ -1171,6 +1171,38 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     }
   }
 
+  // Mural da TV. Datas em branco valem como "sem limite" daquele lado; aviso
+  // sem texto é descartado em vez de virar um slide vazio na parede.
+  if (novo.mural !== undefined) {
+    const mu = novo.mural || {};
+    const erro = mu.segundosPorSlide !== undefined && faixa(mu.segundosPorSlide, 5, 120, 'Tempo de cada tela');
+    if (erro) return res.status(400).json({ erro });
+    if (mu.ativo !== undefined) mu.ativo = Boolean(mu.ativo);
+    if (mu.castAppId !== undefined) {
+      const id = String(mu.castAppId || '').trim().toUpperCase();
+      if (id && !/^[0-9A-F]{8}$/.test(id)) {
+        return res.status(400).json({ erro: 'ID do receptor Cast inválido: são 8 letras/números, como A1B2C3D4.' });
+      }
+      mu.castAppId = id;
+    }
+    if (mu.avisos !== undefined) {
+      if (!Array.isArray(mu.avisos)) return res.status(400).json({ erro: 'Lista de avisos da TV inválida.' });
+      const data = (x) => (/^\d{4}-\d{2}-\d{2}$/.test(String(x || '')) ? String(x) : '');
+      const limpos = [];
+      for (const a of mu.avisos) {
+        const texto = String((a && a.texto) || '').trim().slice(0, 280);
+        if (!texto) continue;
+        const de = data(a.de); const ate = data(a.ate);
+        if (de && ate && ate < de) {
+          return res.status(400).json({ erro: `O aviso "${texto.slice(0, 30)}…" termina antes de começar.` });
+        }
+        limpos.push({ texto, de, ate });
+      }
+      mu.avisos = limpos;
+    }
+    novo.mural = mu;
+  }
+
   if (novo.mensagens !== undefined) {
     const m = novo.mensagens || {};
     const erros = [
@@ -1259,6 +1291,9 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
   }
 
   config.gravar(novo);
+  // Aviso novo ou apagado tem de aparecer na TV na próxima volta, não daqui a
+  // um minuto. Carregado aqui para não amarrar os módulos no boot.
+  try { require('./mural-tv').invalidar(); } catch (e) { /* mural é acessório */ }
   res.json(config.paraAdmin());
 });
 
