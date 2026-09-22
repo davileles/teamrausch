@@ -22,10 +22,10 @@
  *   entre o fim de ontem e o total. Não depende do envio do WhatsApp ter dado
  *   certo — aluno sem telefone também aparece na TV.
  *
- * SÓ PRIMEIRO NOME E INICIAL
+ * SÓ NOME E PRIMEIRO SOBRENOME
  *   A rota é aberta, como a do tablet: a TV é só um endereço, sem login para
- *   dar errado num sábado de manhã. Então o que sai daqui é "Ana S." e nunca
- *   telefone, plano ou sobrenome inteiro.
+ *   dar errado num sábado de manhã. Então o que sai daqui é "Ana Silva" e
+ *   nunca telefone, plano ou nome completo.
  */
 
 const config = require('./config');
@@ -45,24 +45,35 @@ function cfg() {
   try { return config.ler().mural || {}; } catch (e) { return {}; }
 }
 
-/** "ana paula souza" → "Ana S." — o bastante para a turma reconhecer. */
-function nomeCurto(nome) {
-  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
-  if (!partes.length) return '';
-  const cap = (s) => s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1).toLocaleLowerCase('pt-BR');
-  const primeiro = cap(partes[0]);
-  if (partes.length === 1) return primeiro;
-  // Pula "da", "de", "dos"… para a inicial ser do sobrenome de verdade.
-  const ultimo = partes[partes.length - 1];
-  return `${primeiro} ${ultimo.charAt(0).toLocaleUpperCase('pt-BR')}.`;
+/** Partículas que não contam como sobrenome: "Ana de Souza" → "Ana Souza". */
+const PARTICULAS = new Set(['da', 'das', 'de', 'di', 'do', 'dos', 'du', 'e', 'y']);
+
+function capitalizar(s) {
+  return s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1).toLocaleLowerCase('pt-BR');
 }
 
-/** "ana paula souza" → "Ana Souza" — usado quando duas pessoas dariam "Ana S.". */
+function palavras(nome) {
+  return String(nome || '').trim().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * "MARIA APARECIDA GONÇALVES DE ALBUQUERQUE" → "Maria Aparecida".
+ * Nome e primeiro sobrenome: cabe numa linha da TV e ainda é como a turma
+ * chama a pessoa. Partículas ("de", "da"…) são puladas.
+ */
+function nomeCurto(nome) {
+  const p = palavras(nome);
+  if (!p.length) return '';
+  const sobrenome = p.slice(1).find((x) => !PARTICULAS.has(x.toLowerCase()));
+  return sobrenome ? `${capitalizar(p[0])} ${capitalizar(sobrenome)}` : capitalizar(p[0]);
+}
+
+/** Desempate: nome, primeiro sobrenome e inicial do último ("Ana Silva S."). */
 function nomeMedio(nome) {
-  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
-  const cap = (s) => s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1).toLocaleLowerCase('pt-BR');
-  if (partes.length < 2) return cap(partes[0] || '');
-  return `${cap(partes[0])} ${cap(partes[partes.length - 1])}`;
+  const p = palavras(nome).filter((x, k) => k === 0 || !PARTICULAS.has(x.toLowerCase()));
+  const curto = nomeCurto(nome);
+  if (p.length < 3) return curto;
+  return `${curto} ${p[p.length - 1].charAt(0).toLocaleUpperCase('pt-BR')}.`;
 }
 
 function chaveNome(nome) {
@@ -75,8 +86,8 @@ function chaveNome(nome) {
  *
  * Mesmo nome completo duas vezes é a mesma pessoa com duas matrículas: sai
  * uma linha só (a primeira da lista, que já vem ordenada pelo mais relevante).
- * Nomes diferentes que viram o mesmo "Ana S." ganham o sobrenome inteiro —
- * duas linhas idênticas na TV parecem defeito.
+ * Nomes diferentes que dariam o mesmo "Ana Silva" ganham a inicial do último
+ * sobrenome — duas linhas idênticas na TV parecem defeito.
  */
 function semRepetidos(lista) {
   const vistos = new Set();

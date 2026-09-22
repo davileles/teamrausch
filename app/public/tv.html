@@ -183,6 +183,19 @@
   function esc(t){ return String(t == null ? '' : t).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 
+  /* Nome e primeiro sobrenome, pulando "de/da/dos". O servidor já manda assim;
+     aqui é garantia para o modo ?demo= e para qualquer nome que venha inteiro. */
+  var PARTICULAS = { da:1, das:1, de:1, di:1, 'do':1, dos:1, du:1, e:1, y:1 };
+  function cap(s){ return s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1).toLocaleLowerCase('pt-BR'); }
+  function nomeCurto(n){
+    var p = String(n == null ? '' : n).trim().split(/\s+/).filter(Boolean);
+    if (!p.length) return '';
+    var sob = null;
+    for (var k = 1; k < p.length; k++) if (!PARTICULAS[p[k].toLowerCase()]) { sob = p[k]; break; }
+    // "Ana Silva S." (desempate do servidor) passa intacto
+    if (sob && /^[A-ZÀ-Ý]\.$/.test(p[p.length - 1]) && p.length === 3) return p.join(' ');
+    return sob ? cap(p[0]) + ' ' + cap(sob) : cap(p[0]);
+  }
   function arr(x){ return Array.isArray(x) ? x.filter(function(v){ return v != null && v !== ''; }) : []; }
 
   /* divide em páginas equilibradas: 14 itens com teto 6 viram 5+5+4,
@@ -249,7 +262,7 @@
         + '<div class="rotulo">' + titulo + marcaPag(s) + '</div>'
         + '<div class="titulo">Parabéns!</div>'
         + '<div class="nomes' + (n > 4 ? ' c2' : '') + '">'
-        + s.nomes.map(function(x){ return '<div>' + esc(x) + '</div>'; }).join('') + '</div>'
+        + s.nomes.map(function(x){ return '<div>' + esc(nomeCurto(x)) + '</div>'; }).join('') + '</div>'
         + '<p>Cruzou no estúdio hoje? Não esquece dos parabéns.</p>'
         + '</div></div>';
     }
@@ -271,7 +284,7 @@
             }
             return '<div class="item">'
               + '<div class="em">' + esc(c.emoji || '🏅') + '</div>'
-              + '<div><div class="quem">' + esc(c.nome || '—') + '</div>'
+              + '<div><div class="quem">' + esc(nomeCurto(c.nome) || '—') + '</div>'
               + (String(c.titulo || '').trim() ? '<div class="oque">' + esc(c.titulo) + '</div>' : '')
               + '</div>'
               + (lado ? '<div class="lado">' + lado + '</div>' : '<div></div>')
