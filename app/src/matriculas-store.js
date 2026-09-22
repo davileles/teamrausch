@@ -368,6 +368,30 @@ function hojeISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * QUANDO O ALUNO SAIU
+ *   `ativo` diz só se ele está no estúdio agora. Os Indicadores precisam saber
+ *   também QUANDO saiu: quem foi desativado em setembro não deve setembro
+ *   inteiro, mas treinou (e devia) agosto inteiro. Sem a data, ou a meta dele
+ *   inflava o mês corrente, ou sumia do histórico dos meses anteriores.
+ *
+ *   Data no fuso do estúdio, não em UTC: desativar às 22h do dia 30 não pode
+ *   virar dia 1º do mês seguinte.
+ */
+function hojeNoEstudio() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.TZ_ESTUDIO || 'America/Sao_Paulo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
+
+function definirAtivo(m, valor) {
+  const novo = Boolean(valor);
+  if (m.ativo && !novo) m.inativadoEm = hojeNoEstudio();
+  if (novo) delete m.inativadoEm;
+  m.ativo = novo;
+}
+
 function listar() {
   return dados.matriculas
     .slice()
@@ -767,7 +791,7 @@ function atualizar(id, campos = {}) {
     const r = aplicarAniversario(m, campos.aniversario);
     if (!r.ok) return r;
   }
-  if (campos.ativo !== undefined) m.ativo = Boolean(campos.ativo);
+  if (campos.ativo !== undefined) definirAtivo(m, campos.ativo);
   if (campos.experimental !== undefined) m.experimental = Boolean(campos.experimental);
   if (campos.observacao !== undefined) {
     m.observacao = String(campos.observacao || '').trim() || null;
@@ -967,7 +991,7 @@ function sincronizarPlanilha(fichas = [], { seco = false } = {}) {
 function inativar(id) {
   const m = porId(id);
   if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
-  m.ativo = false;
+  definirAtivo(m, false);
   m.atualizadoEm = new Date().toISOString();
   gravar();
   return { ok: true, matricula: m };
@@ -1084,7 +1108,7 @@ function mesclar(idFica, idSai, opcoes = {}) {
     }
   }
 
-  if (sai.ativo) fica.ativo = true;
+  if (sai.ativo) definirAtivo(fica, true);
   // Experimental é "ainda sem horário combinado". Se qualquer uma das duas já
   // tinha horário fixo, a pessoa não é mais experimental.
   if (!sai.experimental) fica.experimental = false;
