@@ -844,8 +844,21 @@ function panoramaDoMes({
   const porId = new Map(matriculas.map((m) => [m.id, m]));
   // Só quem faz check-in e tem pacote: mensalista não passa pelo portal e
   // experimental ainda não combinou grade nenhuma.
+  //
+  // INATIVO SÓ CONTA NOS MESES ANTERIORES AO QUE SAIU
+  //   Sem este corte, quem foi desativado continuava devendo o pacote do mês
+  //   inteiro: em set/2026 eram 7 alunos e 56 check-ins de meta que ninguém ia
+  //   fazer, e esta tela dizia −120 enquanto a aba Frequência (que só avalia
+  //   ativos) dizia −69. No mês da saída e depois, ele sai da meta — igual à
+  //   Frequência —; nos meses anteriores, continua no histórico.
+  //
+  //   `inativadoEm` é gravado pelo store desde set/2026. Fichas desativadas
+  //   antes disso não têm a data, e a última edição (`atualizadoEm`) é a
+  //   melhor pista que sobrou.
+  const saiuEm = (m) => String(m.inativadoEm || m.atualizadoEm || '').slice(0, 10);
   const comPacote = matriculas.filter((m) =>
-    (m.vinculo || 'mensalista') === 'wellhub' && !m.experimental);
+    (m.vinculo || 'mensalista') === 'wellhub' && !m.experimental
+    && (m.ativo || (saiuEm(m) && saiuEm(m) > fim)));
   const naGrade = comPacote.filter((m) => m.ativo);
   const idsNaGrade = new Set(naGrade.map((m) => m.id));
   /* ------------------- contas compartilhadas ------------------------------ *
@@ -1243,7 +1256,8 @@ function panoramaDoMes({
     ate: fim,
     hoje,
     metaMes: comPacote.reduce((s, m) => s + metas.get(m.id), 0),
-    alunosComPacote: comPacote.length,
+    // Mesma população da aba Frequência: sem grade não há meta, nem pacote.
+    alunosComPacote: comPacote.filter((m) => metas.get(m.id) > 0).length,
     alunosNaAgenda: naAgenda.length,
     alunosNaAgendaWellhub: naGrade.length,
     /**
