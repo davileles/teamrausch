@@ -52,9 +52,16 @@ function guardarEnviada(r) {
 }
 
 async function buscarEnviada(key) {
-  const item = key && key.id && enviadas.get(key.id);
-  if (!item) return undefined;
-  if (Date.now() - item.em > ENVIADAS_TTL) { enviadas.delete(key.id); return undefined; }
+  const id = key && key.id;
+  const para = key && key.remoteJid;
+  const item = id && enviadas.get(id);
+  if (!item) { log('[retry] pedido de reenvio SEM mensagem guardada', id, para); return undefined; }
+  if (Date.now() - item.em > ENVIADAS_TTL) {
+    enviadas.delete(id);
+    log('[retry] pedido de reenvio de mensagem vencida', id, para);
+    return undefined;
+  }
+  log('[retry] reenviando a pedido do destinatário', id, para);
   return item.message;
 }
 
@@ -499,6 +506,7 @@ app.post('/enviar', exigirToken, lerCorpoComAnexo, async (req, res) => {
       if (!jid) return { ok: false, motivo: 'Esse número não tem WhatsApp.' };
       const r = await socket.sendMessage(jid, montado.conteudo);
       guardarEnviada(r);
+      log('[envio]', r && r.key && r.key.id, '→', jid);
       return { ok: true, id: r && r.key && r.key.id, jid };
     });
 
