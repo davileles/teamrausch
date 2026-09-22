@@ -31,7 +31,8 @@
     --vermelho:#E01F26; --amarelo:#F5C518;
     --topo:7rem;                /* altura do cabeçalho */
     --margem-x:5.5rem;          /* área segura horizontal (~5,5% da largura) */
-    --margem-y:3rem;
+    --margem-y:2.4rem;
+    --seguro-y:3.4rem;          /* overscan vertical: a TV do estúdio corta o topo */
     --emoji:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji','Android Emoji',sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -44,7 +45,7 @@
   #tela{position:fixed;inset:0;animation:deriva 900s ease-in-out infinite alternate}
   @keyframes deriva{from{transform:translate(-.4rem,-.4rem)}to{transform:translate(.4rem,.4rem)}}
 
-  .topo{position:absolute;top:0;left:0;right:0;height:var(--topo);display:flex;
+  .topo{position:absolute;top:var(--seguro-y);left:0;right:0;height:var(--topo);display:flex;
     align-items:center;justify-content:space-between;
     padding:0 var(--margem-x);border-bottom:.15rem solid var(--linha)}
   .topo img{height:4rem;width:auto}
@@ -54,7 +55,7 @@
   .relogio b{display:block;font:400 2.8rem/1 Anton,'Arial Narrow',sans-serif;letter-spacing:.04em}
   .relogio span{font:500 1.3rem/1.2 'Work Sans',sans-serif;color:var(--apagado)}
 
-  .palco{position:absolute;top:var(--topo);bottom:1.6rem;left:0;right:0;overflow:hidden}
+  .palco{position:absolute;top:calc(var(--seguro-y) + var(--topo));bottom:calc(1.2rem + var(--seguro-y));left:0;right:0;overflow:hidden}
   .slide{position:absolute;inset:0;padding:var(--margem-y) var(--margem-x);
     display:flex;opacity:0;transition:opacity .7s ease}
   .slide.ativo{opacity:1}
@@ -81,26 +82,30 @@
   .aniv .nomes.c2 div{font-size:3rem}
   .aniv p{margin-top:2.2rem;font:500 1.6rem/1.3 'Work Sans',sans-serif;color:var(--apagado)}
 
-  /* ── conquistas ─────────────────────────────────────────────────────── */
-  .lista{margin-top:2rem;display:grid;gap:1.2rem 1.8rem;
-    grid-template-columns:minmax(0, 58rem)}
-  .lista.c2{grid-template-columns:repeat(2, minmax(0, 41rem))}
-  .item{display:grid;grid-template-columns:4rem minmax(0, 1fr) auto;align-items:center;
-    gap:1.4rem;background:var(--superficie);border-left:.34rem solid var(--vermelho);
-    padding:1.1rem 1.5rem}
-  .item .em{font-size:2.6rem;line-height:1;text-align:center;font-family:var(--emoji)}
-  .item .quem{font:400 2.1rem/1.1 Anton,'Arial Narrow',sans-serif;text-transform:uppercase;
+  /* ── conquistas ─────────────────────────────────────────────────────
+     Ocupam a largura toda da área útil. Até 4 itens: uma coluna larga e
+     letra grande; acima disso, duas colunas que preenchem a tela.        */
+  .lista{margin-top:2.2rem;display:grid;gap:1.4rem 2rem;width:78rem;
+    grid-template-columns:minmax(0, 1fr)}
+  .lista.c2{width:89rem;grid-template-columns:repeat(2, minmax(0, 1fr))}
+  .item{display:grid;grid-template-columns:5rem minmax(0, 1fr) auto;align-items:center;
+    gap:1.6rem;background:var(--superficie);border-left:.4rem solid var(--vermelho);
+    padding:1.5rem 2rem}
+  .item .em{font-size:3.4rem;line-height:1;text-align:center;font-family:var(--emoji)}
+  .item .quem{font:400 3rem/1.08 Anton,'Arial Narrow',sans-serif;text-transform:uppercase;
     overflow-wrap:anywhere}
-  .item .oque{font:500 1.4rem/1.25 'Work Sans',sans-serif;color:var(--apagado);
-    margin-top:.35rem;overflow-wrap:anywhere}
-  .item .lado{display:flex;flex-direction:column;align-items:flex-end;gap:.5rem;flex:none}
-  .item .aulas{font:400 2rem/1 Anton,'Arial Narrow',sans-serif;color:var(--amarelo);white-space:nowrap}
-  .item .aulas small{font:600 1rem 'Work Sans',sans-serif;letter-spacing:.16em;
-    color:var(--apagado);margin-left:.4rem}
-  .item .quando{font:600 1.05rem/1 'Work Sans',sans-serif;letter-spacing:.18em;
-    text-transform:uppercase;padding:.42rem .7rem;border:.1rem solid var(--linha);
+  .item .oque{font:500 1.7rem/1.25 'Work Sans',sans-serif;color:var(--apagado);
+    margin-top:.4rem;overflow-wrap:anywhere}
+  .item .lado{display:flex;flex-direction:column;align-items:flex-end;gap:.6rem;flex:none}
+  .item .aulas{font:400 2.8rem/1 Anton,'Arial Narrow',sans-serif;color:var(--amarelo);white-space:nowrap}
+  .item .aulas small{font:600 1.15rem 'Work Sans',sans-serif;letter-spacing:.16em;
+    color:var(--apagado);margin-left:.45rem}
+  .item .quando{font:600 1.2rem/1 'Work Sans',sans-serif;letter-spacing:.18em;
+    text-transform:uppercase;padding:.5rem .8rem;border:.1rem solid var(--linha);
     color:var(--apagado);white-space:nowrap}
   .item .quando.q-hoje{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
+  .lista.c2 .item .quem{font-size:2.6rem}
+  .lista.c2 .item .oque{font-size:1.5rem}
 
   /* ── aviso ──────────────────────────────────────────────────────────── */
   .aviso{max-width:84rem}
@@ -115,7 +120,7 @@
 
   .barra{position:absolute;left:0;right:0;bottom:0;height:.8rem;background:var(--superficie)}
   .barra i{display:block;height:100%;width:0;background:var(--vermelho)}
-  .pontos{position:absolute;right:var(--margem-x);bottom:1.8rem;display:flex;
+  .pontos{position:absolute;right:var(--margem-x);bottom:calc(.6rem + var(--seguro-y));display:flex;
     align-items:center;gap:.55rem;
     font:600 1.1rem 'Work Sans',sans-serif;letter-spacing:.18em;color:var(--apagado)}
   .pontos i{width:.65rem;height:.65rem;border-radius:50%;background:var(--linha)}
@@ -271,7 +276,7 @@
       var itens = s.itens;
       return '<div><div class="rotulo">Conquistas' + marcaPag(s) + '</div>'
         + '<div class="titulo menor">Mandaram bem</div>'
-        + '<div class="lista' + (itens.length > 3 ? ' c2' : '') + '">' + itens.map(function(c){
+        + '<div class="lista' + (itens.length > 4 ? ' c2' : '') + '">' + itens.map(function(c){
             c = c || {};
             var aulas = Number(c.aulas);
             var lado = '';
