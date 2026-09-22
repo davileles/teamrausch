@@ -18,6 +18,10 @@
  *   É o check-in que gera repasse, e é dele que o agradecimento fala.
  *   Mensalista não passa pelo portal; presença no totem é acompanhamento.
  *
+ * NA HORA, COM REDE DE SEGURANÇA À NOITE
+ *   `gatilhos-mensagens.js` chama `rodar()` assim que o ciclo do poller grava
+ *   check-in novo. A passada agendada abaixo continua e pega o que ficou.
+ *
  * UMA VEZ POR ALUNO POR MÊS
  *   Enviado fica anotado no mês. Check-in além da meta, ou grade trocada no
  *   meio do mês, não gera um segundo agradecimento.
@@ -189,7 +193,7 @@ async function avisarGrupo(saiu) {
  * @param {boolean} opcoes.avisar       `false` devolve o que sairia sem enviar nem anotar.
  * @param {boolean} opcoes.semearAgora  força a anotação inicial sem envio.
  */
-async function rodar(opcoes = {}) {
+async function rodarAgora(opcoes = {}) {
   const simulacao = opcoes.avisar === false;
   const hoje = frequencia.hojeLocal();
   const semear = !estado.semeadoEm || opcoes.semearAgora === true;
@@ -253,7 +257,7 @@ async function rodar(opcoes = {}) {
     await dormir(pausaMs());
   }
 
-  estado.ultimaData = hoje;
+  if (opcoes.marcarDia !== false) estado.ultimaData = hoje;
   gravar();
 
   if (falhas.length) log(`${falhas.length} não saiu/saíram:`,
@@ -262,6 +266,21 @@ async function rodar(opcoes = {}) {
   await avisarGrupo(saiu);
 
   return { enviados, falhas: falhas.length, pendentes, detalheFalhas: falhas };
+}
+
+/**
+ * Uma passada por vez. Agora há duas portas (gatilho da aula e passada da
+ * noite); se rodassem juntas, as duas veriam o mesmo aluno como pendente
+ * antes de qualquer uma anotar, e ele receberia a mensagem duas vezes.
+ *
+ * `opcoes.marcarDia: false` (usado pelo gatilho) não encerra o dia, para a
+ * passada da noite continuar como rede de segurança.
+ */
+let fila = Promise.resolve();
+function rodar(opcoes = {}) {
+  const vez = fila.then(() => rodarAgora(opcoes));
+  fila = vez.catch(() => {});
+  return vez;
 }
 
 /* ------------------------------ agendador -------------------------------- */

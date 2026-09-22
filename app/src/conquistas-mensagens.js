@@ -23,6 +23,10 @@
  *   de dados), sai só o mais alto. Três parabéns seguidos no mesmo minuto não
  *   parecem carinho, parecem defeito.
  *
+ * NA HORA, COM REDE DE SEGURANÇA À NOITE
+ *   `gatilhos-mensagens.js` chama `rodar()` assim que entra check-in ou
+ *   presença nova. A passada agendada abaixo continua e pega o que ficou.
+ *
  * UMA VEZ POR DIA, DE VERDADE
  *   A marca do dia fica no volume, como no aviso de aniversariantes: cada
  *   deploy do Railway reinicia o processo, e sem ela três deploys numa noite
@@ -142,7 +146,7 @@ async function avisarGrupo(saiu) {
   if (cfg().avisarGrupo === false || !saiu.length) return;
   const linhas = saiu.map((s) => `• ${s.nome} — ${s.emoji} ${s.conquista} (${s.aulas} aulas)`);
   const corpo = [
-    saiu.length === 1 ? '🏅 Conquista de hoje' : `🏅 Conquistas de hoje (${saiu.length})`,
+    saiu.length === 1 ? '🏅 Nova conquista' : `🏅 Novas conquistas (${saiu.length})`,
     '',
     ...linhas,
     '',
@@ -163,7 +167,7 @@ async function avisarGrupo(saiu) {
  * @param {boolean} opcoes.avisar  `false` devolve o que sairia sem enviar nada.
  * @param {boolean} opcoes.semearAgora  força a anotação inicial sem envio.
  */
-async function rodar(opcoes = {}) {
+async function rodarAgora(opcoes = {}) {
   const simulacao = opcoes.avisar === false;
 
   // O acumulado precisa estar em dia antes de comparar com os marcos; na
@@ -240,7 +244,7 @@ async function rodar(opcoes = {}) {
     await dormir(pausaMs());
   }
 
-  estado.ultimaData = frequencia.hojeLocal();
+  if (opcoes.marcarDia !== false) estado.ultimaData = frequencia.hojeLocal();
   gravar();
 
   if (falhas.length) log(`${falhas.length} não saiu/saíram:`,
@@ -249,6 +253,21 @@ async function rodar(opcoes = {}) {
   await avisarGrupo(saiu);
 
   return { enviados, falhas: falhas.length, pendentes, detalheFalhas: falhas };
+}
+
+/**
+ * Uma passada por vez. Agora há duas portas (gatilho da aula e passada da
+ * noite); se rodassem juntas, as duas veriam o mesmo aluno como pendente
+ * antes de qualquer uma anotar, e ele receberia a mensagem duas vezes.
+ *
+ * `opcoes.marcarDia: false` (usado pelo gatilho) não encerra o dia, para a
+ * passada da noite continuar como rede de segurança.
+ */
+let fila = Promise.resolve();
+function rodar(opcoes = {}) {
+  const vez = fila.then(() => rodarAgora(opcoes));
+  fila = vez.catch(() => {});
+  return vez;
 }
 
 /* ------------------------------ agendador -------------------------------- */

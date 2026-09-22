@@ -41,6 +41,7 @@ const path = require('path');
 const portal = require('./wellhub-portal');
 const config = require('./config');
 const checkins = require('./checkins-store');
+const gatilhos = require('./gatilhos-mensagens');
 const matriculas = require('./matriculas-store');
 const frequencia = require('./frequencia');
 const telefone = require('./telefone');
@@ -417,6 +418,8 @@ async function coletarValidados(rel, querAvisar = true) {
     const validados = await portal.listarValidados();
     rel.validados = validados.length;
     rel.registrados = checkins.registrarLote(validados, 'portal');
+    // Check-in novo pode ter fechado a meta do mês ou um marco de aulas.
+    if (rel.registrados.novos) gatilhos.aulaNova('wellhub');
     // Depois de gravar, nunca antes: o aviso fala de check-in que já existe no
     // histórico, e é a gravação que garante que ele não será avisado de novo.
     const baratos = await avisarProdutoBarato(rel.registrados.registros, querAvisar);

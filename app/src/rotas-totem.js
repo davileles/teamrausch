@@ -36,6 +36,7 @@ const crypto = require('crypto');
 const config = require('./config');
 const agenda = require('./agenda');
 const store = require('./agenda-store');
+const gatilhos = require('./gatilhos-mensagens');
 const matriculas = require('./matriculas-store');
 
 const rotas = express.Router();
@@ -303,6 +304,7 @@ rotas.post('/confirmar', comFreio(30), (req, res) => {
   const m = matriculas.porTelefone(telefone);
   console.log(`[totem] presença ${data} ${agora.hora} — ${aluno.nome || telefone}`
     + `${m ? '' : ' (sem matrícula)'}${r.repetida ? ' (repetida)' : ''}`);
+  if (!r.repetida) gatilhos.aulaNova('totem');
 
   res.json({
     ok: true,
@@ -372,6 +374,7 @@ rotas.post('/liberar', comFreio(8), (req, res) => {
   const professor = nomeDoAdmin(admin);
   console.log(`[totem] presença LIBERADA ${data} ${hora} — ${aluno.nome || telefone}`
     + ` por ${professor || admin}${r.repetida ? ' (repetida)' : ''}`);
+  if (!r.repetida) gatilhos.aulaNova('totem-liberado');
 
   res.json({
     ok: true,
