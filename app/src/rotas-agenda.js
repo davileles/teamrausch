@@ -176,8 +176,11 @@ function horariosDaSemana() {
  * estúdio sem nenhum horário cadastrado — aí não há o que escolher, e travar a
  * entrada de todo mundo seria pior do que deixar a grade para depois.
  */
-function precisaDeGrade(cadastrado, telefone) {
+function precisaDeGrade(cadastrado, telefone, experimental) {
   if (ehAdmin(telefone)) return false;
+  // Visitante em aula experimental (tablet da entrada): ainda não tem rotina,
+  // a grade só é pedida quando voltar como aluno.
+  if (experimental) return false;
   if (!horariosDaSemana().length) return false;
   if (primeiroAcesso(cadastrado)) return true;
   const m = matriculas.porTelefone(telefone);
@@ -296,6 +299,45 @@ function aplicarGradeNaMatricula(telefone, nome, aniversario, gradeEscolhida) {
   });
 }
 
+/**
+ * Aula experimental pelo tablet: a pessoa está visitando, sem horário fixo.
+ *
+ * Ficha que já tem grade é de aluno — não vira experimental por ter tocado no
+ * botão errado. Ficha sem grade recebe a marca; sem ficha, nasce uma marcada,
+ * sem grade, para o estúdio conferir. Quando ela voltar e escolher horários no
+ * primeiro login normal, `aplicarGradeNaMatricula` tira a marca.
+ */
+function aplicarExperimentalNaMatricula(telefone, nome, aniversario) {
+  const mesmoNome = (a, b) =>
+    String(a || '').trim().toLocaleLowerCase('pt-BR')
+    === String(b || '').trim().toLocaleLowerCase('pt-BR');
+
+  const m = matriculas.porTelefone(telefone)
+    || matriculas.listar().find((x) => !x.telefone && mesmoNome(x.nome, nome));
+
+  if (m) {
+    if ((m.grade || []).length) return { ok: true, ignorado: true };
+    const campos = { experimental: true };
+    if (!m.telefone) campos.telefone = telefone;
+    return matriculas.atualizar(m.id, campos);
+  }
+
+  const parecidas = matriculas.possiveisDuplicadas(nome);
+  return matriculas.criar({
+    nome,
+    telefone,
+    aniversario,
+    vinculo: 'mensalista',
+    experimental: true,
+    grade: [],
+    observacao: 'Aula experimental — cadastro feito no tablet da entrada. Conferir vínculo e cobrança.',
+    revisar: parecidas.length
+      ? [`Pode ser a mesma pessoa de ${parecidas.map((x) => x.nome).join(', ')}`
+        + ' — confira e mescle as fichas se for.']
+      : [],
+  });
+}
+
 /* ----------------------------- sessão ------------------------------------ */
 
 function identificar(req, _res, next) {
@@ -333,6 +375,7 @@ rotas.post('/auth/codigo', async (req, res) => {
   }
 
   const cadastrado = store.aluno(telefone);
+  const experimental = Boolean(req.body.experimental);
   if (!cadastrado && !c.acesso.cadastroAberto) {
     return res.status(403).json({ erro: 'Telefone não cadastrado. Fale com o estúdio.' });
   }
@@ -352,7 +395,7 @@ rotas.post('/auth/codigo', async (req, res) => {
       telefone: mostrarTelefone(telefone),
       precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
       precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
-      precisaDeGrade: precisaDeGrade(cadastrado, telefone),
+      precisaDeGrade: precisaDeGrade(cadastrado, telefone, experimental),
       gradeAtual: gradeGravada(telefone),
       nomeSugerido: nomeDoWellhub(telefone),
       horarios: horariosDaSemana(),
@@ -368,7 +411,7 @@ rotas.post('/auth/codigo', async (req, res) => {
       telefone: mostrarTelefone(telefone),
       precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
       precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
-      precisaDeGrade: precisaDeGrade(cadastrado, telefone),
+      precisaDeGrade: precisaDeGrade(cadastrado, telefone, experimental),
       gradeAtual: gradeGravada(telefone),
       nomeSugerido: nomeDoWellhub(telefone),
       horarios: horariosDaSemana(),
@@ -387,7 +430,7 @@ rotas.post('/auth/codigo', async (req, res) => {
     telefone: mostrarTelefone(telefone),
     precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
     precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
-    precisaDeGrade: precisaDeGrade(cadastrado, telefone),
+    precisaDeGrade: precisaDeGrade(cadastrado, telefone, experimental),
     gradeAtual: gradeGravada(telefone),
     nomeSugerido: nomeDoWellhub(telefone),
     horarios: horariosDaSemana(),
@@ -411,7 +454,7 @@ rotas.post('/auth/codigo', async (req, res) => {
  * e-mail que não sai nunca é motivo para barrar a entrada de quem já provou ser
  * dono do número.
  */
-function avisarPrimeiroAcesso(telefone, aluno, aniversarioGravado, horariosEscolhidos) {
+function avisarPrimeiroAcesso(telefone, aluno, aniversarioGravado, horariosEscolhidos, experimental) {
   const fuso = process.env.TZ_ESTUDIO || 'America/Sao_Paulo';
   const quem = aluno.nome || mostrarTelefone(telefone);
 
@@ -449,7 +492,9 @@ function avisarPrimeiroAcesso(telefone, aluno, aniversarioGravado, horariosEscol
   linhas.push(`Quando: ${new Date().toLocaleString('pt-BR', { timeZone: fuso })}`);
 
   Promise.resolve()
-    .then(() => poller.enviarEmail(`🆕 Primeiro acesso no app: ${quem}`, linhas.join('\n')))
+    .then(() => poller.enviarEmail(
+      experimental ? `🆕 Aula experimental: ${quem}` : `🆕 Primeiro acesso no app: ${quem}`,
+      linhas.join('\n')))
     .catch((e) => console.warn(`[acesso] aviso de primeiro acesso não saiu: ${e.message}`));
 }
 
@@ -516,8 +561,9 @@ rotas.post('/auth/entrar', (req, res) => {
   // estúdio teria de descobrir o horário dela por WhatsApp, um a um. Quem já
   // tem grade também passa por aqui na primeira entrada: a tela vem marcada e
   // o que volta é a confirmação do dono do número, não um palpite da planilha.
+  const experimental = Boolean(req.body.experimental);
   let gradeEscolhida = null;
-  if (precisaDeGrade(existente, telefone)) {
+  if (precisaDeGrade(existente, telefone, experimental)) {
     const conferida = validarGrade(req.body.grade);
     if (!conferida.ok) return res.status(400).json({ erro: conferida.motivo });
     gradeEscolhida = conferida.grade;
@@ -553,8 +599,17 @@ rotas.post('/auth/entrar', (req, res) => {
     if (!r.ok) console.warn(`[acesso] grade de ${telefone} não foi gravada: ${r.motivo}`);
   }
 
+  let marcouExperimental = false;
+  if (experimental) {
+    const r = aplicarExperimentalNaMatricula(telefone, aluno.nome, aniversario);
+    if (!r.ok) console.warn(`[acesso] aula experimental de ${telefone} não foi gravada: ${r.motivo}`);
+    else marcouExperimental = !r.ignorado;
+  }
+
   // Depois da grade: assim o aviso já sai com a matrícula no estado final.
-  if (primeiraVez) avisarPrimeiroAcesso(telefone, aluno, aniversario, gradeEscolhida);
+  if (primeiraVez || marcouExperimental) {
+    avisarPrimeiroAcesso(telefone, aluno, aniversario, gradeEscolhida, marcouExperimental);
+  }
 
   const token = store.abrirSessao(telefone, Number(c.acesso.diasDeSessao || 7));
   res.json({

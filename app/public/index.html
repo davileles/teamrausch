@@ -815,8 +815,12 @@
   <script>
     // Tablet da entrada: o título diz cadastro, não "reserve seu horário".
     if (new URLSearchParams(location.search).has('totem')){
-      document.getElementById('marca-login').innerHTML =
-        'Criar<br>seu <span style="color:var(--vermelho)">cadastro</span>';
+      const exp = new URLSearchParams(location.search).has('experimental');
+      document.getElementById('marca-login').innerHTML = exp
+        ? 'Aula<br><span style="color:var(--vermelho)">experimental</span>'
+        : 'Criar<br>seu <span style="color:var(--vermelho)">cadastro</span>';
+      if (exp) document.getElementById('sub-login').textContent =
+        'Bem-vindo ao estúdio! Só precisamos do seu telefone, nome e aniversário.';
     }
   </script>
 
@@ -907,6 +911,9 @@
    é encerrada e o tablet volta para a tela de entrada. Sem isso o aparelho do
    estúdio ficaria logado na conta do último aluno que se cadastrou. */
 const MODO_TOTEM = new URLSearchParams(location.search).has('totem');
+/* Visitante em aula experimental (botão do tablet): mesmo cadastro, sem a grade
+   da semana. O servidor marca a ficha como experimental. */
+const MODO_EXPERIMENTAL = MODO_TOTEM && new URLSearchParams(location.search).has('experimental');
 
 const cofre = {
   _m:null,
@@ -955,7 +962,7 @@ document.getElementById('btn-codigo').addEventListener('click', async ()=>{
   const b = document.getElementById('btn-codigo');
   b.disabled = true; b.textContent = 'Aguarde…';
   try{
-    const r = await api('/auth/codigo', {method:'POST', body:JSON.stringify({telefone:inTelefone.value})});
+    const r = await api('/auth/codigo', {method:'POST', body:JSON.stringify({telefone:inTelefone.value, experimental:MODO_EXPERIMENTAL})});
 
     // Canal aberto e cadastro completo: não há código, senha, nome nem
     // aniversário a informar. A segunda tela só teria um botão, então entra.
@@ -1103,6 +1110,7 @@ async function entrar(botao){
       nome: document.getElementById('in-nome').value,
       aniversario: document.getElementById('in-aniversario').value,
       grade: gradeDoLogin(),
+      experimental: MODO_EXPERIMENTAL,
     })});
     cofre.set(r.token);
 
@@ -1111,7 +1119,7 @@ async function entrar(botao){
     if (MODO_TOTEM){
       try{ await api('/auth/sair', {method:'POST'}); }catch{}
       cofre.set(null);
-      location.replace('/totem.html?cadastro=ok');
+      location.replace('/totem.html?cadastro=' + (MODO_EXPERIMENTAL ? 'experimental' : 'ok'));
       return true;
     }
 

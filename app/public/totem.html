@@ -194,9 +194,22 @@
       <div class="opcoes">
         <button class="principal" data-ir="presenca">Confirmar presença
           <small>Já tem cadastro e aula marcada para hoje</small></button>
-        <button id="btn-cadastro">Criar cadastro
+        <button data-ir="cadastro">Criar cadastro
           <small>Primeiro acesso</small></button>
       </div>
+    </section>
+
+    <!-- ------------------ criar cadastro: qual caso ------------------ -->
+    <section class="tela" id="tela-cadastro">
+      <div class="rotulo">Criar cadastro</div>
+      <div class="chamada">Você é…</div>
+      <div class="opcoes">
+        <button class="principal" id="btn-experimental">Aula experimental
+          <small>Estou visitando o estúdio</small></button>
+        <button id="btn-horarios">Cadastrar horários
+          <small>Já sou aluno</small></button>
+      </div>
+      <button class="voltar-totem" data-ir="menu">Voltar</button>
     </section>
 
     <!-- ------------------- confirmar presença ----------------------- -->
@@ -245,8 +258,9 @@
 <script>
 /* ── tablet da entrada ──────────────────────────────────────────────────
    Duas coisas: confirmar presença pelos 4 últimos dígitos do telefone e abrir
-   cadastro. O cadastro não mora aqui — o botão abre a tela de entrada do app
-   em modo totem, que é o mesmo fluxo do site.
+   cadastro. O cadastro não mora aqui — o botão pergunta se é aula experimental
+   ou aluno cadastrando horários e abre a tela de entrada do app em modo totem
+   (`/?totem=1`, com `&experimental=1` no primeiro caso).
 
    O check-in do Wellhub saiu desta tela: quem tem Wellhub confirma no app do
    próprio Wellhub, e o check-in chega ao sistema pelo webhook do portal. A
@@ -434,13 +448,24 @@ document.getElementById('teclas-final').addEventListener('click', e=>{
    horários da semana. Em vez de reescrever isso aqui e ter duas versões para
    manter, o tablet abre a própria tela de entrada do app em modo totem: lá o
    token não fica guardado e, terminado o cadastro, a pessoa volta para cá. */
-document.getElementById('btn-cadastro').addEventListener('click', ()=>{
+/* Dois casos no mesmo fluxo:
+   - Aula experimental: quem está visitando. Pede telefone, nome e aniversário,
+     sem grade da semana; a ficha nasce marcada como experimental.
+   - Cadastrar horários: quem já é aluno. Fluxo completo, com a grade. */
+document.getElementById('btn-horarios').addEventListener('click', ()=>{
   location.href = '/?totem=1';
 });
+document.getElementById('btn-experimental').addEventListener('click', ()=>{
+  location.href = '/?totem=1&experimental=1';
+});
 
-if (new URLSearchParams(location.search).has('cadastro')){
-  history.replaceState(null, '', '/totem.html');
-  responder(true, 'Cadastro criado', 'Pronto! Agora é só entrar pelo seu celular.', 6);
+{
+  const cad = new URLSearchParams(location.search).get('cadastro');
+  if (cad){
+    history.replaceState(null, '', '/totem.html');
+    if (cad === 'experimental') responder(true, 'Boa aula!', 'Cadastro criado. Aproveite sua aula experimental.', 6);
+    else responder(true, 'Cadastro criado', 'Pronto! Agora é só entrar pelo seu celular.', 6);
+  }
 }
 
 /* Teclado físico ou leitor de código de barras: os dígitos caem no visor da
