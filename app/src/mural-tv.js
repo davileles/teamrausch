@@ -57,13 +57,54 @@ function nomeCurto(nome) {
   return `${primeiro} ${ultimo.charAt(0).toLocaleUpperCase('pt-BR')}.`;
 }
 
+/** "ana paula souza" → "Ana Souza" — usado quando duas pessoas dariam "Ana S.". */
+function nomeMedio(nome) {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  const cap = (s) => s.charAt(0).toLocaleUpperCase('pt-BR') + s.slice(1).toLocaleLowerCase('pt-BR');
+  if (partes.length < 2) return cap(partes[0] || '');
+  return `${cap(partes[0])} ${cap(partes[partes.length - 1])}`;
+}
+
+function chaveNome(nome) {
+  return String(nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Troca o nome completo pelo que vai para a tela, sem dois iguais.
+ *
+ * Mesmo nome completo duas vezes é a mesma pessoa com duas matrículas: sai
+ * uma linha só (a primeira da lista, que já vem ordenada pelo mais relevante).
+ * Nomes diferentes que viram o mesmo "Ana S." ganham o sobrenome inteiro —
+ * duas linhas idênticas na TV parecem defeito.
+ */
+function semRepetidos(lista) {
+  const vistos = new Set();
+  const unicos = lista.filter((x) => {
+    const k = chaveNome(x.nomeCompleto);
+    if (!k || vistos.has(k)) return false;
+    vistos.add(k);
+    return true;
+  });
+  const conta = new Map();
+  for (const x of unicos) {
+    const curto = nomeCurto(x.nomeCompleto);
+    conta.set(curto, (conta.get(curto) || 0) + 1);
+  }
+  return unicos.map((x) => {
+    const curto = nomeCurto(x.nomeCompleto);
+    const { nomeCompleto, ...resto } = x;
+    return { ...resto, nome: conta.get(curto) > 1 ? nomeMedio(nomeCompleto) : curto };
+  });
+}
+
 /* ------------------------------ aniversário ------------------------------ */
 
 function aniversariantesDeHoje(hoje) {
   try {
     const { alunos } = aniversariantes.listar(hoje);
-    return (alunos || [])
-      .map((a) => nomeCurto(a.nome))
+    return semRepetidos((alunos || []).map((a) => ({ nomeCompleto: a.nome })))
+      .map((x) => x.nome)
       .filter(Boolean)
       .sort((x, y) => x.localeCompare(y, 'pt-BR'));
   } catch (e) {
@@ -112,17 +153,17 @@ function conquistasRecentes(hoje) {
     const batidos = marcos.filter((m) => m.aulas > inicioOntem && m.aulas <= total);
     if (!batidos.length) continue;
     const m = batidos[batidos.length - 1];
-    const nome = nomeCurto(ficha.nome);
-    if (!nome) continue;
+    if (!String(ficha.nome || '').trim()) continue;
 
     saida.push({
-      nome, emoji: m.emoji, titulo: m.titulo, aulas: m.aulas,
+      nomeCompleto: ficha.nome, emoji: m.emoji, titulo: m.titulo, aulas: m.aulas,
       quando: m.aulas <= fimOntem ? 'ontem' : 'hoje',
     });
   }
 
   // Hoje primeiro, depois do marco maior para o menor.
-  return saida.sort((a, b) => (a.quando === b.quando ? b.aulas - a.aulas : (a.quando === 'hoje' ? -1 : 1)));
+  saida.sort((a, b) => (a.quando === b.quando ? b.aulas - a.aulas : (a.quando === 'hoje' ? -1 : 1)));
+  return semRepetidos(saida);
 }
 
 /* --------------------------------- avisos -------------------------------- */
@@ -150,8 +191,9 @@ function avisosAtivos(hoje) {
 
 /* ---------------------------------- feed --------------------------------- */
 
-const POR_SLIDE_CONQUISTAS = 5;
-const POR_SLIDE_ANIVERSARIO = 4;
+/** Duas colunas de 5: é o que cabe na tela sem rolar nem encolher a letra. */
+const POR_SLIDE_CONQUISTAS = 10;
+const POR_SLIDE_ANIVERSARIO = 6;
 
 function montar() {
   const c = config.ler();
