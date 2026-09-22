@@ -3,105 +3,156 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>Mural · Team Rausch</title>
 <link rel="icon" type="image/png" href="/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   /* ── Team Rausch · mural da TV ──────────────────────────────────────────
-     Mesma paleta do totem no tema escuro. Tudo em rem, e 1rem = o MENOR
-     entre 1% da largura e 1% da altura de uma tela 16:9. Assim o conteúdo
-     cabe inteiro em qualquer proporção: na TV (16:9) fica do tamanho
-     planejado; numa janela larga e baixa encolhe junto com a altura, em vez
-     de estourar para fora da tela como acontecia com vw.                  */
+     Regras de ouro desta versão:
+     1. NADA é cortado. Nenhum overflow escondido, nenhum "…". O conteúdo é
+        paginado (vira mais de um slide) e, por garantia, medido e escalado
+        para caber exatamente na área útil.
+     2. A tela é bem aproveitada. Quando sobra espaço, o conteúdo CRESCE até
+        1,35× em vez de ficar uma ilha no meio do preto.
+     3. Legível de longe. Nada abaixo de ~1,4rem (~27px em 1080p).
+     4. Área segura contra overscan: muitas TVs cortam 3–5% das bordas.
+     ──────────────────────────────────────────────────────────────────── */
+
+  /* 1rem = o MENOR entre 1% da largura e 1% da altura de uma tela 16:9.
+     Em 1920×1080, 1rem ≈ 19,2px. */
   html{font-size:min(1vw, 1.7778vh)}
-  :root{--preto:#08090B;--superficie:#15181C;--linha:#2A2F36;--texto:#F5F5F3;
-    --apagado:#A6ABB2;--vermelho:#E01F26;--amarelo:#F5C518}
+
+  :root{
+    --preto:#08090B; --superficie:#15181C; --linha:#2A2F36; --texto:#F5F5F3;
+    --apagado:#B9BEC5;          /* mais claro que antes: 1rem a 5m de distância */
+    --vermelho:#E01F26; --amarelo:#F5C518;
+    --topo:7rem;                /* altura do cabeçalho */
+    --margem-x:5.5rem;          /* área segura horizontal (~5,5% da largura) */
+    --margem-y:3rem;
+    --emoji:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji','Android Emoji',sans-serif;
+  }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%;overflow:hidden;background:var(--preto);color:var(--texto);
-    font-family:'Work Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased;cursor:none}
+    font-family:'Work Sans',system-ui,-apple-system,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;cursor:none}
 
-  .topo{position:fixed;top:0;left:0;right:0;height:6.4rem;display:flex;align-items:center;
-    justify-content:space-between;padding:0 4rem;border-bottom:.15rem solid var(--linha)}
-  .topo img{height:3.8rem;width:auto}
-  .relogio{text-align:right}
-  .relogio b{display:block;font:400 2.6rem/1 Anton,sans-serif;letter-spacing:.04em}
-  .relogio span{font:500 1rem 'Work Sans',sans-serif;color:var(--apagado)}
+  /* Deriva lentíssima (±0,4rem em 15 min) para não marcar o painel da TV
+     com o logo e o relógio sempre no mesmo pixel. */
+  #tela{position:fixed;inset:0;animation:deriva 900s ease-in-out infinite alternate}
+  @keyframes deriva{from{transform:translate(-.4rem,-.4rem)}to{transform:translate(.4rem,.4rem)}}
 
-  .palco{position:fixed;top:6.4rem;bottom:.7rem;left:0;right:0;overflow:hidden}
-  .slide{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;
-    padding:2.4rem 5rem 3.4rem;opacity:0;transition:opacity .8s ease;overflow:hidden}
+  .topo{position:absolute;top:0;left:0;right:0;height:var(--topo);display:flex;
+    align-items:center;justify-content:space-between;
+    padding:0 var(--margem-x);border-bottom:.15rem solid var(--linha)}
+  .topo img{height:4rem;width:auto}
+  .topo .marca{font:400 2.6rem/1 Anton,'Arial Narrow',sans-serif;letter-spacing:.06em;
+    text-transform:uppercase;display:none}
+  .relogio{text-align:right;line-height:1}
+  .relogio b{display:block;font:400 2.8rem/1 Anton,'Arial Narrow',sans-serif;letter-spacing:.04em}
+  .relogio span{font:500 1.3rem/1.2 'Work Sans',sans-serif;color:var(--apagado)}
+
+  .palco{position:absolute;top:var(--topo);bottom:1.6rem;left:0;right:0;overflow:hidden}
+  .slide{position:absolute;inset:0;padding:var(--margem-y) var(--margem-x);
+    display:flex;opacity:0;transition:opacity .7s ease}
   .slide.ativo{opacity:1}
+  /* .area é exatamente a caixa útil; .conteudo é medido e escalado dentro dela */
+  .area{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+  .conteudo{width:fit-content;max-width:100%;transform-origin:center center;
+    will-change:transform}
 
-  .rotulo{font:600 1.1rem 'Work Sans',sans-serif;letter-spacing:.28em;text-transform:uppercase;
-    color:var(--amarelo);margin-bottom:1rem;display:flex;align-items:center;gap:1rem}
-  .rotulo::before{content:'';width:2.6rem;height:.3rem;background:var(--vermelho)}
-  .titulo{font:400 4.6rem/1 Anton,sans-serif;letter-spacing:.01em;text-transform:uppercase}
-  .titulo.menor{font-size:3.4rem}
+  .rotulo{font:600 1.5rem/1 'Work Sans',sans-serif;letter-spacing:.26em;text-transform:uppercase;
+    color:var(--amarelo);margin-bottom:1.2rem;display:flex;align-items:center;gap:1.1rem}
+  .rotulo::before{content:'';width:2.8rem;height:.32rem;background:var(--vermelho);flex:none}
+  .rotulo .pag{color:var(--apagado);letter-spacing:.14em}
+  .titulo{font:400 4.8rem/1 Anton,'Arial Narrow',sans-serif;letter-spacing:.01em;
+    text-transform:uppercase;overflow-wrap:anywhere}
+  .titulo.menor{font-size:3.6rem}
 
-  /* aniversário */
+  /* ── aniversariantes ────────────────────────────────────────────────── */
   .aniv{display:flex;align-items:center;gap:4rem}
-  .aniv .bolo{font-size:9rem;line-height:1}
-  .aniv .nomes{margin-top:1.4rem;display:grid;gap:.4rem 3rem}
-  .aniv .nomes div{font:400 3.6rem/1.05 Anton,sans-serif;color:var(--amarelo);text-transform:uppercase;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .aniv .nomes.muitos{grid-template-columns:repeat(2, minmax(0, 1fr))}
-  .aniv .nomes.muitos div{font-size:2.6rem}
-  .aniv p{margin-top:2rem;font:500 1.3rem 'Work Sans',sans-serif;color:var(--apagado)}
+  .aniv .bolo{font-size:9rem;line-height:1;font-family:var(--emoji);flex:none}
+  .aniv .nomes{margin-top:1.6rem;display:grid;gap:.6rem 3.5rem}
+  .aniv .nomes div{font:400 3.8rem/1.08 Anton,'Arial Narrow',sans-serif;color:var(--amarelo);
+    text-transform:uppercase;overflow-wrap:anywhere}   /* quebra, nunca corta */
+  .aniv .nomes.c2{grid-template-columns:repeat(2, minmax(0, 34rem))}
+  .aniv .nomes.c2 div{font-size:3rem}
+  .aniv p{margin-top:2.2rem;font:500 1.6rem/1.3 'Work Sans',sans-serif;color:var(--apagado)}
 
-  /* conquistas — duas colunas quando passa de 4, para não descer além da tela */
-  .lista{margin-top:1.8rem;display:grid;grid-template-columns:minmax(0, 60rem);gap:1rem 1.6rem}
-  .lista.duas{grid-template-columns:repeat(2, minmax(0, 1fr))}
-  .item{display:grid;grid-template-columns:3.4rem minmax(0, 1fr) auto;align-items:center;gap:1.2rem;
-    background:var(--superficie);border-left:.3rem solid var(--vermelho);padding:.9rem 1.4rem}
-  .item .em{font-size:2.3rem;text-align:center;line-height:1}
-  .item .quem{font:400 1.9rem/1.05 Anton,sans-serif;text-transform:uppercase;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .item .oque{font:500 1rem 'Work Sans',sans-serif;color:var(--apagado);margin-top:.3rem;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .item .lado{display:flex;flex-direction:column;align-items:flex-end;gap:.4rem}
-  .item .aulas{font:400 1.8rem/1 Anton,sans-serif;color:var(--amarelo);white-space:nowrap}
-  .item .aulas small{font:600 .7rem 'Work Sans',sans-serif;letter-spacing:.18em;color:var(--apagado);margin-left:.3rem}
-  .item .quando{font:600 .7rem 'Work Sans',sans-serif;letter-spacing:.2em;text-transform:uppercase;
-    padding:.3rem .6rem;border:1px solid var(--linha);color:var(--apagado)}
-  .item .quando.hoje{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
+  /* ── conquistas ─────────────────────────────────────────────────────── */
+  .lista{margin-top:2rem;display:grid;gap:1.2rem 1.8rem;
+    grid-template-columns:minmax(0, 58rem)}
+  .lista.c2{grid-template-columns:repeat(2, minmax(0, 41rem))}
+  .item{display:grid;grid-template-columns:4rem minmax(0, 1fr) auto;align-items:center;
+    gap:1.4rem;background:var(--superficie);border-left:.34rem solid var(--vermelho);
+    padding:1.1rem 1.5rem}
+  .item .em{font-size:2.6rem;line-height:1;text-align:center;font-family:var(--emoji)}
+  .item .quem{font:400 2.1rem/1.1 Anton,'Arial Narrow',sans-serif;text-transform:uppercase;
+    overflow-wrap:anywhere}
+  .item .oque{font:500 1.4rem/1.25 'Work Sans',sans-serif;color:var(--apagado);
+    margin-top:.35rem;overflow-wrap:anywhere}
+  .item .lado{display:flex;flex-direction:column;align-items:flex-end;gap:.5rem;flex:none}
+  .item .aulas{font:400 2rem/1 Anton,'Arial Narrow',sans-serif;color:var(--amarelo);white-space:nowrap}
+  .item .aulas small{font:600 1rem 'Work Sans',sans-serif;letter-spacing:.16em;
+    color:var(--apagado);margin-left:.4rem}
+  .item .quando{font:600 1.05rem/1 'Work Sans',sans-serif;letter-spacing:.18em;
+    text-transform:uppercase;padding:.42rem .7rem;border:.1rem solid var(--linha);
+    color:var(--apagado);white-space:nowrap}
+  .item .quando.q-hoje{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
 
-  /* aviso */
-  .aviso .texto{margin-top:2rem;font:500 2.8rem/1.3 'Work Sans',sans-serif;max-width:80rem;white-space:pre-line}
-  .aviso .texto.longo{font-size:2rem}
+  /* ── aviso ──────────────────────────────────────────────────────────── */
+  .aviso{max-width:84rem}
+  .aviso .texto{margin-top:1.8rem;font:500 3.2rem/1.32 'Work Sans',sans-serif;
+    white-space:pre-line;overflow-wrap:anywhere}
 
-  /* sem nada para mostrar */
+  /* ── sem nada para mostrar ──────────────────────────────────────────── */
   .vazio{align-items:center;text-align:center}
-  .vazio img{height:14rem;width:auto;margin-bottom:2.6rem}
-  .vazio .titulo{font-size:4rem}
-  .vazio p{margin-top:1.2rem;font:500 1.3rem 'Work Sans',sans-serif;color:var(--apagado)}
+  .vazio img{height:15rem;width:auto;margin-bottom:2.8rem}
+  .vazio .titulo{font-size:4.4rem}
+  .vazio p{margin-top:1.4rem;font:500 1.6rem 'Work Sans',sans-serif;color:var(--apagado)}
 
-  .barra{position:fixed;left:0;right:0;bottom:0;height:.7rem;background:var(--superficie)}
+  .barra{position:absolute;left:0;right:0;bottom:0;height:.8rem;background:var(--superficie)}
   .barra i{display:block;height:100%;width:0;background:var(--vermelho)}
-  .pontos{position:fixed;right:4rem;bottom:1.5rem;display:flex;gap:.5rem}
-  .pontos i{width:.6rem;height:.6rem;border-radius:50%;background:var(--linha)}
+  .pontos{position:absolute;right:var(--margem-x);bottom:1.8rem;display:flex;
+    align-items:center;gap:.55rem;
+    font:600 1.1rem 'Work Sans',sans-serif;letter-spacing:.18em;color:var(--apagado)}
+  .pontos i{width:.65rem;height:.65rem;border-radius:50%;background:var(--linha)}
   .pontos i.ativo{background:var(--amarelo)}
+
+  @media (prefers-reduced-motion: reduce){
+    #tela{animation:none}
+    .slide{transition:none}
+  }
 </style>
 </head>
 <body>
+<div id="tela">
   <header class="topo">
-    <img src="/logo.png" alt="Team Rausch Studio">
+    <img src="/logo.png" alt="Team Rausch Studio" id="logo">
+    <div class="marca" id="marca">Team Rausch</div>
     <div class="relogio"><b id="hora">--:--</b><span id="data"></span></div>
   </header>
   <main class="palco" id="palco"></main>
   <div class="pontos" id="pontos"></div>
   <div class="barra"><i id="progresso"></i></div>
+</div>
 
 <script>
 /* ── mural da TV ─────────────────────────────────────────────────────────
-   Busca /tv-api/feed, gira os slides e rebusca de tempos em tempos. Também é
-   o receptor do Chromecast: aberto dentro do Chromecast (user agent "CrKey"),
-   carrega o SDK do Cast e desliga o tempo de ociosidade — sem isso o aparelho
-   fecha o app depois de alguns minutos sem vídeo tocando.                  */
+   Busca /tv-api/feed, pagina o conteúdo, gira os slides e rebusca de tempos
+   em tempos. Também é o receptor do Chromecast.
+   Teste sem API: abra a página com ?demo=1 (dados normais) ou ?demo=2
+   (dados extremos: nomes longos, 14 conquistas, aviso gigante).           */
 (function(){
-  var FEED_A_CADA = 5 * 60 * 1000;       // avisos e conquistas novos em até 5 min
-  var RECARREGAR_A_CADA = 6 * 3600 * 1000; // pega versão nova da página sem ninguém mexer
+  var FEED_A_CADA = 5 * 60 * 1000;
+  var RECARREGAR_A_CADA = 6 * 3600 * 1000;
   var NO_CHROMECAST = /CrKey/i.test(navigator.userAgent);
+
+  var NOMES_POR_SLIDE = 10;   // acima disso, vira "Aniversariantes 1/2"
+  var ITENS_POR_SLIDE = 6;    // acima disso, vira "Conquistas 1/3"
+  var ESCALA_MIN = 0.55, ESCALA_MAX = 1.35;
 
   if (NO_CHROMECAST) {
     var s = document.createElement('script');
@@ -119,10 +170,35 @@
   var pontos = document.getElementById('pontos');
   var barra = document.getElementById('progresso');
   var feed = { slides: [], segundosPorSlide: 12 };
-  var indice = -1, timer = null;
+  var paginas = [];
+  var indice = -1, timer = null, atual = null;
+
+  /* logo que não carrega não pode deixar o cabeçalho vazio */
+  var logo = document.getElementById('logo');
+  function semLogo(){ logo.style.display = 'none';
+    document.getElementById('marca').style.display = 'block'; }
+  logo.onerror = semLogo;
+  if (logo.complete && !logo.naturalWidth) semLogo();   // já falhou antes deste script
 
   function esc(t){ return String(t == null ? '' : t).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  function arr(x){ return Array.isArray(x) ? x.filter(function(v){ return v != null && v !== ''; }) : []; }
+
+  /* divide em páginas equilibradas: 14 itens com teto 6 viram 5+5+4,
+     nunca 6+6+2 (uma página quase vazia fica feia na TV) */
+  function pedacos(a, teto){
+    var paginas = Math.max(1, Math.ceil(a.length / teto));
+    var porPagina = Math.ceil(a.length / paginas);
+    var r = [];
+    for (var i = 0; i < a.length; i += porPagina) r.push(a.slice(i, i + porPagina));
+    return r;
+  }
+
+  function chave(t){ return String(t == null ? '' : t).toLowerCase()
+    .normalize ? String(t == null ? '' : t).toLowerCase().normalize('NFD')
+      .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    : String(t == null ? '' : t).toLowerCase().replace(/[^a-z0-9]+/g, '-'); }
 
   function relogio(){
     var agora = new Date();
@@ -132,89 +208,210 @@
     document.getElementById('data').textContent = d.charAt(0).toUpperCase() + d.slice(1);
   }
 
+  /* ── paginação: nenhum slide recebe mais conteúdo do que cabe bem ───── */
+  function paginar(brutos){
+    var saida = [];
+    arr(brutos).forEach(function(s){
+      if (!s || !s.tipo) return;
+      if (s.tipo === 'aniversario') {
+        var nomes = arr(s.nomes);
+        if (!nomes.length) return;
+        var partes = pedacos(nomes, NOMES_POR_SLIDE);
+        partes.forEach(function(p, i){
+          saida.push({ tipo:'aniversario', nomes:p, pag:i + 1, de:partes.length });
+        });
+      } else if (s.tipo === 'conquistas') {
+        var itens = arr(s.itens);
+        if (!itens.length) return;
+        var blocos = pedacos(itens, ITENS_POR_SLIDE);
+        blocos.forEach(function(p, i){
+          saida.push({ tipo:'conquistas', itens:p, pag:i + 1, de:blocos.length });
+        });
+      } else if (s.tipo === 'aviso') {
+        if (!String(s.texto || '').trim()) return;
+        saida.push(s);
+      } else {
+        saida.push(s);
+      }
+    });
+    return saida.length ? saida : [{ tipo:'vazio' }];
+  }
+
+  function marcaPag(s){
+    return (s.de > 1) ? '<span class="pag">' + s.pag + '/' + s.de + '</span>' : '';
+  }
+
   function htmlDo(s){
     if (s.tipo === 'aniversario') {
-      var um = s.nomes.length === 1;
+      var n = s.nomes.length;
+      var titulo = (n === 1 && s.de === 1) ? 'Aniversariante do dia' : 'Aniversariantes do dia';
       return '<div class="aniv"><div class="bolo">🎂</div><div>'
-        + '<div class="rotulo">' + (um ? 'Aniversariante do dia' : 'Aniversariantes do dia') + '</div>'
+        + '<div class="rotulo">' + titulo + marcaPag(s) + '</div>'
         + '<div class="titulo">Parabéns!</div>'
-        + '<div class="nomes' + (s.nomes.length > 3 ? ' muitos' : '') + '">'
-        + s.nomes.map(function(n){ return '<div>' + esc(n) + '</div>'; }).join('') + '</div>'
+        + '<div class="nomes' + (n > 4 ? ' c2' : '') + '">'
+        + s.nomes.map(function(x){ return '<div>' + esc(x) + '</div>'; }).join('') + '</div>'
         + '<p>Cruzou no estúdio hoje? Não esquece dos parabéns.</p>'
         + '</div></div>';
     }
+
     if (s.tipo === 'conquistas') {
-      return '<div class="rotulo">Conquistas</div><div class="titulo menor">Mandaram bem</div>'
-        + '<div class="lista' + (s.itens.length > 4 ? ' duas' : '') + '">' + s.itens.map(function(c){
-          return '<div class="item"><div class="em">' + esc(c.emoji) + '</div>'
-            + '<div><div class="quem">' + esc(c.nome) + '</div><div class="oque">' + esc(c.titulo) + '</div></div>'
-            + '<div class="lado"><div class="aulas">' + esc(c.aulas) + '<small>' + (c.aulas === 1 ? 'AULA' : 'AULAS') + '</small></div>'
-            + '<div class="quando ' + esc(c.quando) + '">' + esc(c.quando) + '</div></div></div>';
-        }).join('') + '</div>';
+      var itens = s.itens;
+      return '<div><div class="rotulo">Conquistas' + marcaPag(s) + '</div>'
+        + '<div class="titulo menor">Mandaram bem</div>'
+        + '<div class="lista' + (itens.length > 3 ? ' c2' : '') + '">' + itens.map(function(c){
+            c = c || {};
+            var aulas = Number(c.aulas);
+            var lado = '';
+            if (isFinite(aulas) && aulas > 0) {
+              lado += '<div class="aulas">' + aulas
+                + '<small>' + (aulas === 1 ? 'AULA' : 'AULAS') + '</small></div>';
+            }
+            if (String(c.quando || '').trim()) {
+              lado += '<div class="quando q-' + chave(c.quando) + '">' + esc(c.quando) + '</div>';
+            }
+            return '<div class="item">'
+              + '<div class="em">' + esc(c.emoji || '🏅') + '</div>'
+              + '<div><div class="quem">' + esc(c.nome || '—') + '</div>'
+              + (String(c.titulo || '').trim() ? '<div class="oque">' + esc(c.titulo) + '</div>' : '')
+              + '</div>'
+              + (lado ? '<div class="lado">' + lado + '</div>' : '<div></div>')
+              + '</div>';
+          }).join('') + '</div></div>';
     }
+
     if (s.tipo === 'aviso') {
-      return '<div class="aviso"><div class="rotulo">Aviso</div>'
-        + '<div class="texto' + (String(s.texto).length > 140 ? ' longo' : '') + '">' + esc(s.texto) + '</div></div>';
+      return '<div class="aviso"><div class="rotulo">' + esc(s.rotulo || 'Aviso') + '</div>'
+        + (String(s.titulo || '').trim() ? '<div class="titulo menor">' + esc(s.titulo) + '</div>' : '')
+        + '<div class="texto">' + esc(s.texto) + '</div></div>';
     }
-    return '<img src="/logo.png" alt=""><div class="titulo">Bom treino</div>'
-      + '<p>' + esc(feed.estudio || '') + '</p>';
+
+    return '<div><img src="/logo.png" alt=""><div class="titulo">Bom treino</div>'
+      + '<p>' + esc(feed.estudio || 'Team Rausch Studio') + '</p></div>';
   }
 
-  function lista(){
-    var s = (feed.ativo === false ? [] : feed.slides) || [];
-    return s.length ? s : [{ tipo: 'vazio' }];
+  /* ── auto-ajuste: mede e escala para caber e para preencher a tela ──── */
+  function ajustar(slide){
+    var area = slide.querySelector('.area');
+    var caixa = slide.querySelector('.conteudo');
+    if (!area || !caixa) return;
+    caixa.style.transform = 'none';
+    var lc = area.clientWidth, la = area.clientHeight;
+    var cc = caixa.offsetWidth, ca = caixa.offsetHeight;
+    if (!lc || !la || !cc || !ca) return;
+    var e = Math.min(lc / cc, la / ca);
+    e = Math.max(ESCALA_MIN, Math.min(e, ESCALA_MAX));
+    caixa.style.transform = 'scale(' + e.toFixed(4) + ')';
+  }
+
+  function reajustar(){ if (atual) ajustar(atual); }
+
+  /* avisos longos precisam de mais tempo no ar do que um slide de nomes */
+  function duracao(s){
+    var base = (Number(feed.segundosPorSlide) || 12) * 1000;
+    if (s.tipo === 'aviso') {
+      var palavras = String(s.texto || '').trim().split(/\s+/).length;
+      return Math.max(base, Math.min(45000, Math.round(palavras / 2.4 * 1000) + 5000));
+    }
+    return base;
   }
 
   function mostrar(i){
-    var slides = lista();
-    indice = i % slides.length;
-    var s = slides[indice];
+    var lista = paginas.length ? paginas : [{ tipo:'vazio' }];
+    indice = ((i % lista.length) + lista.length) % lista.length;
+    var s = lista[indice];
+    var ms = duracao(s);
 
-    var novo = document.createElement('section');
-    novo.className = 'slide' + (s.tipo === 'vazio' ? ' vazio' : '');
-    novo.innerHTML = htmlDo(s);
-    palco.appendChild(novo);
-    // força o navegador a desenhar antes de trocar a opacidade (senão não há transição)
-    void novo.offsetWidth;
-    novo.classList.add('ativo');
-    var antigos = palco.querySelectorAll('.slide:not(:last-child)');
-    for (var k = 0; k < antigos.length; k++) {
-      (function(el){ el.classList.remove('ativo'); setTimeout(function(){ el.remove(); }, 900); })(antigos[k]);
+    try {
+      var novo = document.createElement('section');
+      novo.className = 'slide' + (s.tipo === 'vazio' ? ' vazio' : '');
+      novo.innerHTML = '<div class="area"><div class="conteudo">' + htmlDo(s) + '</div></div>';
+      palco.appendChild(novo);
+      atual = novo;
+      ajustar(novo);
+      void novo.offsetWidth;          // desenha antes de trocar a opacidade
+      novo.classList.add('ativo');
+
+      var antigos = palco.querySelectorAll('.slide:not(:last-child)');
+      for (var k = 0; k < antigos.length; k++) {
+        (function(el){ el.classList.remove('ativo');
+          setTimeout(function(){ if (el.parentNode) el.remove(); }, 800); })(antigos[k]);
+      }
+
+      pontos.innerHTML = lista.length < 2 ? ''
+        : (lista.length <= 12
+            ? lista.map(function(_, j){ return '<i' + (j === indice ? ' class="ativo"' : '') + '></i>'; }).join('')
+            : (indice + 1) + ' / ' + lista.length);
+
+      barra.style.transition = 'none'; barra.style.width = '0';
+      void barra.offsetWidth;
+      if (lista.length > 1) { barra.style.transition = 'width ' + ms + 'ms linear'; barra.style.width = '100%'; }
+    } catch (e) {
+      // Um slide com dado estranho nunca pode travar a roda.
+      console.error('slide', e, s);
+    } finally {
+      clearTimeout(timer);
+      timer = setTimeout(function(){ mostrar(indice + 1); }, ms);
     }
-
-    pontos.innerHTML = slides.length > 1
-      ? slides.map(function(_, j){ return '<i' + (j === indice ? ' class="ativo"' : '') + '></i>'; }).join('')
-      : '';
-
-    var ms = (Number(feed.segundosPorSlide) || 12) * 1000;
-    barra.style.transition = 'none'; barra.style.width = '0';
-    void barra.offsetWidth;
-    if (slides.length > 1) { barra.style.transition = 'width ' + ms + 'ms linear'; barra.style.width = '100%'; }
-
-    clearTimeout(timer);
-    timer = setTimeout(function(){ mostrar(indice + 1); }, ms);
   }
 
-  function assinatura(f){ return JSON.stringify([f.ativo, f.segundosPorSlide, f.slides]); }
+  function assinatura(f){
+    try { return JSON.stringify([f.ativo, f.segundosPorSlide, f.slides, f.estudio]); }
+    catch (e) { return String(Math.random()); }
+  }
+
+  function aplicar(novo){
+    if (!novo || typeof novo !== 'object') return;
+    var mudou = assinatura(novo) !== assinatura(feed);
+    feed = novo;
+    paginas = paginar(feed.ativo === false ? [] : feed.slides);
+    if (mudou || indice < 0) mostrar(0);
+  }
+
+  function demo(qual){
+    if (qual === '2') return {
+      segundosPorSlide: 10, estudio: 'Team Rausch Studio', slides: [
+        { tipo:'aniversario', nomes:['Maria Aparecida Gonçalves de Albuquerque','Jean-Pierre Vasconcellos','Ana','Bruno Rodrigues','Carla Mendes','Diego Santana','Eduarda Prado','Fábio Lima','Gustavo Henrique de Oliveira Filho','Helena Souza','Igor Braga','Juliana Castro'] },
+        { tipo:'conquistas', itens: Array.apply(null, Array(14)).map(function(_, i){
+            return { emoji:'🔥', nome: i % 3 ? 'Aluno Número ' + (i + 1) : 'Maria Aparecida Gonçalves de Albuquerque',
+                     titulo: i % 2 ? 'Meta mensal batida com folga e constância' : 'Sequência de presença',
+                     aulas: 10 + i, quando: i % 4 === 0 ? 'hoje' : 'Esta semana' }; }) },
+        { tipo:'aviso', texto:'Atenção, pessoal!\n\nNa próxima semana o estúdio funcionará em horário especial por conta do feriado. As aulas de segunda começam às 7h e a última turma sai às 20h. Quem tiver aula marcada fora desse intervalo será remanejado automaticamente pelo app, e o aviso chega no WhatsApp do grupo. Se não puder comparecer, cancele com pelo menos 4 horas de antecedência para liberar a vaga para a lista de espera. Qualquer dúvida, fale com a recepção.' },
+        { tipo:'conquistas', itens:[{ emoji:'🏆', nome:'Ana', titulo:'Primeira aula', aulas:1, quando:'hoje' }] }
+      ] };
+    return {
+      segundosPorSlide: 10, estudio: 'Team Rausch Studio', slides: [
+        { tipo:'aniversario', nomes:['Camila Ferreira','Rodrigo Alves','Patrícia Nogueira'] },
+        { tipo:'conquistas', itens:[
+          { emoji:'🔥', nome:'Bruno Rodrigues', titulo:'Meta mensal batida', aulas:16, quando:'hoje' },
+          { emoji:'💪', nome:'Larissa Pinto', titulo:'Sequência de 4 semanas', aulas:12, quando:'Esta semana' },
+          { emoji:'🏆', nome:'Thiago Moraes', titulo:'100 aulas no estúdio', aulas:100, quando:'Esta semana' } ] },
+        { tipo:'aviso', titulo:'Horário de sábado', texto:'Neste sábado as aulas começam às 8h. Chegue 10 minutos antes.' }
+      ] };
+  }
 
   function buscar(){
     fetch('/tv-api/feed', { cache: 'no-store' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(novo){
-        var mudou = assinatura(novo) !== assinatura(feed);
-        feed = novo;
-        // Só recomeça a volta se o conteúdo mudou; senão segue de onde estava.
-        if (mudou || indice < 0) mostrar(0);
-      })
+      .then(aplicar)
       .catch(function(e){
         // Sem rede, a TV continua com o último conteúdo que tinha.
         console.error('feed', e);
-        if (indice < 0) mostrar(0);
+        if (indice < 0) { paginas = paginar([]); mostrar(0); }
       });
   }
 
-  relogio(); setInterval(relogio, 15000);
-  buscar(); setInterval(buscar, FEED_A_CADA);
+  relogio(); setInterval(relogio, 10000);
+
+  var q = (location.search.match(/[?&]demo=([^&]*)/) || [])[1];
+  if (q != null) { aplicar(demo(q)); }
+  else { buscar(); setInterval(buscar, FEED_A_CADA); }
+
+  // As fontes chegam depois do primeiro desenho: remede quando carregarem.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(reajustar);
+  window.addEventListener('load', reajustar);
+  window.addEventListener('resize', reajustar);
+  setTimeout(reajustar, 1500);
+
   setTimeout(function(){ location.reload(); }, RECARREGAR_A_CADA);
 })();
 </script>
