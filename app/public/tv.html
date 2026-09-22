@@ -83,29 +83,27 @@
   .aniv p{margin-top:2.2rem;font:500 1.6rem/1.3 'Work Sans',sans-serif;color:var(--apagado)}
 
   /* ── conquistas ─────────────────────────────────────────────────────
-     Ocupam a largura toda da área útil. Até 4 itens: uma coluna larga e
-     letra grande; acima disso, duas colunas que preenchem a tela.        */
-  .lista{margin-top:2.2rem;display:grid;gap:1.4rem 2rem;width:78rem;
+     No máximo 3 por tela, uma coluna larga e letra grande: é para ler do
+     fundo da sala. Mais que isso vira "Conquistas 1/2, 2/2".             */
+  .conq .titulo.menor{font-size:3rem}
+  .lista{margin-top:1.6rem;display:grid;gap:1.2rem;width:88rem;
     grid-template-columns:minmax(0, 1fr)}
-  .lista.c2{width:89rem;grid-template-columns:repeat(2, minmax(0, 1fr))}
-  .item{display:grid;grid-template-columns:5rem minmax(0, 1fr) auto;align-items:center;
-    gap:1.6rem;background:var(--superficie);border-left:.4rem solid var(--vermelho);
-    padding:1.5rem 2rem}
-  .item .em{font-size:3.4rem;line-height:1;text-align:center;font-family:var(--emoji)}
-  .item .quem{font:400 3rem/1.08 Anton,'Arial Narrow',sans-serif;text-transform:uppercase;
+  .item{display:grid;grid-template-columns:6rem minmax(0, 1fr) auto;align-items:center;
+    gap:2rem;background:var(--superficie);border-left:.5rem solid var(--vermelho);
+    padding:1.4rem 2.4rem}
+  .item .em{font-size:4.4rem;line-height:1;text-align:center;font-family:var(--emoji)}
+  .item .quem{font:400 3.8rem/1.05 Anton,'Arial Narrow',sans-serif;text-transform:uppercase;
     overflow-wrap:anywhere}
-  .item .oque{font:500 1.7rem/1.25 'Work Sans',sans-serif;color:var(--apagado);
+  .item .oque{font:500 1.9rem/1.2 'Work Sans',sans-serif;color:var(--apagado);
     margin-top:.4rem;overflow-wrap:anywhere}
-  .item .lado{display:flex;flex-direction:column;align-items:flex-end;gap:.6rem;flex:none}
-  .item .aulas{font:400 2.8rem/1 Anton,'Arial Narrow',sans-serif;color:var(--amarelo);white-space:nowrap}
-  .item .aulas small{font:600 1.15rem 'Work Sans',sans-serif;letter-spacing:.16em;
-    color:var(--apagado);margin-left:.45rem}
-  .item .quando{font:600 1.2rem/1 'Work Sans',sans-serif;letter-spacing:.18em;
-    text-transform:uppercase;padding:.5rem .8rem;border:.1rem solid var(--linha);
+  .item .lado{display:flex;flex-direction:column;align-items:flex-end;gap:.7rem;flex:none}
+  .item .aulas{font:400 3.6rem/1 Anton,'Arial Narrow',sans-serif;color:var(--amarelo);white-space:nowrap}
+  .item .aulas small{font:600 1.35rem 'Work Sans',sans-serif;letter-spacing:.16em;
+    color:var(--apagado);margin-left:.5rem}
+  .item .quando{font:600 1.4rem/1 'Work Sans',sans-serif;letter-spacing:.18em;
+    text-transform:uppercase;padding:.55rem .9rem;border:.1rem solid var(--linha);
     color:var(--apagado);white-space:nowrap}
   .item .quando.q-hoje{background:var(--vermelho);border-color:var(--vermelho);color:#fff}
-  .lista.c2 .item .quem{font-size:2.6rem}
-  .lista.c2 .item .oque{font-size:1.5rem}
 
   /* ── aviso ──────────────────────────────────────────────────────────── */
   .aviso{max-width:84rem}
@@ -156,7 +154,7 @@
   var NO_CHROMECAST = /CrKey/i.test(navigator.userAgent);
 
   var NOMES_POR_SLIDE = 10;   // acima disso, vira "Aniversariantes 1/2"
-  var ITENS_POR_SLIDE = 6;    // acima disso, vira "Conquistas 1/3"
+  var ITENS_POR_SLIDE = 3;    // acima disso, vira "Conquistas 1/2" — letra grande, legível do fundo da sala
   var ESCALA_MIN = 0.55, ESCALA_MAX = 1.35;
 
   if (NO_CHROMECAST) {
@@ -274,9 +272,9 @@
 
     if (s.tipo === 'conquistas') {
       var itens = s.itens;
-      return '<div><div class="rotulo">Conquistas' + marcaPag(s) + '</div>'
+      return '<div class="conq"><div class="rotulo">Conquistas' + marcaPag(s) + '</div>'
         + '<div class="titulo menor">Mandaram bem</div>'
-        + '<div class="lista' + (itens.length > 4 ? ' c2' : '') + '">' + itens.map(function(c){
+        + '<div class="lista">' + itens.map(function(c){
             c = c || {};
             var aulas = Number(c.aulas);
             var lado = '';
