@@ -5256,9 +5256,46 @@ async function msgPainelHistorico(){
           ${x.anexo ? `<p class="ajuda">📎 ${esc(x.anexo.nome)} · ${msgTamanho(x.anexo.tamanho||0)}</p>` : ''}
           <p class="ajuda" style="white-space:pre-wrap">${esc(x.texto.slice(0,240))}${
             x.texto.length>240?'…':''}</p>
+          ${(x.matriculaId || x.telefone) && (x.texto || x.anexo)
+            ? `<button class="leve msg-reenviar" data-id="${esc(x.id)}">Reenviar</button>` : ''}
         </div>`).join('')}`
       : '<div class="vazio">Nada enviado ainda.</div>';
+    msgHistPorId = new Map(h.map(x=>[x.id, x]));
+    alvo.querySelectorAll('.msg-reenviar').forEach(b=>b.addEventListener('click', ()=>msgReenviar(b)));
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* Reenvio a partir do histórico. Usa o texto exatamente como saiu (já
+   preenchido) e a ficha atual do aluno, se houver — telefone corrigido na
+   ficha vale para o reenvio. Anexo só vai se ainda estiver no volume; se
+   expirou, o servidor recusa e o aviso diz para anexar de novo. */
+let msgHistPorId = new Map();
+
+async function msgReenviar(btn){
+  const x = msgHistPorId.get(btn.dataset.id);
+  if (!x) return;
+  const quem = x.nome || x.telefone;
+  if (!confirm(`Reenviar para ${quem}?`
+    + (x.modeloNome ? `\n\n${x.modeloNome}` : '')
+    + (x.anexo ? `\nCom anexo: ${x.anexo.nome}` : ''))) return;
+
+  btn.disabled = true; btn.textContent = 'Reenviando…';
+  try{
+    await api('/mensagens/enviar', {method:'POST', body: JSON.stringify({
+      matriculaId: x.matriculaId || null,
+      telefone: x.matriculaId ? null : x.telefone,
+      texto: x.texto || '',
+      anexoId: x.anexo ? x.anexo.id : null,
+      modeloId: x.modeloId || null,
+      modeloNome: x.modeloNome ? `Reenvio: ${x.modeloNome}` : 'Reenvio',
+      origem: 'reenvio',
+    })});
+    avisar(`Reenviada para ${quem}.`);
+    await msgPainelHistorico();
+  }catch(e){
+    avisar(e.message, 'erro');
+    btn.disabled = false; btn.textContent = 'Reenviar';
+  }
 }
 
 async function carregarConfig(){
