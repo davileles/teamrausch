@@ -109,8 +109,14 @@
      Até 5 numa coluna larga; 6 a 10 em duas colunas de 5 (1–5 | 6–10).
      Pódio (1º a 3º) com medalha e borda vermelha.                       */
   .rank .lista{width:88rem}
-  .rank .lista.c2{width:100rem;grid-template-columns:repeat(2, minmax(0, 1fr));
-    grid-auto-flow:column;gap:1rem 2.4rem}
+  /* 86rem cabe na área útil (100rem − 2×5,5rem de margem de overscan) sem
+     depender da escala: antes eram 100rem e a 2ª coluna vazava pela direita. */
+  .rank .lista.c2{width:86rem;grid-template-columns:repeat(2, minmax(0, 1fr));
+    grid-auto-flow:column;gap:1rem 2rem}
+  .rank .lista.c2 .rlin{grid-template-columns:4.4rem minmax(0, 1fr) auto;gap:1.2rem;padding:1rem 1.4rem}
+  .rank .lista.c2 .rlin .aulas small{font-size:1.1rem;letter-spacing:.1em;margin-left:.35rem}
+  .rank .lista.c2 .rlin .pos{font-size:2.6rem}
+  .rank .lista.c2 .rlin.podio .pos{width:3.8rem;height:3.8rem;font-size:2.2rem}
   .rlin{display:grid;grid-template-columns:5.2rem minmax(0, 1fr) auto;align-items:center;
     gap:1.6rem;background:var(--superficie);border-left:.5rem solid var(--linha);
     padding:1.1rem 2rem}
@@ -129,7 +135,7 @@
   .rlin .aulas{font:400 3.4rem/1 Anton,'Arial Narrow',sans-serif;color:var(--amarelo);white-space:nowrap}
   .rlin .aulas small{font:600 1.3rem 'Work Sans',sans-serif;letter-spacing:.16em;
     color:var(--apagado);margin-left:.5rem}
-  .rank .lista.c2 .rlin .quem,.rank .lista.c2 .rlin .aulas{font-size:2.9rem}
+  .rank .lista.c2 .rlin .quem,.rank .lista.c2 .rlin .aulas{font-size:2.6rem}
   .rlin .det{font:500 1.5rem/1.2 'Work Sans',sans-serif;color:var(--apagado);margin-top:.3rem}
   .rank p{margin-top:1.6rem;font:500 1.5rem/1.3 'Work Sans',sans-serif;color:var(--apagado)}
 
@@ -373,7 +379,9 @@
     if (!area || !caixa) return;
     caixa.style.transform = 'none';
     var lc = area.clientWidth, la = area.clientHeight;
-    var cc = caixa.offsetWidth, ca = caixa.offsetHeight;
+    // scrollWidth pega o que vaza da caixa (max-width:100% esconde isso do offsetWidth)
+    var cc = Math.max(caixa.offsetWidth, caixa.scrollWidth);
+    var ca = Math.max(caixa.offsetHeight, caixa.scrollHeight);
     if (!lc || !la || !cc || !ca) return;
     var e = Math.min(lc / cc, la / ca);
     e = Math.max(ESCALA_MIN, Math.min(e, ESCALA_MAX));
