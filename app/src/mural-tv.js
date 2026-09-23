@@ -405,8 +405,8 @@ function rankingTurmas(hoje, quantos) {
     });
   }
   const corte = posicionar(lista, quantos);
-  return slide('turmas', 'Turmas', 'Horários mais cheios',
-    'Média de alunos por aula nas últimas 4 semanas.',
+  return slide('turmas', 'Turmas em alta', 'Os horários que mais bombam',
+    'Onde a energia está lá em cima · média de alunos por aula nas últimas 4 semanas.',
     corte.map((x) => ({
       posicao: x.posicao, nome: x.nome,
       valor: String(x.valor).replace('.', ','), unidade: 'alunos',

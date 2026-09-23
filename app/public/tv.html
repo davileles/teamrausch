@@ -116,7 +116,14 @@
     padding:1.1rem 2rem}
   .rlin.podio{border-left-color:var(--vermelho)}
   .rlin .pos{font:400 3.2rem/1 Anton,'Arial Narrow',sans-serif;color:var(--apagado);text-align:center}
-  .rlin.podio .pos{font-family:var(--emoji);font-size:3.6rem}
+  /* Pódio sem emoji: o Chromecast antigo não tem as medalhas na fonte de
+     emoji e elas saíam escuras/invisíveis. Círculo em ouro, prata e bronze. */
+  .rlin.podio .pos{display:flex;align-items:center;justify-content:center;
+    width:4.4rem;height:4.4rem;margin:0 auto;border-radius:50%;
+    font:400 2.6rem/1 Anton,'Arial Narrow',sans-serif;color:#1A1300}
+  .rlin.p1 .pos{background:#F5C518;box-shadow:0 0 0 .25rem #FFE27A inset}
+  .rlin.p2 .pos{background:#C9CED6;box-shadow:0 0 0 .25rem #EEF1F4 inset}
+  .rlin.p3 .pos{background:#D98A4B;box-shadow:0 0 0 .25rem #F2B07C inset}
   .rlin .quem{font:400 3.4rem/1.05 Anton,'Arial Narrow',sans-serif;text-transform:uppercase;
     overflow-wrap:anywhere}
   .rlin .aulas{font:400 3.4rem/1 Anton,'Arial Narrow',sans-serif;color:var(--amarelo);white-space:nowrap}
@@ -323,7 +330,6 @@
       var rs = arr(s.itens);
       var duas = rs.length > 5;
       var pessoas = s.pessoas !== false;
-      var MEDALHA = { 1:'🥇', 2:'🥈', 3:'🥉' };
       // feed antigo (só o ranking do mês) não tinha rótulo/título
       var rotulo = s.rotulo || ('Ranking do mês' + (s.mes ? ' · ' + s.mes : ''));
       var titulo = s.titulo || 'Mais frequentes';
@@ -338,8 +344,8 @@
             var un = r.unidade || (Number(valor) === 1 ? 'treino' : 'treinos');
             var podio = pos >= 1 && pos <= 3;
             var nome = pessoas ? nomeCurto(r.nome) : String(r.nome || '');
-            return '<div class="rlin' + (podio ? ' podio' : '') + '">'
-              + '<div class="pos">' + (podio ? MEDALHA[pos] : pos + 'º') + '</div>'
+            return '<div class="rlin' + (podio ? ' podio p' + pos : '') + '">'
+              + '<div class="pos">' + (podio ? pos : pos + 'º') + '</div>'
               + '<div><div class="quem">' + esc(nome || '—') + '</div>'
               + (String(r.detalhe || '').trim() ? '<div class="det">' + esc(r.detalhe) + '</div>' : '')
               + '</div>'
@@ -461,7 +467,7 @@
           { posicao:1, nome:'Camila Ferreira', valor:'+7', unidade:'treinos', detalhe:'5 → 12 treinos' },
           { posicao:2, nome:'Igor Braga', valor:'+5', unidade:'treinos', detalhe:'3 → 8 treinos' },
           { posicao:3, nome:'Helena Souza', valor:'+3', unidade:'treinos', detalhe:'8 → 11 treinos' } ] },
-        { tipo:'ranking', ranking:'turmas', pessoas:false, rotulo:'Turmas', titulo:'Horários mais cheios',
+        { tipo:'ranking', ranking:'turmas', pessoas:false, rotulo:'Turmas em alta', titulo:'Os horários que mais bombam',
           rodape:'Média de alunos por aula nas últimas 4 semanas.', itens:[
           { posicao:1, nome:'Segunda 06:00', valor:'11,5', unidade:'alunos' },
           { posicao:2, nome:'Quarta 19:00', valor:'10,8', unidade:'alunos' },
