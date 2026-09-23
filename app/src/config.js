@@ -134,7 +134,8 @@ const PADRAO = {
    * MURAL DA TV
    *
    * A TV do estúdio (Chromecast) roda `/tv.html`, que gira aniversariantes do
-   * dia, conquistas de hoje e ontem e os avisos abaixo. O aviso em destaque do
+   * dia, conquistas de hoje e ontem, o ranking de frequência do mês e os
+   * avisos abaixo. O aviso em destaque do
    * app (`estudio.alerta`) entra sozinho — não precisa repetir aqui.
    *
    * `castAppId` é o ID do receptor registrado no Google Cast Developer
@@ -144,6 +145,7 @@ const PADRAO = {
     ativo: true,
     segundosPorSlide: 12,
     avisos: [],                 // [{ texto, de: 'AAAA-MM-DD', ate: 'AAAA-MM-DD' }]
+    ranking: 10,                // Top N de frequência do mês na TV: 0 (desligado), 5 ou 10
     castAppId: '',
   },
   acesso: {

@@ -5362,7 +5362,7 @@ async function carregarConfig(){
 
       <h3>Mural da TV</h3>
       <p class="ajuda">A TV do estúdio gira sozinha os aniversariantes do dia, as conquistas
-        de hoje e de ontem e os avisos abaixo. O aviso em destaque acima também aparece lá —
+        de hoje e de ontem, o ranking de frequência do mês e os avisos abaixo. O aviso em destaque acima também aparece lá —
         não precisa repetir. Na TV sai só o primeiro nome e a inicial do sobrenome.
         <a href="/tv.html" target="_blank" rel="noopener">Abrir o mural</a></p>
       <div class="dupla">
@@ -5375,6 +5375,14 @@ async function carregarConfig(){
         <div class="campo"><label for="c-mural-seg">Tempo de cada tela (s)</label>
           <input id="c-mural-seg" type="number" min="5" max="120" value="${Number(mur.segundosPorSlide ?? 12)}"></div>
       </div>
+      <div class="campo"><label for="c-mural-ranking">Ranking de frequência do mês</label>
+        <select id="c-mural-ranking">
+          ${[['0','Desligado'],['5','Top 5'],['10','Top 10']].map(([val,rot])=>
+            `<option value="${val}"${String(mur.ranking ?? 10)===val?' selected':''}>${rot}</option>`).join('')}
+        </select>
+        <p class="ajuda">Quem mais treinou no mês (cada dia com treino vale 1, mesma conta das
+          conquistas). Empatados dividem a posição. Nos 5 primeiros dias do mês a TV também
+          mostra os campeões do mês anterior.</p></div>
       <div class="campo"><label>Avisos da TV</label>
         <div id="lista-avisos-tv">${(mur.avisos||[]).map(a=>linhaAvisoTv(a.texto, a.de, a.ate)).join('')}</div>
         <button class="leve" id="c-add-aviso-tv" type="button">+ Aviso na TV</button>
@@ -5964,6 +5972,7 @@ async function salvarConfig(){
     mural: {
       ativo: v('c-mural-ativo') === '1',
       segundosPorSlide: n('c-mural-seg'),
+      ranking: n('c-mural-ranking'),
       castAppId: v('c-mural-cast'),
       avisos: [...document.querySelectorAll('#lista-avisos-tv .linha-tv')]
         .map(l=>({

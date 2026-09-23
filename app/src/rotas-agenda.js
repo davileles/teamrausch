@@ -1233,6 +1233,11 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     const erro = mu.segundosPorSlide !== undefined && faixa(mu.segundosPorSlide, 5, 120, 'Tempo de cada tela');
     if (erro) return res.status(400).json({ erro });
     if (mu.ativo !== undefined) mu.ativo = Boolean(mu.ativo);
+    if (mu.ranking !== undefined) {
+      const r = Number(mu.ranking);
+      if (![0, 5, 10].includes(r)) return res.status(400).json({ erro: 'Ranking da TV: use 0, 5 ou 10.' });
+      mu.ranking = r;
+    }
     if (mu.castAppId !== undefined) {
       const id = String(mu.castAppId || '').trim().toUpperCase();
       if (id && !/^[0-9A-F]{8}$/.test(id)) {

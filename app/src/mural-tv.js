@@ -4,7 +4,8 @@
  * app/src/mural-tv.js — davileles/teamrausch
  *
  * O que a TV do estúdio mostra: aniversariantes do dia, conquistas batidas
- * hoje e ontem, e os avisos que estiverem valendo.
+ * hoje e ontem, o ranking de frequência do mês e os avisos que estiverem
+ * valendo.
  *
  * NADA É GRAVADO AQUI
  *   Tudo é derivado na hora do que já existe. Aniversário vem do mesmo
@@ -177,6 +178,90 @@ function conquistasRecentes(hoje) {
   return semRepetidos(saida);
 }
 
+/* -------------------------------- ranking -------------------------------- */
+
+const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho',
+  'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+/** Quantos dias do mês seguinte ainda mostram o ranking fechado do anterior. */
+const DIAS_CAMPEOES_DO_MES_ANTERIOR = 5;
+
+/** Menos que isso não é ranking, é lista de presença. */
+const MINIMO_NO_RANKING = 3;
+
+/**
+ * Os que mais vieram numa janela do mês. A conta é a mesma das conquistas
+ * (`historico.diasComPresenca`): um dia com treino vale 1, dois horários no
+ * mesmo dia continuam valendo 1, e o Wellhub passado do teto conta pelo totem.
+ *
+ * EMPATE
+ *   Empatados dividem a posição (1º, 1º, 3º). Se o corte do Top N cair no meio
+ *   de um empate, o grupo empatado sai inteiro: tirar só um deles por ordem
+ *   alfabética seria a TV escolhendo quem merece aparecer.
+ *
+ * MESMA PESSOA, DUAS MATRÍCULAS
+ *   Os dias das duas fichas são somados como conjunto antes de contar — quem
+ *   trocou de plano no meio do mês não perde posição.
+ */
+function rankingDaJanela(de, ate, quantos) {
+  let dias;
+  try {
+    dias = historico.diasComPresenca({ de, ate });
+  } catch (e) {
+    log('ranking falhou:', e.message);
+    return [];
+  }
+
+  const porPessoa = new Map();
+  for (const ficha of matriculas.listar()) {
+    if (!ficha.ativo) continue;
+    const nome = String(ficha.nome || '').trim();
+    const daFicha = dias.get(ficha.id);
+    if (!nome || !daFicha || !daFicha.size) continue;
+    const k = chaveNome(nome);
+    if (!porPessoa.has(k)) porPessoa.set(k, { nomeCompleto: nome, dias: new Set() });
+    for (const d of daFicha) porPessoa.get(k).dias.add(d);
+  }
+
+  const lista = [...porPessoa.values()]
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, aulas: x.dias.size }))
+    .sort((a, b) => b.aulas - a.aulas || a.nomeCompleto.localeCompare(b.nomeCompleto, 'pt-BR'));
+
+  // Posição de competição: 1, 1, 3.
+  lista.forEach((x, i) => {
+    x.posicao = i > 0 && lista[i - 1].aulas === x.aulas ? lista[i - 1].posicao : i + 1;
+  });
+
+  let corte = lista.slice(0, quantos);
+  const proximo = lista[quantos];
+  if (proximo && corte.length && corte[corte.length - 1].aulas === proximo.aulas) {
+    corte = corte.filter((x) => x.aulas !== proximo.aulas);
+  }
+  if (corte.length < MINIMO_NO_RANKING) return [];
+  return semRepetidos(corte);
+}
+
+function rankings(hoje, quantos) {
+  if (!quantos) return [];
+  const saida = [];
+  const mes = Number(hoje.slice(5, 7));
+  const dia = Number(hoje.slice(8, 10));
+
+  // Nos primeiros dias o mês corrente ainda não diz nada: entra o fechado do
+  // mês anterior, e o corrente só aparece quando já tiver gente suficiente.
+  if (dia <= DIAS_CAMPEOES_DO_MES_ANTERIOR) {
+    const fimAnterior = grade.somarDias(frequencia.inicioDoMes(hoje), -1);
+    const itens = rankingDaJanela(frequencia.inicioDoMes(fimAnterior), fimAnterior, quantos);
+    if (itens.length) {
+      saida.push({ tipo: 'ranking', parcial: false, mes: MESES[Number(fimAnterior.slice(5, 7)) - 1], itens });
+    }
+  }
+
+  const itens = rankingDaJanela(frequencia.inicioDoMes(hoje), hoje, quantos);
+  if (itens.length) saida.push({ tipo: 'ranking', parcial: true, mes: MESES[mes - 1], itens });
+  return saida;
+}
+
 /* --------------------------------- avisos -------------------------------- */
 
 function avisosAtivos(hoje) {
@@ -214,6 +299,8 @@ function montar() {
   const aniv = aniversariantesDeHoje(hoje);
   const conq = conquistasRecentes(hoje);
   const avisos = avisosAtivos(hoje);
+  const rank = Number(m.ranking);
+  const ranks = rankings(hoje, Number.isFinite(rank) && rank > 0 ? Math.min(rank, 10) : 0);
 
   const slides = [];
   for (let i = 0; i < aniv.length; i += POR_SLIDE_ANIVERSARIO) {
@@ -222,6 +309,7 @@ function montar() {
   for (let i = 0; i < conq.length; i += POR_SLIDE_CONQUISTAS) {
     slides.push({ tipo: 'conquistas', itens: conq.slice(i, i + POR_SLIDE_CONQUISTAS) });
   }
+  for (const r of ranks) slides.push(r);
   for (const a of avisos) slides.push({ tipo: 'aviso', texto: a.texto });
 
   const segundos = Number(m.segundosPorSlide);
