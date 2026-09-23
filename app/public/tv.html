@@ -289,8 +289,9 @@
       } else if (s.tipo === 'ranking') {
         var its = arr(s.itens);
         if (!its.length) return;
-        // Ranking já vem cortado em 10; a lista de presença pode ter mais.
-        var partes = pedacos(its, 10);
+        // Top 10 com empate no corte pode chegar a 15 (duas colunas de 8);
+        // só a lista de presença passa disso e vira 1/2, 2/2.
+        var partes = pedacos(its, 16);
         partes.forEach(function(p, i){
           var copia = {}; for (var k in s) copia[k] = s[k];
           copia.itens = p; copia.pag = i + 1; copia.de = partes.length;
