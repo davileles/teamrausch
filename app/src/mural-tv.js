@@ -398,9 +398,12 @@ function rankingMadrugadores(hoje, quantos, limite) {
     .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado.cedo.size, desempate: x.dado.todos.size }));
   const hora = limite.endsWith(':00') ? `${Number(limite.slice(0, 2))}h` : limite.replace(':', 'h');
   return slide('madrugadores', `Treino antes das ${hora} · ${mesDe(hoje)}`, 'Madrugadores',
-    `Dias do mês com treino antes das ${hora} · empate: quem treinou mais no mês.`,
+    `Conta os treinos antes das ${hora} · empate: quem treinou mais no mês.`,
     linhas(posicionar(lista, quantos), (x) => ({
-      valor: x.valor, unidade: unidade(x.valor, 'dia', 'dias'), detalhe: `${x.desempate} treinos no mês`,
+      // O número grande é o que ordena; o detalhe deixa claro de onde ele vem,
+      // senão "10 treinos no mês" em 3º parecia maior que o 1º.
+      valor: x.valor, unidade: unidade(x.valor, 'madrugada', 'madrugadas'),
+      detalhe: `${x.valor} de ${x.desempate} treinos antes das ${hora}`,
     })));
 }
 
