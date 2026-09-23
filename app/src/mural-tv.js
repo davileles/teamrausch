@@ -427,6 +427,149 @@ function rankingVeteranos(quantos) {
     linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'aula', 'aulas') })));
 }
 
+/* 7. Presença em dia: quem cumpre o que combinou, não quem vem mais */
+
+/** Mínimo de aulas combinadas na janela para entrar (2x/semana por 2 semanas). */
+const PRESENCA_MINIMO_COMBINADAS = 4;
+const PRESENCA_PERCENTUAL_MINIMO = 0.9;
+/** Nos primeiros dias o mês ainda não tem aula combinada suficiente. */
+const PRESENCA_MES_ANTERIOR_ATE_O_DIA = 7;
+const PRESENCA_MAXIMO_NA_TV = 30;
+
+/**
+ * Aulas combinadas × aulas cumpridas, por pessoa.
+ *
+ * COMBINADO
+ *   Grade fixa da matrícula (com as trocas de grade e as aulas extras, sem as
+ *   aulas desmarcadas) + reservas ativas do app. Conta por dia: duas aulas no
+ *   mesmo dia são um compromisso só.
+ *
+ * CUMPRIDO
+ *   Qualquer prova de que a pessoa esteve lá naquele dia — check-in do Wellhub
+ *   ou confirmação no totem. Aqui não entra a regra do teto do Wellhub: a
+ *   pergunta é se ela veio, não se o dia é cobrável.
+ *
+ * O QUE NÃO VIRA FALTA
+ *   Hoje (a aula pode não ter acontecido ainda), datas bloqueadas na agenda e
+ *   dias em que ninguém registrou presença no estúdio — dia fechado que não
+ *   foi cadastrado não pode derrubar a turma inteira.
+ */
+function presencaPorPessoa(de, ate) {
+  const c = config.ler();
+  const bloqueadas = new Set((c.agenda || {}).datasBloqueadas || []);
+  const horas = historico.horaMaisCedoPorDia({ de, ate });
+
+  const abertos = new Set();
+  for (const dias of horas.values()) for (const d of dias.keys()) abertos.add(d);
+  for (const p of agendaStore.listarPresencas({ de, ate })) abertos.add(p.data);
+
+  const reservas = new Map();
+  for (const a of agendaStore.listarAgendamentos({ de, ate })) {
+    if (a.status !== 'ativo' || !a.telefone) continue;
+    if (!reservas.has(a.telefone)) reservas.set(a.telefone, new Set());
+    reservas.get(a.telefone).add(a.data);
+  }
+
+  const excecoes = matriculas.excecoes({ de, ate });
+  const nDias = Math.round((Date.parse(`${ate}T12:00:00Z`) - Date.parse(`${de}T12:00:00Z`)) / 86400000) + 1;
+  if (nDias < 1) return [];
+
+  const daFicha = (ficha) => {
+    const combinados = new Set(grade.proximasDaMatricula(ficha, excecoes, { de, dias: nDias }).map((x) => x.data));
+    for (const d of reservas.get(ficha.telefone) || []) combinados.add(d);
+    for (const d of [...combinados]) {
+      if (d < de || d > ate || bloqueadas.has(d) || !abertos.has(d)) combinados.delete(d);
+    }
+    if (!combinados.size) return null;
+    const veio = horas.get(ficha.id) || new Map();
+    return { c: combinados, p: new Set([...combinados].filter((d) => veio.has(d))) };
+  };
+  const fichas = new Map(matriculas.listar().map((f) => [f.id, f]));
+  return porPessoa((id) => daFicha(fichas.get(id)), (x, y) => ({ c: uniao(x.c, y.c), p: uniao(x.p, y.p) }))
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, combinadas: x.dado.c.size, cumpridas: x.dado.p.size }));
+}
+
+function rankingPresenca(hoje) {
+  const dia = Number(hoje.slice(8, 10));
+  let de; let ate; let fechado = false;
+  if (dia <= PRESENCA_MES_ANTERIOR_ATE_O_DIA) {
+    ate = grade.somarDias(frequencia.inicioDoMes(hoje), -1);
+    de = frequencia.inicioDoMes(ate);
+    fechado = true;
+  } else {
+    de = frequencia.inicioDoMes(hoje);
+    ate = grade.somarDias(hoje, -1);
+  }
+  const lista = presencaPorPessoa(de, ate)
+    .filter((x) => x.combinadas >= PRESENCA_MINIMO_COMBINADAS
+      && x.cumpridas / x.combinadas >= PRESENCA_PERCENTUAL_MINIMO)
+    .sort((a, b) => (b.cumpridas / b.combinadas) - (a.cumpridas / a.combinadas)
+      || b.combinadas - a.combinadas
+      || a.nomeCompleto.localeCompare(b.nomeCompleto, 'pt-BR'))
+    .slice(0, PRESENCA_MAXIMO_NA_TV);
+  if (lista.length < MINIMO_NO_RANKING) return null;
+
+  const mes = mesDe(ate);
+  return slide('presenca', `Compromisso · ${mes}`, fechado ? `Presença em dia em ${mes}` : 'Presença em dia',
+    `Foram a pelo menos ${Math.round(PRESENCA_PERCENTUAL_MINIMO * 100)}% das aulas combinadas`
+      + (fechado ? ' no mês.' : ' no mês, até ontem.') + ' Não é quem vem mais — é quem cumpre o que marcou.',
+    semRepetidos(lista).map((x) => ({
+      nome: x.nome,
+      completo: x.cumpridas === x.combinadas,
+      valor: `${Math.floor((x.cumpridas / x.combinadas) * 100)}%`,
+      unidade: '',
+      detalhe: `${x.cumpridas} de ${x.combinadas} aulas`,
+    })), { semPosicao: true });
+}
+
+/* ------------------------------ diagnóstico ------------------------------- */
+
+/**
+ * Por que um ranking não apareceu. Só números — nada de nome — porque a rota
+ * é aberta como a do feed.
+ */
+function diagnostico() {
+  const hoje = frequencia.hojeLocal();
+  const m = cfg();
+  const saida = { data: hoje, config: {
+    ranking: m.ranking, rankingSequencia: m.rankingSequencia, rankingEvolucao: m.rankingEvolucao,
+    rankingMadrugadores: m.rankingMadrugadores, horaMadrugadores: m.horaMadrugadores,
+    rankingTurmas: m.rankingTurmas, rankingVeteranos: m.rankingVeteranos, rankingPresenca: m.rankingPresenca,
+  } };
+  const tenta = (nome, fn) => { try { saida[nome] = fn(); } catch (e) { saida[nome] = { erro: e.message }; } };
+
+  tenta('madrugadores', () => {
+    const de = frequencia.inicioDoMes(hoje);
+    const horas = historico.horaMaisCedoPorDia({ de, ate: hoje });
+    const porHora = {};
+    for (const dias of horas.values()) for (const h of dias.values()) {
+      const k = h.slice(0, 2);
+      porHora[k] = (porHora[k] || 0) + 1;
+    }
+    const limite = m.horaMadrugadores || '07:00';
+    let pessoas = 0;
+    for (const dias of horas.values()) if ([...dias.values()].some((h) => h < limite)) pessoas += 1;
+    return { limite, pessoasComTreinoAntes: pessoas, diasPorHoraDeChegada: porHora };
+  });
+  tenta('sequencia', () => {
+    const r = rankingSequencia(hoje, 50);
+    return { pessoasComSequenciaDe2Mais: r ? r.itens.length : 0 };
+  });
+  tenta('presenca', () => {
+    const dia = Number(hoje.slice(8, 10));
+    const ate = dia <= PRESENCA_MES_ANTERIOR_ATE_O_DIA ? grade.somarDias(frequencia.inicioDoMes(hoje), -1) : grade.somarDias(hoje, -1);
+    const lista = presencaPorPessoa(frequencia.inicioDoMes(ate), ate);
+    const faixas = { '100%': 0, '90-99%': 0, '70-89%': 0, '<70%': 0, 'poucasAulas': 0 };
+    for (const x of lista) {
+      if (x.combinadas < PRESENCA_MINIMO_COMBINADAS) { faixas.poucasAulas += 1; continue; }
+      const p = x.cumpridas / x.combinadas;
+      faixas[p === 1 ? '100%' : p >= 0.9 ? '90-99%' : p >= 0.7 ? '70-89%' : '<70%'] += 1;
+    }
+    return { pessoasComAulaCombinada: lista.length, faixas };
+  });
+  return saida;
+}
+
 /** Top N configurado: 0 desliga, qualquer coisa estranha vira o padrão. */
 function topN(valor, padrao) {
   const n = Number(valor === undefined ? padrao : valor);
@@ -452,6 +595,7 @@ function rankings(hoje, m) {
   const limite = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(m.horaMadrugadores || '')) ? m.horaMadrugadores : '07:00';
 
   if (n.mes) tenta('mes', () => rankingDoMes(hoje, n.mes));
+  if (m.rankingPresenca !== false && Number(m.rankingPresenca) !== 0) tenta('presenca', () => rankingPresenca(hoje));
   if (n.sequencia) tenta('sequencia', () => rankingSequencia(hoje, n.sequencia));
   if (n.evolucao) tenta('evolucao', () => rankingEvolucao(hoje, n.evolucao));
   if (n.madrugadores) tenta('madrugadores', () => rankingMadrugadores(hoje, n.madrugadores, limite));
@@ -529,4 +673,4 @@ function feed() {
 /** Salvar a configuração tem de aparecer na TV já na próxima volta. */
 function invalidar() { cache = { em: 0, feed: null }; }
 
-module.exports = { feed, invalidar, nomeCurto };
+module.exports = { feed, invalidar, nomeCurto, diagnostico };

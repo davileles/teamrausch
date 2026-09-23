@@ -25,6 +25,16 @@ rotas.get('/feed', (_req, res) => {
   }
 });
 
+/** Por que um ranking não apareceu — só contagens, sem nomes. */
+rotas.get('/diagnostico', (_req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    res.json(mural.diagnostico());
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
 /** O que o tablet precisa para mostrar o botão de ligar a TV. */
 rotas.get('/cast', (_req, res) => {
   let m = {};

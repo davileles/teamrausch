@@ -136,6 +136,15 @@
   .rlin .aulas small{font:600 1.3rem 'Work Sans',sans-serif;letter-spacing:.16em;
     color:var(--apagado);margin-left:.5rem}
   .rank .lista.c2 .rlin .quem,.rank .lista.c2 .rlin .aulas{font-size:2.6rem}
+  /* Presença em dia: selo de check desenhado em CSS (nada de emoji no Chromecast) */
+  .rlin .ok{display:block;position:relative;width:3.8rem;height:3.8rem;margin:0 auto;
+    border-radius:50%;border:.3rem solid #3DDC84}
+  .rlin .ok::after{content:'';position:absolute;left:1.05rem;top:.55rem;width:.9rem;height:1.7rem;
+    border:solid #3DDC84;border-width:0 .38rem .38rem 0;transform:rotate(45deg)}
+  .rlin .ok.cheio{background:#3DDC84}
+  .rlin .ok.cheio::after{border-color:#08240F}
+  .rlin.perfeito{border-left-color:#3DDC84}
+  .rlin.perfeito .aulas{color:#3DDC84}
   .rlin .det{font:500 1.5rem/1.2 'Work Sans',sans-serif;color:var(--apagado);margin-top:.3rem}
   .rank p{margin-top:1.6rem;font:500 1.5rem/1.3 'Work Sans',sans-serif;color:var(--apagado)}
 
@@ -278,8 +287,15 @@
           saida.push({ tipo:'conquistas', itens:p, pag:i + 1, de:blocos.length });
         });
       } else if (s.tipo === 'ranking') {
-        if (!arr(s.itens).length) return;
-        saida.push(s);
+        var its = arr(s.itens);
+        if (!its.length) return;
+        // Ranking já vem cortado em 10; a lista de presença pode ter mais.
+        var partes = pedacos(its, 10);
+        partes.forEach(function(p, i){
+          var copia = {}; for (var k in s) copia[k] = s[k];
+          copia.itens = p; copia.pag = i + 1; copia.de = partes.length;
+          saida.push(copia);
+        });
       } else if (s.tipo === 'aviso') {
         if (!String(s.texto || '').trim()) return;
         saida.push(s);
@@ -339,7 +355,7 @@
       // feed antigo (só o ranking do mês) não tinha rótulo/título
       var rotulo = s.rotulo || ('Ranking do mês' + (s.mes ? ' · ' + s.mes : ''));
       var titulo = s.titulo || 'Mais frequentes';
-      return '<div class="rank"><div class="rotulo">' + esc(rotulo) + '</div>'
+      return '<div class="rank"><div class="rotulo">' + esc(rotulo) + marcaPag(s) + '</div>'
         + '<div class="titulo menor">' + esc(titulo) + '</div>'
         + '<div class="lista' + (duas ? ' c2' : '') + '"'
         + (duas ? ' style="grid-template-rows:repeat(' + Math.ceil(rs.length / 2) + ', auto)"' : '') + '>'
@@ -347,15 +363,22 @@
             r = r || {};
             var pos = Number(r.posicao) || 0;
             var valor = r.valor != null ? r.valor : r.aulas;
-            var un = r.unidade || (Number(valor) === 1 ? 'treino' : 'treinos');
+            var un = r.unidade != null ? r.unidade : (Number(valor) === 1 ? 'treino' : 'treinos');
             var podio = pos >= 1 && pos <= 3;
             var nome = pessoas ? nomeCurto(r.nome) : String(r.nome || '');
-            return '<div class="rlin' + (podio ? ' podio p' + pos : '') + '">'
-              + '<div class="pos">' + (podio ? pos : pos + 'º') + '</div>'
+            var cel;
+            if (s.semPosicao) {
+              podio = false;
+              cel = '<div class="pos"><span class="ok' + (r.completo ? ' cheio' : '') + '"></span></div>';
+            } else {
+              cel = '<div class="pos">' + (podio ? pos : pos + 'º') + '</div>';
+            }
+            return '<div class="rlin' + (podio ? ' podio p' + pos : '') + (s.semPosicao && r.completo ? ' perfeito' : '') + '">'
+              + cel
               + '<div><div class="quem">' + esc(nome || '—') + '</div>'
               + (String(r.detalhe || '').trim() ? '<div class="det">' + esc(r.detalhe) + '</div>' : '')
               + '</div>'
-              + '<div class="aulas">' + esc(valor) + '<small>' + esc(String(un).toUpperCase()) + '</small></div>'
+              + '<div class="aulas">' + esc(valor) + (un ? '<small>' + esc(String(un).toUpperCase()) + '</small>' : '') + '</div>'
               + '</div>';
           }).join('') + '</div>'
         + (String(s.rodape || '').trim() ? '<p>' + esc(s.rodape) + '</p>' : '')
@@ -470,6 +493,12 @@
           { emoji:'🔥', nome:'Bruno Rodrigues', titulo:'Meta mensal batida', aulas:16, quando:'hoje' },
           { emoji:'💪', nome:'Larissa Pinto', titulo:'Sequência de 4 semanas', aulas:12, quando:'Esta semana' },
           { emoji:'🏆', nome:'Thiago Moraes', titulo:'100 aulas no estúdio', aulas:100, quando:'Esta semana' } ] },
+        { tipo:'ranking', ranking:'presenca', semPosicao:true, rotulo:'Compromisso · setembro', titulo:'Presença em dia',
+          rodape:'Foram a pelo menos 90% das aulas combinadas no mês, até ontem. Não é quem vem mais — é quem cumpre o que marcou.', itens:[
+          { nome:'Helena Souza', completo:true, valor:'100%', unidade:'', detalhe:'12 de 12 aulas' },
+          { nome:'Igor Braga', completo:true, valor:'100%', unidade:'', detalhe:'6 de 6 aulas' },
+          { nome:'Juliana Castro', completo:true, valor:'100%', unidade:'', detalhe:'6 de 6 aulas' },
+          { nome:'Rodrigo Alves', completo:false, valor:'91%', unidade:'', detalhe:'11 de 12 aulas' } ] },
         { tipo:'ranking', ranking:'evolucao', rotulo:'Evolução', titulo:'Quem mais subiu',
           rodape:'Treinos até o dia 23, comparado com o mesmo período de agosto.', itens:[
           { posicao:1, nome:'Camila Ferreira', valor:'+7', unidade:'treinos', detalhe:'5 → 12 treinos' },

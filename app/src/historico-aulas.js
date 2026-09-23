@@ -272,8 +272,10 @@ function porTelefone(telefone) {
 function horaMaisCedoPorDia({ de, ate } = {}) {
   const mapa = new Map();
   const anota = (id, data, hora) => {
-    const h = String(hora || '').slice(0, 5);
-    if (!id || !data || !/^\d{2}:\d{2}$/.test(h)) return;
+    // A planilha do Wellhub às vezes traz "6:05"; sem o zero, "6:05" > "07:00" como texto.
+    const mm = String(hora || '').trim().match(/^(\d{1,2}):(\d{2})/);
+    if (!id || !data || !mm) return;
+    const h = `${mm[1].padStart(2, '0')}:${mm[2]}`;
     if (!mapa.has(id)) mapa.set(id, new Map());
     const dias = mapa.get(id);
     if (!dias.has(data) || h < dias.get(data)) dias.set(data, h);

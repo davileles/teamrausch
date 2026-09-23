@@ -5381,6 +5381,7 @@ async function carregarConfig(){
           (mesma conta das conquistas).</p></div>
       ${[
         ['c-mural-ranking','ranking',10,'Mais frequentes do mês','Nos 5 primeiros dias também mostra os campeões do mês anterior.'],
+        ['c-mural-rk-pre','rankingPresenca',1,'Presença em dia','Quem foi a 90% ou mais das aulas combinadas (grade fixa + reservas). Não depende de volume: quem treina 2x/semana também entra.'],
         ['c-mural-rk-seq','rankingSequencia',10,'Semanas seguidas','Semanas seguidas com pelo menos 2 treinos.'],
         ['c-mural-rk-evo','rankingEvolucao',5,'Quem mais subiu','Treinos do mês contra o mesmo período do mês anterior. Aparece a partir do dia 8.'],
         ['c-mural-rk-mad','rankingMadrugadores',5,'Madrugadores','Dias do mês com treino antes do horário ao lado.'],
@@ -5390,7 +5391,7 @@ async function carregarConfig(){
       <div class="dupla">
         <div class="campo"><label for="${id}">${rot}</label>
           <select id="${id}">
-            ${[['0','Desligado'],['5','Top 5'],['10','Top 10']].map(([val,r])=>
+            ${(k==='rankingPresenca' ? [['0','Desligado'],['1','Ligado']] : [['0','Desligado'],['5','Top 5'],['10','Top 10']]).map(([val,r])=>
               `<option value="${val}"${String(mur[k] ?? pad)===val?' selected':''}>${r}</option>`).join('')}
           </select>
           <p class="ajuda">${aj}</p></div>
@@ -5993,6 +5994,7 @@ async function salvarConfig(){
       horaMadrugadores: v('c-mural-hora-mad') || '07:00',
       rankingTurmas: n('c-mural-rk-tur'),
       rankingVeteranos: n('c-mural-rk-vet'),
+      rankingPresenca: n('c-mural-rk-pre'),
       castAppId: v('c-mural-cast'),
       avisos: [...document.querySelectorAll('#lista-avisos-tv .linha-tv')]
         .map(l=>({
