@@ -1233,10 +1233,19 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     const erro = mu.segundosPorSlide !== undefined && faixa(mu.segundosPorSlide, 5, 120, 'Tempo de cada tela');
     if (erro) return res.status(400).json({ erro });
     if (mu.ativo !== undefined) mu.ativo = Boolean(mu.ativo);
-    if (mu.ranking !== undefined) {
-      const r = Number(mu.ranking);
-      if (![0, 5, 10].includes(r)) return res.status(400).json({ erro: 'Ranking da TV: use 0, 5 ou 10.' });
-      mu.ranking = r;
+    for (const k of ['ranking', 'rankingSequencia', 'rankingEvolucao', 'rankingMadrugadores',
+      'rankingTurmas', 'rankingVeteranos']) {
+      if (mu[k] === undefined) continue;
+      const r = Number(mu[k]);
+      if (![0, 5, 10].includes(r)) return res.status(400).json({ erro: 'Rankings da TV: use 0, 5 ou 10.' });
+      mu[k] = r;
+    }
+    if (mu.horaMadrugadores !== undefined) {
+      const h = String(mu.horaMadrugadores || '').trim();
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(h)) {
+        return res.status(400).json({ erro: 'Horário dos madrugadores inválido: use HH:MM.' });
+      }
+      mu.horaMadrugadores = h;
     }
     if (mu.castAppId !== undefined) {
       const id = String(mu.castAppId || '').trim().toUpperCase();

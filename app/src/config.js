@@ -145,7 +145,14 @@ const PADRAO = {
     ativo: true,
     segundosPorSlide: 12,
     avisos: [],                 // [{ texto, de: 'AAAA-MM-DD', ate: 'AAAA-MM-DD' }]
-    ranking: 10,                // Top N de frequência do mês na TV: 0 (desligado), 5 ou 10
+    // Rankings da TV — Top N de cada um: 0 (desligado), 5 ou 10.
+    ranking: 10,                // mais frequentes do mês
+    rankingSequencia: 10,       // semanas seguidas com 2+ treinos
+    rankingEvolucao: 5,         // quem mais subiu contra o mesmo período do mês anterior
+    rankingMadrugadores: 5,     // dias do mês com treino antes de horaMadrugadores
+    horaMadrugadores: '07:00',
+    rankingTurmas: 5,           // horários com maior média de presentes (4 semanas)
+    rankingVeteranos: 10,       // total de aulas desde sempre
     castAppId: '',
   },
   acesso: {

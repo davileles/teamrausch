@@ -262,6 +262,28 @@ function porTelefone(telefone) {
   return { matriculaId: null, total: dias.size };
 }
 
+/**
+ * Horário mais cedo em que cada matrícula apareceu em cada dia, juntando o
+ * check-in do Wellhub (hora real da catraca) e a confirmação do totem (hora da
+ * aula). Serve ao ranking de madrugadores do mural; quem decide se o dia conta
+ * como aula continua sendo `diasComPresenca`.
+ * @returns {Map<string, Map<string, string>>} matriculaId → data → 'HH:MM'
+ */
+function horaMaisCedoPorDia({ de, ate } = {}) {
+  const mapa = new Map();
+  const anota = (id, data, hora) => {
+    const h = String(hora || '').slice(0, 5);
+    if (!id || !data || !/^\d{2}:\d{2}$/.test(h)) return;
+    if (!mapa.has(id)) mapa.set(id, new Map());
+    const dias = mapa.get(id);
+    if (!dias.has(data) || h < dias.get(data)) dias.set(data, h);
+  };
+  for (const c of checkins.listar({ de, ate, limite: Infinity })) anota(c.matriculaId, c.data, c.hora);
+  const daMatricula = indiceDeTelefones();
+  for (const p of agendaStore.listarPresencas({ de, ate })) anota(daMatricula(p.telefone), p.data, p.hora);
+  return mapa;
+}
+
 /** Dias distintos com presença de um telefone, dentro do que ainda está vivo. */
 function diasVivosDoTelefone(telefone) {
   const dias = new Map();
@@ -286,5 +308,5 @@ module.exports = {
   semear, consolidar, total, totais, porTelefone, diasVivosDoTelefone, situacao,
   // O mural da TV precisa saber em que dia cada aula caiu para dizer se o
   // marco foi batido hoje ou ontem — mesma regra de "o que conta como aula".
-  diasComPresenca,
+  diasComPresenca, horaMaisCedoPorDia,
 };

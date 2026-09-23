@@ -4,8 +4,9 @@
  * app/src/mural-tv.js — davileles/teamrausch
  *
  * O que a TV do estúdio mostra: aniversariantes do dia, conquistas batidas
- * hoje e ontem, o ranking de frequência do mês e os avisos que estiverem
- * valendo.
+ * hoje e ontem, os rankings (frequência do mês, sequência de semanas,
+ * evolução, madrugadores, turmas mais cheias e veteranos) e os avisos que
+ * estiverem valendo.
  *
  * NADA É GRAVADO AQUI
  *   Tudo é derivado na hora do que já existe. Aniversário vem do mesmo
@@ -35,6 +36,7 @@ const grade = require('./grade');
 const historico = require('./historico-aulas');
 const matriculas = require('./matriculas-store');
 const aniversariantes = require('./aniversariantes-dia');
+const agendaStore = require('./agenda-store');
 
 /** O feed é o mesmo para qualquer TV; montar de novo a cada pedido é à toa. */
 const CACHE_MS = 60 * 1000;
@@ -178,10 +180,11 @@ function conquistasRecentes(hoje) {
   return semRepetidos(saida);
 }
 
-/* -------------------------------- ranking -------------------------------- */
+/* -------------------------------- rankings ------------------------------- */
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho',
   'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
 /** Quantos dias do mês seguinte ainda mostram o ranking fechado do anterior. */
 const DIAS_CAMPEOES_DO_MES_ANTERIOR = 5;
@@ -190,75 +193,270 @@ const DIAS_CAMPEOES_DO_MES_ANTERIOR = 5;
 const MINIMO_NO_RANKING = 3;
 
 /**
- * Os que mais vieram numa janela do mês. A conta é a mesma das conquistas
- * (`historico.diasComPresenca`): um dia com treino vale 1, dois horários no
- * mesmo dia continuam valendo 1, e o Wellhub passado do teto conta pelo totem.
+ * Sequência: semanas seguidas com pelo menos este tanto de treinos. A janela
+ * fica dentro dos 180 dias que a agenda guarda de presença.
+ */
+const TREINOS_NA_SEMANA = 2;
+const SEMANAS_NA_JANELA = 25;
+
+/** Evolução só faz sentido depois de uma semana de mês. */
+const EVOLUCAO_A_PARTIR_DO_DIA = 8;
+const EVOLUCAO_MINIMA = 2;
+
+/** Turma mais cheia: média das últimas 4 semanas, com pelo menos 2 aulas dadas. */
+const TURMAS_JANELA_DIAS = 28;
+const TURMAS_MINIMO_DE_AULAS = 2;
+
+const mesDe = (data) => MESES[Number(String(data).slice(5, 7)) - 1];
+const unidade = (n, um, varios) => (Number(n) === 1 ? um : varios);
+
+/** Segunda-feira da semana da data (a semana do estúdio começa na segunda). */
+function segundaDaSemana(data) {
+  return grade.somarDias(data, -((grade.diaDaSemana(data) + 6) % 7));
+}
+
+/**
+ * Ordena, numera e corta.
  *
  * EMPATE
  *   Empatados dividem a posição (1º, 1º, 3º). Se o corte do Top N cair no meio
  *   de um empate, o grupo empatado sai inteiro: tirar só um deles por ordem
  *   alfabética seria a TV escolhendo quem merece aparecer.
- *
- * MESMA PESSOA, DUAS MATRÍCULAS
- *   Os dias das duas fichas são somados como conjunto antes de contar — quem
- *   trocou de plano no meio do mês não perde posição.
  */
-function rankingDaJanela(de, ate, quantos) {
-  let dias;
-  try {
-    dias = historico.diasComPresenca({ de, ate });
-  } catch (e) {
-    log('ranking falhou:', e.message);
-    return [];
+function posicionar(lista, quantos) {
+  lista.sort((a, b) => b.valor - a.valor
+    || String(a.nomeCompleto || a.nome).localeCompare(String(b.nomeCompleto || b.nome), 'pt-BR'));
+  lista.forEach((x, i) => {
+    x.posicao = i > 0 && lista[i - 1].valor === x.valor ? lista[i - 1].posicao : i + 1;
+  });
+  let corte = lista.slice(0, quantos);
+  const proximo = lista[quantos];
+  if (proximo && corte.length && corte[corte.length - 1].valor === proximo.valor) {
+    corte = corte.filter((x) => x.valor !== proximo.valor);
   }
+  return corte.length < MINIMO_NO_RANKING ? [] : corte;
+}
 
-  const porPessoa = new Map();
+/**
+ * Agrupa por pessoa as fichas ativas. Mesma pessoa com duas matrículas (trocou
+ * de plano no meio do mês) vira uma só, para não perder posição nem aparecer
+ * duas vezes. `porFicha(id)` devolve o que aquela ficha tem; `juntar` soma.
+ */
+function porPessoa(porFicha, juntar) {
+  const mapa = new Map();
   for (const ficha of matriculas.listar()) {
     if (!ficha.ativo) continue;
     const nome = String(ficha.nome || '').trim();
-    const daFicha = dias.get(ficha.id);
-    if (!nome || !daFicha || !daFicha.size) continue;
+    const dado = porFicha(ficha.id);
+    if (!nome || dado == null) continue;
     const k = chaveNome(nome);
-    if (!porPessoa.has(k)) porPessoa.set(k, { nomeCompleto: nome, dias: new Set() });
-    for (const d of daFicha) porPessoa.get(k).dias.add(d);
+    mapa.set(k, mapa.has(k)
+      ? { nomeCompleto: mapa.get(k).nomeCompleto, dado: juntar(mapa.get(k).dado, dado) }
+      : { nomeCompleto: nome, dado });
   }
-
-  const lista = [...porPessoa.values()]
-    .map((x) => ({ nomeCompleto: x.nomeCompleto, aulas: x.dias.size }))
-    .sort((a, b) => b.aulas - a.aulas || a.nomeCompleto.localeCompare(b.nomeCompleto, 'pt-BR'));
-
-  // Posição de competição: 1, 1, 3.
-  lista.forEach((x, i) => {
-    x.posicao = i > 0 && lista[i - 1].aulas === x.aulas ? lista[i - 1].posicao : i + 1;
-  });
-
-  let corte = lista.slice(0, quantos);
-  const proximo = lista[quantos];
-  if (proximo && corte.length && corte[corte.length - 1].aulas === proximo.aulas) {
-    corte = corte.filter((x) => x.aulas !== proximo.aulas);
-  }
-  if (corte.length < MINIMO_NO_RANKING) return [];
-  return semRepetidos(corte);
+  return [...mapa.values()];
 }
 
-function rankings(hoje, quantos) {
-  if (!quantos) return [];
-  const saida = [];
-  const mes = Number(hoje.slice(5, 7));
-  const dia = Number(hoje.slice(8, 10));
+const uniao = (a, b) => new Set([...a, ...b]);
 
-  // Nos primeiros dias o mês corrente ainda não diz nada: entra o fechado do
-  // mês anterior, e o corrente só aparece quando já tiver gente suficiente.
-  if (dia <= DIAS_CAMPEOES_DO_MES_ANTERIOR) {
-    const fimAnterior = grade.somarDias(frequencia.inicioDoMes(hoje), -1);
-    const itens = rankingDaJanela(frequencia.inicioDoMes(fimAnterior), fimAnterior, quantos);
-    if (itens.length) {
-      saida.push({ tipo: 'ranking', parcial: false, mes: MESES[Number(fimAnterior.slice(5, 7)) - 1], itens });
-    }
+function diasNaJanela(de, ate) {
+  try { return historico.diasComPresenca({ de, ate }); } catch (e) {
+    log('ranking: presença falhou:', e.message);
+    return new Map();
   }
+}
 
-  const itens = rankingDaJanela(frequencia.inicioDoMes(hoje), hoje, quantos);
-  if (itens.length) saida.push({ tipo: 'ranking', parcial: true, mes: MESES[mes - 1], itens });
+/** Contagem de treinos (dias distintos) por pessoa numa janela. */
+function treinosPorPessoa(de, ate) {
+  const dias = diasNaJanela(de, ate);
+  return porPessoa((id) => (dias.get(id) && dias.get(id).size ? dias.get(id) : null), uniao)
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, dias: x.dado }));
+}
+
+function slide(tipo, rotulo, titulo, rodape, itens, extra = {}) {
+  return itens.length ? { tipo: 'ranking', ranking: tipo, rotulo, titulo, rodape, itens, ...extra } : null;
+}
+
+/** Linhas de pessoa: nome curto sem repetidos + valor para a tela. */
+function linhas(corte, fmt) {
+  return semRepetidos(corte).map((x) => ({ posicao: x.posicao, nome: x.nome, ...fmt(x) }));
+}
+
+/* 1. Mais frequentes do mês (e campeões do mês anterior nos primeiros dias) */
+function rankingDoMes(hoje, quantos) {
+  const saida = [];
+  const janela = (de, ate) => posicionar(
+    treinosPorPessoa(de, ate).map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dias.size })), quantos);
+  const fmt = (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'treino', 'treinos') });
+
+  if (Number(hoje.slice(8, 10)) <= DIAS_CAMPEOES_DO_MES_ANTERIOR) {
+    const fimAnterior = grade.somarDias(frequencia.inicioDoMes(hoje), -1);
+    const mes = mesDe(fimAnterior);
+    saida.push(slide('mes-anterior', `Ranking final · ${mes}`, `Campeões de ${mes}`,
+      'Resultado fechado do mês. Bora pra cima neste!',
+      linhas(janela(frequencia.inicioDoMes(fimAnterior), fimAnterior), fmt)));
+  }
+  saida.push(slide('mes', `Ranking do mês · ${mesDe(hoje)}`, 'Mais frequentes',
+    'Contando até hoje · cada dia com treino vale 1.',
+    linhas(janela(frequencia.inicioDoMes(hoje), hoje), fmt)));
+  return saida;
+}
+
+/* 2. Sequência de semanas com pelo menos 2 treinos */
+function rankingSequencia(hoje, quantos) {
+  const estaSemana = segundaDaSemana(hoje);
+  const inicio = grade.somarDias(estaSemana, -7 * (SEMANAS_NA_JANELA - 1));
+  const lista = [];
+  for (const p of treinosPorPessoa(inicio, hoje)) {
+    const porSemana = new Map();
+    for (const d of p.dias) {
+      const s = segundaDaSemana(d);
+      porSemana.set(s, (porSemana.get(s) || 0) + 1);
+    }
+    const ok = (s) => (porSemana.get(s) || 0) >= TREINOS_NA_SEMANA;
+    // A semana corrente ainda está em andamento: só entra se já bateu a meta.
+    let s = ok(estaSemana) ? estaSemana : grade.somarDias(estaSemana, -7);
+    let n = 0;
+    while (s >= inicio && ok(s)) { n += 1; s = grade.somarDias(s, -7); }
+    if (n >= 2) lista.push({ nomeCompleto: p.nomeCompleto, valor: n });
+  }
+  return slide('sequencia', 'Constância', 'Semanas seguidas',
+    `Semanas seguidas com pelo menos ${TREINOS_NA_SEMANA} treinos · a semana atual entra quando bater a meta.`,
+    linhas(posicionar(lista, quantos), (x) => ({
+      valor: x.valor >= SEMANAS_NA_JANELA ? `${x.valor}+` : x.valor,
+      unidade: unidade(x.valor, 'semana', 'semanas'),
+    })));
+}
+
+/* 3. Maior evolução: mesmo pedaço do mês, este contra o anterior */
+function rankingEvolucao(hoje, quantos) {
+  const dia = Number(hoje.slice(8, 10));
+  if (dia < EVOLUCAO_A_PARTIR_DO_DIA) return null;
+  const fimAnterior = grade.somarDias(frequencia.inicioDoMes(hoje), -1);
+  const iniAnterior = frequencia.inicioDoMes(fimAnterior);
+  // "Até o dia 23" nos dois meses; fevereiro com 28 dias para no 28.
+  const ateAnterior = `${fimAnterior.slice(0, 8)}${String(Math.min(dia, Number(fimAnterior.slice(8, 10)))).padStart(2, '0')}`;
+
+  const atual = diasNaJanela(frequencia.inicioDoMes(hoje), hoje);
+  const antes = diasNaJanela(iniAnterior, ateAnterior);
+  const par = (id) => {
+    const a = atual.get(id); const b = antes.get(id);
+    return (a && a.size) || (b && b.size) ? { a: a || new Set(), b: b || new Set() } : null;
+  };
+  const lista = porPessoa(par, (x, y) => ({ a: uniao(x.a, y.a), b: uniao(x.b, y.b) }))
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, agora: x.dado.a.size, antes: x.dado.b.size }))
+    // Aluno novo não tem de onde evoluir: o ranking é de quem já vinha.
+    .filter((x) => x.antes >= 1 && x.agora - x.antes >= EVOLUCAO_MINIMA)
+    .map((x) => ({ ...x, valor: x.agora - x.antes }));
+
+  const mesAnterior = mesDe(fimAnterior);
+  return slide('evolucao', 'Evolução', 'Quem mais subiu',
+    `Treinos até o dia ${dia}, comparado com o mesmo período de ${mesAnterior}.`,
+    linhas(posicionar(lista, quantos), (x) => ({
+      valor: `+${x.valor}`, unidade: unidade(x.valor, 'treino', 'treinos'),
+      detalhe: `${x.antes} → ${x.agora} treinos`,
+    })));
+}
+
+/* 4. Madrugadores: dias do mês com treino antes da hora limite */
+function rankingMadrugadores(hoje, quantos, limite) {
+  const de = frequencia.inicioDoMes(hoje);
+  const dias = diasNaJanela(de, hoje);
+  let horas;
+  try { horas = historico.horaMaisCedoPorDia({ de, ate: hoje }); } catch (e) {
+    log('madrugadores falhou:', e.message);
+    return null;
+  }
+  const cedo = (id) => {
+    const valendo = dias.get(id); const h = horas.get(id);
+    if (!valendo || !h) return null;
+    const s = new Set([...valendo].filter((d) => h.has(d) && h.get(d) < limite));
+    return s.size ? s : null;
+  };
+  const lista = porPessoa(cedo, uniao).map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado.size }));
+  const hora = limite.endsWith(':00') ? `${Number(limite.slice(0, 2))}h` : limite.replace(':', 'h');
+  return slide('madrugadores', `Madrugadores · ${mesDe(hoje)}`, `Treino antes das ${hora}`,
+    `Dias do mês com treino antes das ${hora}.`,
+    linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'dia', 'dias') })));
+}
+
+/* 5. Turmas mais cheias: média de presentes por horário, últimas 4 semanas */
+function rankingTurmas(hoje, quantos) {
+  const de = grade.somarDias(hoje, -(TURMAS_JANELA_DIAS - 1));
+  const porHorario = new Map();   // 'dia|hora' → Map(data → Set(telefone))
+  for (const p of agendaStore.listarPresencas({ de, ate: hoje })) {
+    const hora = String(p.hora || '').slice(0, 5);
+    if (!/^\d{2}:\d{2}$/.test(hora) || !p.data) continue;
+    const k = `${grade.diaDaSemana(p.data)}|${hora}`;
+    if (!porHorario.has(k)) porHorario.set(k, new Map());
+    const datas = porHorario.get(k);
+    if (!datas.has(p.data)) datas.set(p.data, new Set());
+    datas.get(p.data).add(p.telefone);
+  }
+  const lista = [];
+  for (const [k, datas] of porHorario) {
+    if (datas.size < TURMAS_MINIMO_DE_AULAS) continue;
+    let soma = 0;
+    for (const s of datas.values()) soma += s.size;
+    const [d, hora] = k.split('|');
+    lista.push({
+      nome: `${DIAS_SEMANA[Number(d)]} ${hora}`,
+      valor: Math.round((soma / datas.size) * 10) / 10,
+    });
+  }
+  const corte = posicionar(lista, quantos);
+  return slide('turmas', 'Turmas', 'Horários mais cheios',
+    'Média de alunos por aula nas últimas 4 semanas.',
+    corte.map((x) => ({
+      posicao: x.posicao, nome: x.nome,
+      valor: String(x.valor).replace('.', ','), unidade: 'alunos',
+    })), { pessoas: false });
+}
+
+/* 6. Veteranos: total de aulas desde sempre */
+function rankingVeteranos(quantos) {
+  let totais;
+  try { totais = historico.totais(); } catch (e) {
+    log('veteranos falhou:', e.message);
+    return null;
+  }
+  const lista = porPessoa((id) => totais.get(id) || null, (a, b) => a + b)
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado }));
+  return slide('veteranos', 'Hall da fama', 'Mais aulas no estúdio',
+    'Total de aulas desde que entrou no Team Rausch.',
+    linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'aula', 'aulas') })));
+}
+
+/** Top N configurado: 0 desliga, qualquer coisa estranha vira o padrão. */
+function topN(valor, padrao) {
+  const n = Number(valor === undefined ? padrao : valor);
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.round(n), 10) : 0;
+}
+
+function rankings(hoje, m) {
+  const saida = [];
+  const tenta = (nome, fn) => {
+    try {
+      const r = fn();
+      for (const s of [].concat(r || [])) if (s) saida.push(s);
+    } catch (e) { log(`ranking ${nome} falhou:`, e.message); }
+  };
+  const n = {
+    mes: topN(m.ranking, 10),
+    sequencia: topN(m.rankingSequencia, 10),
+    evolucao: topN(m.rankingEvolucao, 5),
+    madrugadores: topN(m.rankingMadrugadores, 5),
+    turmas: topN(m.rankingTurmas, 5),
+    veteranos: topN(m.rankingVeteranos, 10),
+  };
+  const limite = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(m.horaMadrugadores || '')) ? m.horaMadrugadores : '07:00';
+
+  if (n.mes) tenta('mes', () => rankingDoMes(hoje, n.mes));
+  if (n.sequencia) tenta('sequencia', () => rankingSequencia(hoje, n.sequencia));
+  if (n.evolucao) tenta('evolucao', () => rankingEvolucao(hoje, n.evolucao));
+  if (n.madrugadores) tenta('madrugadores', () => rankingMadrugadores(hoje, n.madrugadores, limite));
+  if (n.turmas) tenta('turmas', () => rankingTurmas(hoje, n.turmas));
+  if (n.veteranos) tenta('veteranos', () => rankingVeteranos(n.veteranos));
   return saida;
 }
 
@@ -299,8 +497,7 @@ function montar() {
   const aniv = aniversariantesDeHoje(hoje);
   const conq = conquistasRecentes(hoje);
   const avisos = avisosAtivos(hoje);
-  const rank = Number(m.ranking);
-  const ranks = rankings(hoje, Number.isFinite(rank) && rank > 0 ? Math.min(rank, 10) : 0);
+  const ranks = rankings(hoje, m);
 
   const slides = [];
   for (let i = 0; i < aniv.length; i += POR_SLIDE_ANIVERSARIO) {
