@@ -372,7 +372,7 @@
               podio = false;
               cel = '<div class="pos"><span class="ok' + (r.completo ? ' cheio' : '') + '"></span></div>';
             } else {
-              cel = '<div class="pos">' + (podio ? pos : pos + 'º') + '</div>';
+              cel = '<div class="pos">' + (!pos ? '' : podio ? pos : pos + 'º') + '</div>';
             }
             return '<div class="rlin' + (podio ? ' podio p' + pos : '') + (s.semPosicao && r.completo ? ' perfeito' : '') + '">'
               + cel
@@ -468,8 +468,14 @@
     catch (e) { return String(Math.random()); }
   }
 
+  var versaoCarregada = null;
   function aplicar(novo){
     if (!novo || typeof novo !== 'object') return;
+    // Deploy novo: recarrega a página para o desenho acompanhar o feed.
+    if (novo.versao) {
+      if (versaoCarregada && novo.versao !== versaoCarregada) { location.reload(); return; }
+      versaoCarregada = novo.versao;
+    }
     var mudou = assinatura(novo) !== assinatura(feed);
     feed = novo;
     paginas = paginar(feed.ativo === false ? [] : feed.slides);

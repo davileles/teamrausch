@@ -40,6 +40,9 @@ const agendaStore = require('./agenda-store');
 
 /** O feed é o mesmo para qualquer TV; montar de novo a cada pedido é à toa. */
 const CACHE_MS = 60 * 1000;
+
+/** Muda a cada deploy: o commit no Railway, ou a hora em que o processo subiu. */
+const VERSAO = String(process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 12) || String(Date.now());
 let cache = { em: 0, feed: null };
 
 function log(...a) { console.log(new Date().toISOString(), '[mural-tv]', ...a); }
@@ -681,6 +684,9 @@ function montar() {
 
   const segundos = Number(m.segundosPorSlide);
   return {
+    // A TV compara com a versão que carregou e se recarrega sozinha quando o
+    // servidor muda. Sem isso, feed novo + página velha dava "0º" na tela.
+    versao: VERSAO,
     geradoEm: new Date().toISOString(),
     data: hoje,
     estudio: (c.estudio || {}).nome || '',
