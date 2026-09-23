@@ -804,6 +804,59 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
 
   /* ------------------------- créditos de reposição ------------------------ */
 
+  /* --------------------------- histórico do aluno -------------------------- */
+
+  /**
+   * Linha do tempo de um aluno: check-ins do Wellhub e confirmações do totem,
+   * dia a dia. Só consulta — a cobrança continua lendo apenas o check-in.
+   *
+   * `?de=AAAA-MM-DD&ate=AAAA-MM-DD` recortam; sem eles vem tudo o que está
+   * guardado (check-in: CHECKINS_RETENCAO_DIAS; totem: 180 dias).
+   *
+   * Conta compartilhada: o check-in cai na ficha do titular, então a ficha do
+   * dependente mostra só o totem e avisa de quem é a conta.
+   */
+  rotas.get('/:id/historico', (req, res) => {
+    const m = store.porId(req.params.id);
+    if (!m) return res.status(404).json({ erro: 'Matrícula não encontrada.' });
+    const dataOk = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : undefined);
+    const de = dataOk(req.query.de);
+    const ate = dataOk(req.query.ate);
+
+    const dias = new Map();
+    const dia = (data) => {
+      if (!dias.has(data)) dias.set(data, { data, checkins: [], totem: [] });
+      return dias.get(data);
+    };
+    for (const c of checkins.listar({ matriculaId: m.id, de, ate, limite: 20000 })) {
+      dia(c.data).checkins.push({ hora: c.hora || null, produto: c.produto || null, origem: c.origem || null });
+    }
+    for (const p of presencas.daMatricula(m.id, { de, ate })) {
+      const { data, ...resto } = p;
+      dia(data).totem.push(resto);
+    }
+    for (const d of dias.values()) {
+      d.checkins.sort((a, b) => String(a.hora).localeCompare(String(b.hora)));
+    }
+
+    const lista = [...dias.values()].sort((a, b) => b.data.localeCompare(a.data));
+    const titular = m.contaDe ? store.porId(m.contaDe) : null;
+    res.json({
+      matriculaId: m.id,
+      nome: m.nome,
+      vinculo: m.vinculo || 'mensalista',
+      contaDe: titular ? { id: titular.id, nome: titular.nome } : null,
+      retencaoTotemDias: 180,
+      dias: lista,
+      totais: {
+        checkins: lista.reduce((s, d) => s + d.checkins.length, 0),
+        diasTotem: lista.filter((d) => d.totem.length).length,
+        diasTotemSemCheckin: lista.filter((d) => d.totem.length && !d.checkins.length).length,
+        diasCheckinSemTotem: lista.filter((d) => d.checkins.length && !d.totem.length).length,
+      },
+    });
+  });
+
   /** Saldo e extrato de uma matrícula. */
   rotas.get('/:id/creditos', (req, res) => {
     const m = store.porId(req.params.id);

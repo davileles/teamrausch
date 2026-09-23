@@ -2012,6 +2012,8 @@ function fichaMatricula(m){
     </div>
     ${(m.revisar||[]).length ? `<p class="ajuda alerta-rev">⚠︎ ${m.revisar.map(esc).join(' · ')}<br>
       <span style="opacity:.75">Da planilha: ${esc(m.freqOriginal||'—')}</span></p>` : ''}
+    ${novo ? '' : `<button type="button" class="leve mf-historico" style="margin-top:12px;width:100%">
+      Histórico de presença (totem + check-in)</button>`}
     ${novo ? '' : blocoAcesso(m)}
     ${novo ? '' : blocoMesclar(m)}
     <div class="rodape">
@@ -2372,6 +2374,9 @@ function ligarFicha(el, id){
       redesenhar();
     }catch(e){ avisar(e.message,'erro'); }
   });
+
+  const hist = el.querySelector('.mf-historico');
+  if (hist) hist.addEventListener('click', ()=>abrirHistoricoAluno(id));
 
   const inat = el.querySelector('.mf-inativar');
   if (inat) inat.addEventListener('click', async ()=>{
@@ -3555,6 +3560,96 @@ async function abrirCheckinsDoMes(a, janela){
   }catch(e){
     if (document.body.contains(painel)) corpo.innerHTML = `<p class="ajuda">${esc(e.message)}</p>`;
   }
+}
+
+/* -------------------------- histórico do aluno --------------------------- */
+
+/**
+ * Linha do tempo de um aluno: totem e check-in do Wellhub lado a lado, dia a
+ * dia, agrupados por mês. Só consulta — a cobrança continua sendo só check-in.
+ * O destaque ⚠︎ marca aluno Wellhub que confirmou no totem e não tem check-in
+ * no dia, o mesmo cruzamento da Lista do dia.
+ */
+async function abrirHistoricoAluno(id){
+  const painel = abrirPainel('Histórico de presença', '<p class="ajuda">Carregando…</p>');
+  const corpo = painel.querySelector('.corpo');
+  try{
+    const h = await api('/matriculas/'+encodeURIComponent(id)+'/historico');
+    if (!document.body.contains(painel)) return;
+    painel.querySelector('.topo').textContent = `${h.nome} · histórico de presença`;
+    corpo.innerHTML = corpoHistoricoAluno(h);
+    const b = corpo.querySelector('.hist-csv');
+    if (b) b.addEventListener('click', ()=>{
+      const linhas = [];
+      for (const d of h.dias.slice().reverse()){
+        const n = Math.max(d.totem.length, d.checkins.length, 1);
+        for (let i=0;i<n;i++){
+          const t = d.totem[i] || {}, c = d.checkins[i] || {};
+          linhas.push([d.data, t.hora||'', t.chegada||'', t.liberado ? (t.liberadoPor||'sim') : '',
+            c.hora||'', c.produto||'']);
+        }
+      }
+      baixarCsv(`historico-${String(h.nome).replace(/\s+/g,'-').toLowerCase()}.csv`,
+        ['Data','Aula (totem)','Chegada','Liberado por','Check-in','Produto'], linhas);
+    });
+  }catch(e){
+    if (document.body.contains(painel)) corpo.innerHTML = `<p class="ajuda">${esc(e.message)}</p>`;
+  }
+}
+
+function corpoHistoricoAluno(h){
+  const wellhub = h.vinculo === 'wellhub';
+  const t = h.totais;
+  const topo = `
+    <p class="ajuda" style="margin:0 0 8px"><b>${h.dias.length}</b> dia(s) com registro ·
+      <b>${t.diasTotem}</b> no totem · <b>${t.checkins}</b> check-in(s)${wellhub && t.diasTotemSemCheckin
+        ? ` · <b>${t.diasTotemSemCheckin}</b> dia(s) no totem sem check-in` : ''}.</p>
+    ${h.contaDe ? `<p class="ajuda" style="margin:0 0 8px">Conta compartilhada: os check-ins
+      caem na ficha de <b>${esc(h.contaDe.nome)}</b>, por isso aqui aparece só o totem.</p>` : ''}
+    <p class="ajuda" style="margin:0 0 10px">O totem guarda os últimos ${h.retencaoTotemDias} dias;
+      antes disso só aparecem os check-ins. A cobrança continua contando só o check-in.</p>
+    ${h.dias.length ? '<button type="button" class="leve hist-csv" style="margin-bottom:12px">Exportar CSV</button>' : ''}`;
+  if (!h.dias.length) return topo + '<p class="ajuda">Nenhum registro de totem ou check-in.</p>';
+
+  const meses = new Map();
+  for (const d of h.dias){
+    const k = d.data.slice(0,7);
+    if (!meses.has(k)) meses.set(k, []);
+    meses.get(k).push(d);
+  }
+
+  const celTotem = (lista)=> lista.length
+    ? lista.map(p=>`${esc(p.hora||'—')}${p.chegada ? `<span class="fraco"> · chegou ${esc(p.chegada)}</span>` : ''}${
+        p.liberado ? `<span class="fraco"> · liberado${p.liberadoPor ? ' por '+esc(p.liberadoPor) : ''}</span>` : ''}`).join('<br>')
+    : '<span class="fraco">—</span>';
+  const celCheckin = (lista)=> lista.length
+    ? lista.map(c=>`${esc(c.hora||'—')}${c.produto ? `<span class="fraco"> · ${esc(c.produto)}</span>` : ''}`).join('<br>')
+    : '<span class="fraco">—</span>';
+
+  let html = topo;
+  for (const [mes, dias] of meses){
+    const nT = dias.filter(d=>d.totem.length).length;
+    const nC = dias.reduce((s,d)=>s+d.checkins.length,0);
+    const nSem = dias.filter(d=>d.totem.length && !d.checkins.length).length;
+    const linhas = dias.map(d=>{
+      const semCheckin = wellhub && !h.contaDe && d.totem.length && !d.checkins.length;
+      const dow = DIA_LONGO[new Date(d.data+'T12:00:00Z').getUTCDay()];
+      return `<tr>
+        <td>${dataCurta(d.data)} <span class="fraco">${dow.slice(0,3)}</span></td>
+        <td>${celTotem(d.totem)}</td>
+        <td>${celCheckin(d.checkins)}${semCheckin ? ' <b title="Veio e não fez check-in">⚠︎</b>' : ''}</td>
+      </tr>`;
+    }).join('');
+    html += `
+      <h4 style="margin:14px 0 6px;text-transform:capitalize">${rotuloMes(mes)}</h4>
+      <p class="ajuda" style="margin:0 0 6px">${nT} dia(s) no totem · ${nC} check-in(s)${
+        wellhub && !h.contaDe && nSem ? ` · ${nSem} sem check-in` : ''}</p>
+      <table class="freq-tabela" style="margin-bottom:6px">
+        <thead><tr><th>Dia</th><th>Totem</th><th>Check-in</th></tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>`;
+  }
+  return html;
 }
 
 /* ------------------------------ mês a dia -------------------------------- */

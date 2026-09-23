@@ -173,7 +173,34 @@ function doDia(data) {
   return { registros, porFinal, semCheckinWellhub };
 }
 
+/**
+ * Todas as confirmações do totem de uma ficha, para o histórico do aluno.
+ *
+ * A presença é gravada pelo telefone digitado no tablet, não pela matrícula.
+ * O casamento é o mesmo da Lista do dia (`matriculas.porTelefone`), então o
+ * que aparece aqui é exatamente o que apareceu com o nome dele em cada dia.
+ * Serve só para consulta: não entra na cobrança (ver cabeçalho do arquivo).
+ */
+function daMatricula(matriculaId, { de, ate } = {}) {
+  const fuso = config.ler().estudio.fuso;
+  const fichas = new Map();
+  const saida = [];
+  for (const p of agendaStore.listarPresencas({ de, ate })) {
+    if (!fichas.has(p.telefone)) fichas.set(p.telefone, matriculas.porTelefone(p.telefone) || null);
+    const m = fichas.get(p.telefone);
+    if (!m || m.id !== matriculaId) continue;
+    saida.push({
+      data: p.data,
+      hora: p.hora,
+      chegada: horaLocal(p.criadoEm, fuso),
+      liberado: p.origem === 'totem-liberado',
+      liberadoPor: p.liberadoPor ? (nomeDoAdmin(p.liberadoPor) || null) : null,
+    });
+  }
+  return saida.sort((a, b) => b.data.localeCompare(a.data) || String(a.hora).localeCompare(String(b.hora)));
+}
+
 module.exports = {
   mapaPorMatricula, datasDaMatricula, vinculosComDado, vinculoParaPainel,
-  situacao, doDia, finalDoTelefone,
+  situacao, doDia, finalDoTelefone, daMatricula,
 };
