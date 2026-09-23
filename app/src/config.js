@@ -118,6 +118,18 @@ const PADRAO = {
     mensagem: '',
   },
   /**
+   * RESUMO PARA O GRUPO DO OPERADOR
+   *
+   * Conquistas e metas do mês não avisam o grupo na hora: juntam num resumo
+   * que sai nos horários abaixo — fim do ciclo da manhã (5h–14h) e fim do
+   * ciclo da tarde (21h). Check-in individual, aniversariantes e relatório
+   * diário continuam como antes.
+   */
+  resumoGrupo: {
+    ativo: true,
+    horas: ['14:00', '21:00'],
+  },
+  /**
    * BOAS-VINDAS AO EXPERIMENTAL
    *
    * Aluno marcado como experimental, com telefone e com a primeira aula

@@ -45,7 +45,6 @@ const alertasFrequencia = require('./alertas-frequencia');
 const frequencia = require('./frequencia');
 const modelos = require('./mensagens-store');
 const telefone = require('./telefone');
-const poller = require('./poller-portal');
 const grade = require('./grade');
 const { enviarTexto, preencher } = require('./mensageiro');
 
@@ -170,19 +169,13 @@ function quemFechou(ate) {
 
 async function avisarGrupo(saiu) {
   if (cfg().avisarGrupo === false || !saiu.length) return;
-  const linhas = saiu.map((s) => `• ${s.nome} — ${s.realizado}/${s.meta} em ${s.mesNome}`);
-  const corpo = [
-    saiu.length === 1 ? '🎯 Meta do mês batida' : `🎯 Metas do mês batidas (${saiu.length})`,
-    '',
-    ...linhas,
-    '',
-    'O agradecimento já foi para o WhatsApp de cada um.',
-  ];
+  // Não vai para o grupo na hora: entra no resumo das 14h/21h
+  // (`resumo-grupo.js`), para o grupo do operador não virar um rolo de avisos.
   try {
-    await poller.enviarWhatsApp(corpo.join('\n'));
+    require('./resumo-grupo').metas(saiu);
   } catch (e) {
     // O aviso é registro, não o trabalho: as mensagens já saíram.
-    log('não consegui avisar o grupo —', e.message);
+    log('não consegui guardar para o resumo do grupo —', e.message);
   }
 }
 

@@ -13,6 +13,7 @@ const relatorioDiario = require('./relatorio-diario');
 const agendadorMensagens = require('./agendador-mensagens');
 const conquistas = require('./conquistas-mensagens');
 const metaMensal = require('./meta-mensal-mensagens');
+const resumoGrupo = require('./resumo-grupo');
 const boasVindasExperimental = require('./boas-vindas-experimental');
 const planilhaAlunos = require('./planilha-alunos');
 const configApp = require('./config');
@@ -699,5 +700,6 @@ app.listen(PORTA, () => {
   relatorioDiario.iniciar(); // fechamento do dia anterior para o grupo do operador
   conquistas.iniciar(); // parabéns automático quando o aluno bate um marco de aulas
   metaMensal.iniciar(); // agradecimento quando o aluno Wellhub fecha a meta de check-ins do mês
+  resumoGrupo.iniciar(); // resumo das conquistas e metas para o grupo do operador, às 14h e 21h
   boasVindasExperimental.iniciar(); // obrigado pela aula experimental, uma vez por aluno
 });

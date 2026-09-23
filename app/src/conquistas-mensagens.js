@@ -42,7 +42,6 @@ const matriculas = require('./matriculas-store');
 const modelos = require('./mensagens-store');
 const telefone = require('./telefone');
 const frequencia = require('./frequencia');
-const poller = require('./poller-portal');
 const { enviarTexto, preencher } = require('./mensageiro');
 
 const DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
@@ -149,19 +148,13 @@ function textoDoMarco(marco, ficha, proximo, total) {
 
 async function avisarGrupo(saiu) {
   if (cfg().avisarGrupo === false || !saiu.length) return;
-  const linhas = saiu.map((s) => `• ${s.nome} — ${s.emoji} ${s.conquista} (${s.aulas} aulas)`);
-  const corpo = [
-    saiu.length === 1 ? '🏅 Nova conquista' : `🏅 Novas conquistas (${saiu.length})`,
-    '',
-    ...linhas,
-    '',
-    'A mensagem de parabéns já foi para o WhatsApp de cada um. Vale puxar o assunto na porta.',
-  ];
+  // Não vai para o grupo na hora: entra no resumo das 14h/21h
+  // (`resumo-grupo.js`), para o grupo do operador não virar um rolo de avisos.
   try {
-    await poller.enviarWhatsApp(corpo.join('\n'));
+    require('./resumo-grupo').conquistas(saiu);
   } catch (e) {
     // O aviso é registro, não o trabalho: as mensagens já saíram.
-    log('não consegui avisar o grupo —', e.message);
+    log('não consegui guardar para o resumo do grupo —', e.message);
   }
 }
 
