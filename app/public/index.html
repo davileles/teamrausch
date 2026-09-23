@@ -5724,6 +5724,44 @@ async function carregarConfig(){
       <p class="ajuda"><b>A primeira noite não envia nada.</b> Quem já fechou a meta deste mês
         antes do recurso existir é só anotado. A partir daí, só quem fechar depois.</p>
 
+      <h3>Boas-vindas ao experimental</h3>
+      <p class="ajuda">Aluno marcado como experimental recebe um obrigado no WhatsApp assim que a
+        primeira aula dele for contada (check-in ou tablet) e houver telefone na ficha. Uma vez
+        por aluno. Ligado, substitui a conquista "Primeira aula" para quem é experimental.</p>
+      <div class="dupla">
+        <div class="campo"><label for="c-exp-ativo">Boas-vindas automática</label>
+          <select id="c-exp-ativo">
+            <option value="1"${(c.experimentalAviso||{}).ativo===false?'':' selected'}>Ligado</option>
+            <option value="0"${(c.experimentalAviso||{}).ativo===false?' selected':''}>Desligado</option>
+          </select></div>
+        <div class="campo"><label for="c-exp-grupo">Resumo para o estúdio</label>
+          <select id="c-exp-grupo">
+            <option value="1"${(c.experimentalAviso||{}).avisarGrupo===false?'':' selected'}>Sim — avisar quem recebeu</option>
+            <option value="0"${(c.experimentalAviso||{}).avisarGrupo===false?' selected':''}>Não</option>
+          </select></div>
+      </div>
+      <div class="dupla">
+        <div class="campo"><label for="c-exp-inicio">Envia a partir de</label>
+          <input id="c-exp-inicio" type="time" value="${esc((c.experimentalAviso||{}).inicio || '08:00')}"></div>
+        <div class="campo"><label for="c-exp-fim">Até</label>
+          <input id="c-exp-fim" type="time" value="${esc((c.experimentalAviso||{}).fim || '21:00')}">
+          <p class="ajuda">Fora da janela, fica para a manhã seguinte.</p></div>
+      </div>
+      <div class="campo"><label for="c-exp-dias">Prazo após o cadastro (dias)</label>
+        <input id="c-exp-dias" type="number" min="1" max="60" value="${esc(String((c.experimentalAviso||{}).diasMaximos || 7))}">
+        <p class="ajuda">Ficha criada há mais tempo que isso não recebe — o telefone preenchido semanas depois
+          não gera um "obrigado por ter vindo" fora de hora.</p></div>
+      <div class="campo"><label for="c-exp-texto">Texto das boas-vindas</label>
+        <textarea id="c-exp-texto" maxlength="900" style="min-height:120px"
+          placeholder="Vazio usa o texto padrão">${esc((c.experimentalAviso||{}).mensagem || '')}</textarea>
+        <p class="ajuda">Marcadores: <code>{{nome}}</code>, <code>{{nomeCompleto}}</code>,
+          <code>{{estudio}}</code> e <code>{{noEstudio}}</code> (vira " no Nome do Estúdio").
+          Vazio usa o texto padrão.</p></div>
+      <button class="leve" id="c-exp-previa">Ver quem receberia agora</button>
+      <div id="c-exp-previa-saida" class="ajuda" style="white-space:pre-wrap;margin-top:8px"></div>
+      <p class="ajuda"><b>A primeira passada não envia nada.</b> Quem já está como experimental
+        quando o recurso entra é só anotado. A partir daí, só quem for cadastrado depois.</p>
+
       <h3>Envio automático de mensagens</h3>
       <div class="dupla">
         <div class="campo"><label for="c-msg-ativo">Agendador</label>
@@ -5892,6 +5930,25 @@ async function carregarConfig(){
       }catch(e){ saida.textContent = 'Não consegui consultar: ' + (e.message || e); }
     });
 
+    document.getElementById('c-exp-previa').addEventListener('click', async ()=>{
+      const saida = document.getElementById('c-exp-previa-saida');
+      saida.textContent = 'Consultando…';
+      try{
+        const r = await api('/admin/experimental/previa');
+        const lista = r.pendentes || [];
+        if (!lista.length) { saida.textContent = 'Ninguém para receber agora.'; return; }
+        if (r.seraSemeado) {
+          saida.textContent = 'Primeira passada: estes serão só anotados, sem envio.\n\n'
+            + lista.map(p=>`• ${p.nome}`).join('\n');
+          return;
+        }
+        const comTexto = lista.find(p=>p.telefone) || lista[0];
+        saida.textContent = (r.foraDaJanela ? 'Fora da janela de horário agora — sai na próxima.\n\n' : '')
+          + lista.map(p=>`• ${p.nome}${p.telefone ? '' : ' ⚠️ sem telefone'}`).join('\n')
+          + '\n\nTexto para ' + comTexto.nome + ':\n' + comTexto.texto;
+      }catch(e){ saida.textContent = 'Não consegui consultar: ' + (e.message || e); }
+    });
+
     document.getElementById('c-add-aviso-tv').addEventListener('click', ()=>{
       document.getElementById('lista-avisos-tv')
         .insertAdjacentHTML('beforeend', linhaAvisoTv());
@@ -6039,6 +6096,14 @@ async function salvarConfig(){
 
   const corpo = {
     conquistas,
+    experimentalAviso: {
+      ativo: v('c-exp-ativo') === '1',
+      avisarGrupo: v('c-exp-grupo') === '1',
+      inicio: v('c-exp-inicio') || '08:00',
+      fim: v('c-exp-fim') || '21:00',
+      diasMaximos: Number(v('c-exp-dias')) || 7,
+      mensagem: document.getElementById('c-exp-texto').value,
+    },
     metaMensalAviso: {
       ativo: v('c-meta-ativo') === '1',
       hora: v('c-meta-hora') || '20:45',

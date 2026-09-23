@@ -58,6 +58,11 @@ function cfg() {
 
 function ativo() { return cfg().ativo !== false; }
 
+/** Lido direto da config para não criar require circular com o módulo. */
+function boasVindasLigada() {
+  try { return (config.ler().experimentalAviso || {}).ativo !== false; } catch (e) { return true; }
+}
+
 function hora() { return String(cfg().hora || '20:30'); }
 
 function pausaMs() {
@@ -188,8 +193,19 @@ async function rodarAgora(opcoes = {}) {
 
     const avisados = jaAvisados(ficha.id);
     const alcancados = marcos.filter((m) => total >= m.aulas);
-    const novos = alcancados.filter((m) => !avisados.has(m.aulas));
+    let novos = alcancados.filter((m) => !avisados.has(m.aulas));
     if (!novos.length) continue;
+
+    // Experimental recebe a boas-vindas de `boas-vindas-experimental.js` no
+    // lugar do marco de 1 aula — as duas diriam quase o mesmo no mesmo dia.
+    // O marco é anotado em silêncio para não sair depois que a pessoa deixar
+    // de ser experimental. Com a boas-vindas desligada, vale a conquista.
+    if (ficha.experimental && boasVindasLigada()) {
+      const primeira = novos.filter((m) => m.aulas === 1);
+      if (primeira.length && !simulacao && !semear) anotar(ficha.id, primeira);
+      novos = novos.filter((m) => m.aulas !== 1);
+      if (!novos.length) continue;
+    }
 
     if (semear) { anotar(ficha.id, novos); continue; }
 

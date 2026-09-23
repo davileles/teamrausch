@@ -25,6 +25,7 @@ const presencas = require('./presencas');
 const alertas = require('./alertas-frequencia');
 const mensagens = require('./mensagens-store');
 const poller = require('./poller-portal');
+const gatilhos = require('./gatilhos-mensagens');
 
 module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   const rotas = express.Router();
@@ -378,6 +379,8 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     const v = checkins.vincular(c.id, r.matricula.id);
     if (!v.ok) return res.status(400).json({ erro: v.motivo });
 
+    if (r.matricula.experimental) gatilhos.cadastro();
+
     res.status(201).json({
       ok: true,
       matricula: ficha(store.porId(r.matricula.id)),
@@ -442,6 +445,8 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     const r = store.criar(req.body || {});
     if (!r.ok) return res.status(400).json({ erro: r.motivo });
     sincronizarNascimento(r.matricula);
+    // Boas-vindas do experimental: sai assim que houver aula e telefone.
+    if (r.matricula.experimental) gatilhos.cadastro();
     res.status(201).json(ficha(r.matricula));
   });
 
@@ -462,6 +467,9 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     }
 
     sincronizarNascimento(r.matricula);
+    // Marcou experimental ou preencheu o telefone agora: a boas-vindas não
+    // precisa esperar a varredura de 5 min.
+    if (r.matricula.experimental) gatilhos.cadastro();
     res.json(ficha(r.matricula));
   });
 

@@ -14,6 +14,7 @@ const poller = require('./poller-portal');
 const historicoAulas = require('./historico-aulas');
 const conquistas = require('./conquistas-mensagens');
 const metaMensal = require('./meta-mensal-mensagens');
+const boasVindasExperimental = require('./boas-vindas-experimental');
 
 const rotas = express.Router();
 
@@ -1208,6 +1209,29 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     novo.metaMensalAviso = mm;
   }
 
+  if (novo.experimentalAviso !== undefined) {
+    const ex = novo.experimentalAviso || {};
+    const hora = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (ex.inicio !== undefined && !hora.test(String(ex.inicio))) {
+      return res.status(400).json({ erro: 'Início da janela das boas-vindas inválido. Use HH:MM.' });
+    }
+    if (ex.fim !== undefined && !hora.test(String(ex.fim))) {
+      return res.status(400).json({ erro: 'Fim da janela das boas-vindas inválido. Use HH:MM.' });
+    }
+    if (ex.inicio !== undefined && ex.fim !== undefined && String(ex.inicio) >= String(ex.fim)) {
+      return res.status(400).json({ erro: 'A janela das boas-vindas precisa começar antes de terminar.' });
+    }
+    if (ex.diasMaximos !== undefined) {
+      const erro = faixa(ex.diasMaximos, 1, 60, 'Prazo das boas-vindas');
+      if (erro) return res.status(400).json({ erro });
+      ex.diasMaximos = Math.round(Number(ex.diasMaximos));
+    }
+    if (ex.ativo !== undefined) ex.ativo = Boolean(ex.ativo);
+    if (ex.avisarGrupo !== undefined) ex.avisarGrupo = Boolean(ex.avisarGrupo);
+    if (ex.mensagem !== undefined) ex.mensagem = String(ex.mensagem).slice(0, 900);
+    novo.experimentalAviso = ex;
+  }
+
   // Janela do tablet da entrada. Zero dos dois lados é uma janela fechada: a
   // confirmação passaria a ser recusada sempre, e o tablet viraria uma tela que
   // só sabe dizer não. O teto de 240 é o que impede a aula das 6h aceitar
@@ -1426,6 +1450,30 @@ rotas.get('/admin/meta-mensal/previa', exigirLogin, exigirAdmin, async (_req, re
 rotas.post('/admin/meta-mensal/rodar', exigirLogin, exigirAdmin, async (_req, res) => {
   try {
     res.json(await metaMensal.rodar({}));
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+/* ----------------------- boas-vindas do experimental ---------------------- */
+
+rotas.get('/admin/experimental/situacao', exigirLogin, exigirAdmin, (_req, res) => {
+  res.json(boasVindasExperimental.situacao());
+});
+
+/** Quem receberia a boas-vindas agora e com que texto. Não envia nem anota. */
+rotas.get('/admin/experimental/previa', exigirLogin, exigirAdmin, async (_req, res) => {
+  try {
+    res.json(await boasVindasExperimental.rodar({ avisar: false }));
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+/** Disparo manual, ignorando a janela de horário. */
+rotas.post('/admin/experimental/rodar', exigirLogin, exigirAdmin, async (_req, res) => {
+  try {
+    res.json(await boasVindasExperimental.rodar({ ignorarJanela: true }));
   } catch (e) {
     res.status(500).json({ erro: e.message });
   }

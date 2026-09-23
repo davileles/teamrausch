@@ -38,6 +38,7 @@ async function rodarTudo(origens) {
   const modulos = [
     ['conquistas', require('./conquistas-mensagens')],
     ['meta-mensal', require('./meta-mensal-mensagens')],
+    ['experimental', require('./boas-vindas-experimental')],
   ];
   for (const [nome, mod] of modulos) {
     try {
@@ -67,4 +68,11 @@ function aulaNova(origem = 'desconhecida') {
   timer.unref?.();
 }
 
-module.exports = { aulaNova };
+/**
+ * Matrícula criada ou editada (experimental marcado, telefone preenchido).
+ * Mesma espera e mesma passada da aula nova: a boas-vindas do experimental
+ * sai sem esperar a varredura de 5 min.
+ */
+function cadastro() { aulaNova('cadastro'); }
+
+module.exports = { aulaNova, cadastro };

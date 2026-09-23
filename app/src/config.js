@@ -118,6 +118,24 @@ const PADRAO = {
     mensagem: '',
   },
   /**
+   * BOAS-VINDAS AO EXPERIMENTAL
+   *
+   * Aluno marcado como experimental, com telefone e com a primeira aula
+   * contada recebe um obrigado no WhatsApp — uma vez só. Sai entre `inicio` e
+   * `fim`; ficha criada há mais de `diasMaximos` dias não recebe. Ligado, pula
+   * a conquista "Primeira aula" para o experimental. `mensagem` vazia usa o
+   * texto padrão de `boas-vindas-experimental.js`. Marcadores: {{nome}},
+   * {{nomeCompleto}}, {{estudio}} e {{noEstudio}} (" no <estúdio>").
+   */
+  experimentalAviso: {
+    ativo: true,
+    inicio: '08:00',
+    fim: '21:00',
+    diasMaximos: 7,
+    avisarGrupo: true,
+    mensagem: '',
+  },
+  /**
    * TABLET DA ENTRADA
    *
    * Quanto tempo ao redor do horário da aula a confirmação de presença vale.
