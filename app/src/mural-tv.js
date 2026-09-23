@@ -397,7 +397,7 @@ function rankingMadrugadores(hoje, quantos, limite) {
   }, (x, y) => ({ cedo: uniao(x.cedo, y.cedo), todos: uniao(x.todos, y.todos) }))
     .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado.cedo.size, desempate: x.dado.todos.size }));
   const hora = limite.endsWith(':00') ? `${Number(limite.slice(0, 2))}h` : limite.replace(':', 'h');
-  return slide('madrugadores', `Madrugadores · ${mesDe(hoje)}`, `Treino antes das ${hora}`,
+  return slide('madrugadores', `Treino antes das ${hora} · ${mesDe(hoje)}`, 'Madrugadores',
     `Dias do mês com treino antes das ${hora} · empate: quem treinou mais no mês.`,
     linhas(posicionar(lista, quantos), (x) => ({
       valor: x.valor, unidade: unidade(x.valor, 'dia', 'dias'), detalhe: `${x.desempate} treinos no mês`,
