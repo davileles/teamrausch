@@ -55,7 +55,7 @@
   .relogio b{display:block;font:400 2.8rem/1 Anton,'Arial Narrow',sans-serif;letter-spacing:.04em}
   .relogio span{font:500 1.3rem/1.2 'Work Sans',sans-serif;color:var(--apagado)}
 
-  .palco{position:absolute;top:calc(var(--seguro-y) + var(--topo));bottom:calc(1.2rem + var(--seguro-y));left:0;right:0;overflow:hidden}
+  .palco{position:absolute;top:calc(var(--seguro-y) + var(--topo));bottom:calc(3.4rem + var(--seguro-y));left:0;right:0;overflow:hidden}
   .slide{position:absolute;inset:0;padding:var(--margem-y) var(--margem-x);
     display:flex;opacity:0;transition:opacity .7s ease}
   .slide.ativo{opacity:1}
@@ -159,9 +159,12 @@
   .vazio .titulo{font-size:4.4rem}
   .vazio p{margin-top:1.4rem;font:500 1.6rem 'Work Sans',sans-serif;color:var(--apagado)}
 
-  .barra{position:absolute;left:0;right:0;bottom:0;height:.8rem;background:var(--superficie)}
+  /* Barra de tempo dentro da área segura: colada no rodapé ela caía no
+     overscan e a TV do estúdio cortava. Mais grossa para ler do fundo. */
+  .barra{position:absolute;left:var(--margem-x);right:var(--margem-x);bottom:var(--seguro-y);
+    height:1.1rem;background:var(--superficie);border-radius:.55rem;overflow:hidden}
   .barra i{display:block;height:100%;width:0;background:var(--vermelho)}
-  .pontos{position:absolute;right:var(--margem-x);bottom:calc(.6rem + var(--seguro-y));display:flex;
+  .pontos{position:absolute;right:var(--margem-x);bottom:calc(2rem + var(--seguro-y));display:flex;
     align-items:center;gap:.55rem;
     font:600 1.1rem 'Work Sans',sans-serif;letter-spacing:.18em;color:var(--apagado)}
   .pontos i{width:.65rem;height:.65rem;border-radius:50%;background:var(--linha)}
