@@ -215,24 +215,36 @@ function segundaDaSemana(data) {
   return grade.somarDias(data, -((grade.diaDaSemana(data) + 6) % 7));
 }
 
+/** Empate na linha de corte: até quantos a mais ainda cabem na tela. */
+const FOLGA_NO_CORTE = 5;
+
 /**
  * Ordena, numera e corta.
  *
  * EMPATE
- *   Empatados dividem a posição (1º, 1º, 3º). Se o corte do Top N cair no meio
- *   de um empate, o grupo empatado sai inteiro: tirar só um deles por ordem
- *   alfabética seria a TV escolhendo quem merece aparecer.
+ *   Empatados dividem a posição (1º, 1º, 3º). `desempate` (opcional) é um
+ *   segundo critério que vale mostrar na tela (ex.: treinos dentro da
+ *   sequência); só empata quem empata nos dois.
+ *
+ *   Se o corte do Top N cair no meio de um empate, o grupo empatado entra
+ *   inteiro enquanto couber a folga (Top 10 vira até 15 linhas). Passou
+ *   disso, o grupo sai inteiro: tirar só alguns por ordem alfabética seria a
+ *   TV escolhendo quem merece aparecer.
  */
 function posicionar(lista, quantos) {
-  lista.sort((a, b) => b.valor - a.valor
+  const d = (x) => Number(x.desempate) || 0;
+  const igual = (a, b) => a.valor === b.valor && d(a) === d(b);
+  lista.sort((a, b) => b.valor - a.valor || d(b) - d(a)
     || String(a.nomeCompleto || a.nome).localeCompare(String(b.nomeCompleto || b.nome), 'pt-BR'));
   lista.forEach((x, i) => {
-    x.posicao = i > 0 && lista[i - 1].valor === x.valor ? lista[i - 1].posicao : i + 1;
+    x.posicao = i > 0 && igual(lista[i - 1], x) ? lista[i - 1].posicao : i + 1;
   });
   let corte = lista.slice(0, quantos);
   const proximo = lista[quantos];
-  if (proximo && corte.length && corte[corte.length - 1].valor === proximo.valor) {
-    corte = corte.filter((x) => x.valor !== proximo.valor);
+  if (proximo && corte.length && igual(corte[corte.length - 1], proximo)) {
+    const grupo = lista.filter((x) => igual(x, proximo));
+    corte = lista.slice(0, quantos + grupo.filter((x) => lista.indexOf(x) >= quantos).length);
+    if (corte.length > quantos + FOLGA_NO_CORTE) corte = corte.filter((x) => !igual(x, proximo));
   }
   return corte.length < MINIMO_NO_RANKING ? [] : corte;
 }
@@ -316,15 +328,18 @@ function rankingSequencia(hoje, quantos) {
     const ok = (s) => (porSemana.get(s) || 0) >= TREINOS_NA_SEMANA;
     // A semana corrente ainda está em andamento: só entra se já bateu a meta.
     let s = ok(estaSemana) ? estaSemana : grade.somarDias(estaSemana, -7);
-    let n = 0;
-    while (s >= inicio && ok(s)) { n += 1; s = grade.somarDias(s, -7); }
-    if (n >= 2) lista.push({ nomeCompleto: p.nomeCompleto, valor: n });
+    let n = 0; let treinos = 0;
+    while (s >= inicio && ok(s)) { n += 1; treinos += porSemana.get(s); s = grade.somarDias(s, -7); }
+    // A semana corrente conta nos treinos mesmo antes de bater a meta.
+    if (!ok(estaSemana)) treinos += porSemana.get(estaSemana) || 0;
+    if (n >= 2) lista.push({ nomeCompleto: p.nomeCompleto, valor: n, desempate: treinos });
   }
   return slide('sequencia', 'Constância', 'Semanas seguidas',
-    `Semanas seguidas com pelo menos ${TREINOS_NA_SEMANA} treinos · a semana atual entra quando bater a meta.`,
+    `Semanas seguidas com pelo menos ${TREINOS_NA_SEMANA} treinos · empate: quem treinou mais na sequência.`,
     linhas(posicionar(lista, quantos), (x) => ({
       valor: x.valor >= SEMANAS_NA_JANELA ? `${x.valor}+` : x.valor,
       unidade: unidade(x.valor, 'semana', 'semanas'),
+      detalhe: `${x.desempate} treinos na sequência`,
     })));
 }
 
@@ -373,11 +388,17 @@ function rankingMadrugadores(hoje, quantos, limite) {
     const s = new Set([...valendo].filter((d) => h.has(d) && h.get(d) < limite));
     return s.size ? s : null;
   };
-  const lista = porPessoa(cedo, uniao).map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado.size }));
+  const lista = porPessoa((id) => {
+    const s = cedo(id);
+    return s ? { cedo: s, todos: dias.get(id) } : null;
+  }, (x, y) => ({ cedo: uniao(x.cedo, y.cedo), todos: uniao(x.todos, y.todos) }))
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado.cedo.size, desempate: x.dado.todos.size }));
   const hora = limite.endsWith(':00') ? `${Number(limite.slice(0, 2))}h` : limite.replace(':', 'h');
   return slide('madrugadores', `Madrugadores · ${mesDe(hoje)}`, `Treino antes das ${hora}`,
-    `Dias do mês com treino antes das ${hora}.`,
-    linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'dia', 'dias') })));
+    `Dias do mês com treino antes das ${hora} · empate: quem treinou mais no mês.`,
+    linhas(posicionar(lista, quantos), (x) => ({
+      valor: x.valor, unidade: unidade(x.valor, 'dia', 'dias'), detalhe: `${x.desempate} treinos no mês`,
+    })));
 }
 
 /* 5. Turmas mais cheias: média de presentes por horário, últimas 4 semanas */
@@ -553,7 +574,12 @@ function diagnostico() {
   });
   tenta('sequencia', () => {
     const r = rankingSequencia(hoje, 50);
-    return { pessoasComSequenciaDe2Mais: r ? r.itens.length : 0 };
+    const t = rankingSequencia(hoje, 10);
+    return { pessoasComSequenciaDe2Mais: r ? r.itens.length : 0, noTop10: t ? t.itens.length : 0 };
+  });
+  tenta('madrugadoresTop', () => {
+    const r = rankingMadrugadores(hoje, 5, m.horaMadrugadores || '07:00');
+    return { noTop5: r ? r.itens.length : 0 };
   });
   tenta('presenca', () => {
     const dia = Number(hoje.slice(8, 10));
