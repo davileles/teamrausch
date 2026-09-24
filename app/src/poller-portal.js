@@ -54,6 +54,8 @@ const EMAIL_FROM = process.env.RESEND_FROM || 'Wellhub Alertas <onboarding@resen
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const ARQ_ESTADO = path.join(DATA_DIR, 'poller-portal.json');
 /** Aviso na hora quando alguém entra pelo produto que paga menos. */
+/** Dias antes do fim da sessão do portal em que o aviso começa (1x por dia). */
+const AVISO_SESSAO_DIAS = Number(process.env.WELLHUB_PORTAL_AVISO_DIAS || 3);
 const ALERTA_FUNCIONAL = String(process.env.FUNCIONAL_ALERTA_ATIVO || 'true') === 'true';
 
 function log(...a) { console.log(new Date().toISOString(), '[poller-portal]', ...a); }
@@ -65,6 +67,7 @@ function log(...a) { console.log(new Date().toISOString(), '[poller-portal]', ..
 const estado = {
   autoConfirmar: AUTO_PADRAO,
   atualizadoEm: null,
+  avisoSessaoEm: null, // dia (AAAA-MM-DD) do último aviso de sessão perto do fim
   ultimoCiclo: null,   // relatório do último ciclo (memória, não persistido)
 };
 
@@ -73,6 +76,7 @@ const estado = {
     const bruto = JSON.parse(fs.readFileSync(ARQ_ESTADO, 'utf8'));
     if (typeof bruto.autoConfirmar === 'boolean') estado.autoConfirmar = bruto.autoConfirmar;
     estado.atualizadoEm = bruto.atualizadoEm || null;
+    estado.avisoSessaoEm = bruto.avisoSessaoEm || null;
     log(`estado lido do disco: auto-confirmar=${estado.autoConfirmar}`);
   } catch (e) {
     log(`sem estado no disco; usando o padrão do ambiente: auto-confirmar=${AUTO_PADRAO}`);
@@ -85,6 +89,7 @@ function gravarEstado() {
     fs.writeFileSync(ARQ_ESTADO, JSON.stringify({
       autoConfirmar: estado.autoConfirmar,
       atualizadoEm: estado.atualizadoEm,
+      avisoSessaoEm: estado.avisoSessaoEm,
     }, null, 2));
   } catch (e) {
     log('não consegui gravar o estado no volume:', e.message);
@@ -100,6 +105,7 @@ function situacao() {
     padraoDoAmbiente: AUTO_PADRAO,
     atualizadoEm: estado.atualizadoEm,
     slug: portal.SLUG || null,
+    sessao: portal.situacaoSessao(),
     emailAviso: EMAIL_DESTINO,
     emailsAviso: emailsDestino(),
     telefonesAviso: telefonesDestino(),
@@ -462,11 +468,14 @@ async function rodarUmaVez(opcoes = {}) {
     rel.erro = 'renovarSessao: ' + e.message;
     if (querAvisar) {
       await avisar('⚠️ Wellhub: falha ao renovar sessão',
-        'Não consegui renovar a sessão do portal. O refresh_token pode ter expirado — '
-        + 'gere um novo no portal e atualize WELLHUB_PORTAL_REFRESH_TOKEN no Railway.');
+        'Não consegui renovar a sessão do portal e os check-ins pararam de ser confirmados. '
+        + 'O refresh_token expirou — gere um novo no portal e cole em /wellhub/poller/sessao '
+        + '(sem redeploy) ou atualize WELLHUB_PORTAL_REFRESH_TOKEN no Railway.\n\n'
+        + 'Motivo: ' + e.message);
     }
     return rel;
   }
+  await avisarSessaoPertoDoFim(querAvisar);
 
   let pendentes;
   try {
@@ -587,6 +596,29 @@ async function rodarUmaVez(opcoes = {}) {
   }
 
   return rel;
+}
+
+/**
+ * A sessão do portal tem prazo máximo desde o login (~35 dias). Nos últimos
+ * AVISO_SESSAO_DIAS dias avisa uma vez por dia, para trocar o token antes de
+ * os check-ins pararem de ser confirmados.
+ */
+async function avisarSessaoPertoDoFim(querAvisar) {
+  const s = portal.situacaoSessao();
+  if (!querAvisar || s.diasRestantes === null || s.diasRestantes > AVISO_SESSAO_DIAS) return;
+  const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  if (estado.avisoSessaoEm === hoje) return;
+  estado.avisoSessaoEm = hoje;
+  gravarEstado();
+  const quando = new Date(s.expiraEm).toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  const prazo = s.diasRestantes <= 0 ? 'hoje' : `em ${s.diasRestantes} dia(s)`;
+  log(`sessão do portal vence ${prazo} (${quando}).`);
+  await avisar('⏳ Wellhub: sessão do portal perto de vencer',
+    `A sessão do portal Wellhub vence ${prazo} (${quando}). Depois disso os check-ins `
+    + 'param de ser confirmados.\n\nGere um refresh_token novo no portal e cole em '
+    + '/wellhub/poller/sessao — não precisa de redeploy.');
 }
 
 function iniciar() {
