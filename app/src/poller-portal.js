@@ -249,36 +249,30 @@ async function enviarWhatsApp(texto) {
     }));
   }
 
+  // Carregado aqui dentro para não criar ciclo de require na subida.
+  const { postarWhatsApp } = require('./mensageiro');
   const resultados = [];
   for (const telefone of telefones) {
-    const controle = new AbortController();
-    const timer = setTimeout(() => controle.abort(), 10000);
-    try {
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(token ? { authorization: /^Bearer /i.test(token) ? token : `Bearer ${token}` } : {}),
-        },
-        // `destino` atende telefone e grupo; `telefone` continua indo junto
-        // para o caso de o serviço de WhatsApp ainda ser o de antes.
-        body: JSON.stringify({ destino: telefone, telefone, mensagem: texto }),
-        signal: controle.signal,
-      });
-      const corpo = (await r.text().catch(() => '')).slice(0, 200);
-      if (!r.ok) {
-        log('WhatsApp recusado para', telefone, '-', r.status, corpo);
-        resultados.push({ telefone, ok: false, status: r.status, erro: corpo || `HTTP ${r.status}` });
-      } else {
-        log('WhatsApp enviado para', telefone);
-        resultados.push({ telefone, ok: true, status: r.status });
-      }
-    } catch (e) {
-      const motivo = motivoDeRede(e);
+    const r = await postarWhatsApp(url, {
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: /^Bearer /i.test(token) ? token : `Bearer ${token}` } : {}),
+      },
+      // `destino` atende telefone e grupo; `telefone` continua indo junto
+      // para o caso de o serviço de WhatsApp ainda ser o de antes.
+      body: JSON.stringify({ destino: telefone, telefone, mensagem: texto }),
+      timeoutMs: 30000,
+    });
+    if (r.ok) {
+      log('WhatsApp enviado para', telefone, r.tentativas > 1 ? `(na tentativa ${r.tentativas})` : '');
+      resultados.push({ telefone, ok: true, status: r.status });
+    } else if (r.status == null && r.erroRede && r.erroRede.name !== 'AbortError') {
+      const motivo = `${motivoDeRede(r.erroRede)}${r.tentativas > 1 ? ` — ${r.tentativas} tentativas` : ''}`;
       log('falha ao avisar WhatsApp', telefone, '-', motivo);
       resultados.push({ telefone, ok: false, erro: motivo });
-    } finally {
-      clearTimeout(timer);
+    } else {
+      log('WhatsApp recusado para', telefone, '-', r.motivo);
+      resultados.push({ telefone, ok: false, status: r.status, erro: r.motivo });
     }
   }
   return resultados;

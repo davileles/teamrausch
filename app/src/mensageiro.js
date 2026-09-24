@@ -2,6 +2,82 @@
 
 const config = require('./config');
 
+/* ------------------------------------------------------------------------- *
+ *  POST AO SERVIÇO DE WHATSAPP, COM NOVA TENTATIVA SEGURA
+ *
+ *  O serviço de WhatsApp (pasta whatsapp/) reinicia de vez em quando — deploy,
+ *  queda do Baileys. Nessa janela o proxy do Railway devolve 502/503 com
+ *  "upstream connect error ...". Antes a mensagem se perdia ali.
+ *
+ *  Regra para não mandar duas vezes ao aluno:
+ *    - repete quando é CERTO que nada saiu: erro de rede antes da resposta
+ *      (conexão recusada/caída), resposta do proxy sem o serviço (texto não
+ *      JSON em 502/503/504) ou o próprio serviço dizendo podeRepetir=true;
+ *    - NÃO repete quando o serviço diz podeRepetir=false (envio ambíguo) nem
+ *      quando o nosso prazo estourou (o serviço pode ter enviado depois).
+ * ------------------------------------------------------------------------- */
+const ESPERAS_ENTRE_TENTATIVAS = [3000, 8000]; // 3 tentativas no total
+const REDE_REPETIVEL = ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'UND_ERR_SOCKET'];
+
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Lê a resposta de erro: JSON do nosso serviço ou texto do proxy do Railway. */
+function lerFalha(status, texto) {
+  let json = null;
+  try { json = JSON.parse(texto); } catch (_) { json = null; }
+  if (json && typeof json === 'object' && (json.erro || json.error)) {
+    const repetir = typeof json.podeRepetir === 'boolean' ? json.podeRepetir : status === 503;
+    return { motivo: `${json.erro || json.error} (HTTP ${status})`, repetir };
+  }
+  const proxy = /upstream connect error|no healthy upstream|application failed to respond|connection termination|bad gateway|service unavailable/i.test(texto);
+  if (proxy || [502, 503, 504].includes(status)) {
+    return { motivo: `Serviço de WhatsApp fora do ar ou reiniciando (HTTP ${status}).`, repetir: [502, 503, 504].includes(status) };
+  }
+  return { motivo: `Envio recusado (HTTP ${status}): ${String(texto || '').slice(0, 200)}`, repetir: false };
+}
+
+/**
+ * Faz o POST com até 3 tentativas. Devolve
+ *   { ok, status, corpo, motivo, tentativas, erroRede }
+ * sem lançar exceção.
+ */
+async function postarWhatsApp(url, { headers, body, timeoutMs = 10000 }) {
+  let ultimo = null;
+  for (let i = 0; i <= ESPERAS_ENTRE_TENTATIVAS.length; i++) {
+    if (i > 0) await dormir(ESPERAS_ENTRE_TENTATIVAS[i - 1]);
+    const controle = new AbortController();
+    const t = setTimeout(() => controle.abort(), timeoutMs);
+    let repetir = false;
+    try {
+      const r = await fetch(url, { method: 'POST', headers, body, signal: controle.signal });
+      const corpo = await r.text().catch(() => '');
+      if (r.ok) return { ok: true, status: r.status, corpo, tentativas: i + 1 };
+      const falha = lerFalha(r.status, corpo);
+      ultimo = { ok: false, status: r.status, corpo: corpo.slice(0, 200), motivo: falha.motivo };
+      repetir = falha.repetir;
+    } catch (erro) {
+      const codigo = erro.cause && (erro.cause.code || erro.cause.errno);
+      if (erro.name === 'AbortError') {
+        // Pode ter saído depois do nosso prazo: repetir arriscaria duplicar.
+        ultimo = { ok: false, status: null, motivo: 'O serviço de WhatsApp não respondeu a tempo.', erroRede: erro };
+        repetir = false;
+      } else {
+        ultimo = { ok: false, status: null, motivo: `Sem conexão com o serviço de WhatsApp (${codigo || erro.message}).`, erroRede: erro };
+        repetir = REDE_REPETIVEL.includes(codigo) || erro.message === 'fetch failed';
+      }
+    } finally {
+      clearTimeout(t);
+    }
+    ultimo.tentativas = i + 1;
+    if (!repetir) break;
+    if (i < ESPERAS_ENTRE_TENTATIVAS.length) {
+      console.warn(`[whatsapp] tentativa ${i + 1} falhou (${ultimo.motivo}); tentando de novo.`);
+    }
+  }
+  if (ultimo.tentativas > 1) ultimo.motivo = `${ultimo.motivo.replace(/\.$/, '')} — ${ultimo.tentativas} tentativas.`;
+  return ultimo;
+}
+
 /** Preenche {{marcadores}} num texto. */
 function preencher(modelo, valores) {
   return String(modelo || '').replace(/\{\{(\w+)\}\}/g, (_, chave) =>
@@ -39,29 +115,16 @@ async function enviarCodigo(telefone, codigo) {
     codigo,
   });
 
-  const controle = new AbortController();
-  const t = setTimeout(() => controle.abort(), 10000);
-  try {
-    const r = await fetch(c.envio.url, {
-      method: 'POST', headers: cabecalhos, body: corpo, signal: controle.signal,
-    });
-    if (!r.ok) {
-      const texto = (await r.text().catch(() => '')).slice(0, 200);
-      console.error('[codigo] envio recusado:', r.status, texto);
-      return {
-        ok: false,
-        motivo: r.status === 503
-          ? 'O envio de códigos está fora do ar. Fale com o estúdio.'
-          : 'Não consegui enviar o código agora. Tente de novo em instantes.',
-      };
-    }
-    return { ok: true, canal: c.acesso.canalDoCodigo };
-  } catch (erro) {
-    console.error('[codigo] falha no envio:', erro.message);
-    return { ok: false, motivo: 'Não consegui enviar o código agora.' };
-  } finally {
-    clearTimeout(t);
-  }
+  const r = await postarWhatsApp(c.envio.url, { headers: cabecalhos, body: corpo, timeoutMs: 10000 });
+  if (r.ok) return { ok: true, canal: c.acesso.canalDoCodigo };
+  console.error('[codigo] envio falhou:', r.motivo);
+  if (r.status == null) return { ok: false, motivo: 'Não consegui enviar o código agora.' };
+  return {
+    ok: false,
+    motivo: r.status === 503
+      ? 'O envio de códigos está fora do ar. Fale com o estúdio.'
+      : 'Não consegui enviar o código agora. Tente de novo em instantes.',
+  };
 }
 
 /**
@@ -116,24 +179,13 @@ async function enviarTexto(telefone, mensagem, opcoes = {}) {
     corpo = JSON.stringify(objeto);
   }
 
-  const controle = new AbortController();
   // Com arquivo o serviço de WhatsApp ainda precisa subir a mídia para o
   // servidor do WhatsApp antes de responder — 10 s não bastam para um PDF grande.
-  const t = setTimeout(() => controle.abort(), anexo ? 90000 : 10000);
-  try {
-    const r = await fetch(c.envio.url, {
-      method: 'POST', headers: cabecalhos, body: corpo, signal: controle.signal,
-    });
-    if (!r.ok) {
-      const texto = (await r.text().catch(() => '')).slice(0, 200);
-      return { ok: false, motivo: `Envio recusado (HTTP ${r.status}): ${texto}` };
-    }
-    return { ok: true };
-  } catch (erro) {
-    return { ok: false, motivo: erro.name === 'AbortError' ? 'O serviço de WhatsApp não respondeu a tempo.' : erro.message };
-  } finally {
-    clearTimeout(t);
-  }
+  // 30 s para texto cobre a espera pela reconexão e a fila do serviço.
+  const r = await postarWhatsApp(c.envio.url, { headers: cabecalhos, body: corpo, timeoutMs: anexo ? 90000 : 30000 });
+  if (r.ok) return { ok: true, tentativas: r.tentativas };
+  console.warn(`[whatsapp] não saiu para ${numero}: ${r.motivo}`);
+  return { ok: false, motivo: r.motivo };
 }
 
-module.exports = { enviarCodigo, enviarTexto, preencher };
+module.exports = { enviarCodigo, enviarTexto, preencher, postarWhatsApp };

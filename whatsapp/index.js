@@ -36,6 +36,41 @@ let situacao = 'iniciando'; // iniciando | aguardando-qr | conectado | desconect
 let numeroConectado = null;
 let tentativas = 0;
 
+/* --------------------------- diagnóstico -------------------------------- */
+// Tudo o que ajuda a entender uma falha sem abrir o log do Railway: aparece
+// em GET /status. Nenhum dado de aluno entra aqui.
+const ESPERA_CONEXAO_MS = Number(process.env.ESPERA_CONEXAO_MS || 5000);
+const ENVIO_TIMEOUT_MS = Number(process.env.ENVIO_TIMEOUT_MS || 25000);
+const ENVIO_TIMEOUT_ANEXO_MS = Number(process.env.ENVIO_TIMEOUT_ANEXO_MS || 85000);
+const iniciadoEm = new Date().toISOString();
+let situacaoDesde = Date.now();
+let conectadoEm = null;
+let ultimaQueda = null;          // { em, codigo, motivo }
+let reconexoes = 0;
+let timerReconexao = null;
+let encerrando = false;
+let errosSoltos = 0;
+let ultimoErro = null;           // { em, tipo, mensagem }
+const errosRecentes = [];        // timestamps, para detectar rajada
+const envios = { ok: 0, falhas: 0, ultimoOk: null, ultimaFalha: null };
+
+function mudarSituacao(nova) {
+  if (situacao !== nova) situacaoDesde = Date.now();
+  situacao = nova;
+}
+
+/** Nome legível do código de queda do Baileys (401 → loggedOut etc.). */
+function nomeDaQueda(codigo) {
+  if (!codigo) return 'sem código';
+  const nome = Object.keys(DisconnectReason).find((k) => DisconnectReason[k] === codigo);
+  return nome ? `${nome} (${codigo})` : `código ${codigo}`;
+}
+
+function anotarFalhaDeEnvio(fase, mensagem) {
+  envios.falhas += 1;
+  envios.ultimaFalha = { em: new Date().toISOString(), fase, mensagem: String(mensagem || '').slice(0, 200) };
+}
+
 /* ------------------------- reenvio (retry) ------------------------------ */
 // Quando o celular do destinatário não consegue decifrar a mensagem, ele pede
 // ao remetente para mandar de novo. O Baileys só atende se `getMessage`
@@ -110,23 +145,27 @@ function carregarContatos() {
   }
 }
 
+function gravarContatosAgora() {
+  try {
+    fs.mkdirSync(PASTA, { recursive: true });
+    const corpo = JSON.stringify({
+      atualizadoEm: new Date().toISOString(),
+      total: nomes.size,
+      contatos: Object.fromEntries(nomes),
+    }, null, 2);
+    const temp = `${ARQUIVO_CONTATOS}.tmp`;
+    fs.writeFileSync(temp, corpo);
+    fs.renameSync(temp, ARQUIVO_CONTATOS);
+  } catch (erro) {
+    log('falha ao gravar o caderno de nomes:', erro.message);
+  }
+}
+
 function gravarContatos() {
   if (gravacaoNomes) return;
   gravacaoNomes = setTimeout(() => {
     gravacaoNomes = null;
-    try {
-      fs.mkdirSync(PASTA, { recursive: true });
-      const corpo = JSON.stringify({
-        atualizadoEm: new Date().toISOString(),
-        total: nomes.size,
-        contatos: Object.fromEntries(nomes),
-      }, null, 2);
-      const temp = `${ARQUIVO_CONTATOS}.tmp`;
-      fs.writeFileSync(temp, corpo);
-      fs.renameSync(temp, ARQUIVO_CONTATOS);
-    } catch (erro) {
-      log('falha ao gravar o caderno de nomes:', erro.message);
-    }
+    gravarContatosAgora();
   }, 3000);
   if (gravacaoNomes.unref) gravacaoNomes.unref();
 }
@@ -160,12 +199,38 @@ carregarContatos();
 
 /* ----------------------------- conexão ---------------------------------- */
 
+/** Fecha o socket atual SEM deslogar. Tira os ouvintes antes para o 'close' não agendar outra reconexão. */
+function fecharSocket() {
+  if (!socket) return;
+  const velho = socket;
+  socket = null;
+  try { velho.ev.removeAllListeners(); } catch (_) { /* nada */ }
+  try { velho.end(undefined); } catch (_) { /* nada */ }
+}
+
+/** Uma reconexão agendada por vez: timers duplicados abriam dois sockets na mesma sessão. */
+function agendarReconexao(espera) {
+  if (encerrando) return;
+  if (timerReconexao) clearTimeout(timerReconexao);
+  timerReconexao = setTimeout(() => {
+    timerReconexao = null;
+    conectar().catch((e) => {
+      log('falha ao reconectar:', e.message);
+      tentativas += 1;
+      agendarReconexao(Math.min(60000, 2000 * tentativas));
+    });
+  }, espera);
+}
+
 async function conectar() {
+  if (encerrando) return;
+  if (timerReconexao) { clearTimeout(timerReconexao); timerReconexao = null; }
+  fecharSocket();
   fs.mkdirSync(PASTA_SESSAO, { recursive: true });
   const { state, saveCreds } = await useMultiFileAuthState(PASTA_SESSAO);
   const { version } = await fetchLatestBaileysVersion();
 
-  socket = makeWASocket({
+  const meu = makeWASocket({
     version,
     auth: state,
     logger: registro,
@@ -174,6 +239,7 @@ async function conectar() {
     getMessage: buscarEnviada,
     msgRetryCounterCache,
   });
+  socket = meu;
 
   socket.ev.on('creds.update', saveCreds);
 
@@ -205,15 +271,19 @@ async function conectar() {
   socket.ev.on('connection.update', (u) => {
     const { connection, lastDisconnect, qr } = u;
 
+    if (meu !== socket) return; // evento atrasado de um socket já descartado
+
     if (qr) {
       qrAtual = qr;
-      situacao = 'aguardando-qr';
+      mudarSituacao('aguardando-qr');
       log('QR novo disponível em /qr');
     }
 
     if (connection === 'open') {
       qrAtual = null;
-      situacao = 'conectado';
+      mudarSituacao('conectado');
+      if (conectadoEm) reconexoes += 1;
+      conectadoEm = new Date().toISOString();
       tentativas = 0;
       numeroConectado = (socket.user && socket.user.id || '').split(':')[0] || null;
       log('conectado como', numeroConectado);
@@ -223,17 +293,41 @@ async function conectar() {
       const motivo = lastDisconnect && lastDisconnect.error
         && lastDisconnect.error.output && lastDisconnect.error.output.statusCode;
 
+      ultimaQueda = {
+        em: new Date().toISOString(),
+        codigo: motivo || null,
+        motivo: nomeDaQueda(motivo),
+        detalhe: String((lastDisconnect && lastDisconnect.error && lastDisconnect.error.message) || '').slice(0, 200),
+      };
+      mudarSituacao('desconectado');
+
       if (motivo === DisconnectReason.loggedOut) {
-        situacao = 'desconectado';
-        log('sessão encerrada no celular. Apague a pasta da sessão e leia o QR de novo.');
+        // A sessão não volta mais. Guardamos uma cópia (para diagnóstico) e
+        // subimos limpo: o QR novo aparece em Configurações → Técnica.
+        log('sessão encerrada no celular (loggedOut). Arquivando a sessão e gerando QR novo.');
+        try {
+          const arquivo = path.join(PASTA, 'sessao-encerrada');
+          fs.rmSync(arquivo, { recursive: true, force: true });
+          if (fs.existsSync(PASTA_SESSAO)) fs.renameSync(PASTA_SESSAO, arquivo);
+        } catch (e) {
+          log('não consegui arquivar a sessão:', e.message);
+        }
+        numeroConectado = null;
+        agendarReconexao(3000);
         return;
       }
 
-      situacao = 'desconectado';
+      if (motivo === DisconnectReason.connectionReplaced) {
+        log('conexão substituída (440): outra instância abriu esta mesma sessão. '
+          + 'Confira RAILWAY_DEPLOYMENT_OVERLAP_SECONDS=0 no serviço.');
+      }
+
       tentativas += 1;
-      const espera = Math.min(60000, 2000 * tentativas);
-      log(`conexão caiu (${motivo}). Tentando de novo em ${espera / 1000}s`);
-      setTimeout(() => conectar().catch((e) => log('falha ao reconectar:', e.message)), espera);
+      const espera = motivo === DisconnectReason.restartRequired
+        ? 1000
+        : Math.min(60000, 2000 * tentativas);
+      log(`conexão caiu (${ultimaQueda.motivo}). Tentando de novo em ${espera / 1000}s`);
+      agendarReconexao(espera);
     }
   });
 }
@@ -286,16 +380,50 @@ async function descobrirJid(telefone) {
     ? [telefone, `55${ddd}${resto.slice(1)}`]
     : [`55${ddd}9${resto}`, telefone];
 
+  let falhas = 0;
   for (const numero of opcoes) {
     try {
       const achados = await socket.onWhatsApp(numero);
       const bom = (achados || []).find((r) => r.exists);
       if (bom) return bom.jid;
     } catch (e) {
+      falhas += 1;
       log('onWhatsApp falhou para', numero, '-', e.message);
     }
   }
+  // Se TODAS as consultas deram erro, não sabemos se o número tem WhatsApp:
+  // é problema de conexão, e pode repetir. Antes isso virava
+  // "Esse número não tem WhatsApp", o que mandava procurar o erro no lugar errado.
+  if (falhas === opcoes.length) {
+    const e = new Error('Não consegui consultar o número no WhatsApp (conexão instável).');
+    e.fase = 'consulta';
+    throw e;
+  }
   return null;
+}
+
+/** Espera o WhatsApp voltar por até `ms` — cobre a reconexão rápida depois de uma queda. */
+async function esperarConexao(ms) {
+  const limite = Date.now() + ms;
+  while (Date.now() < limite) {
+    if (situacao === 'conectado' && socket) return true;
+    if (encerrando) return false;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return situacao === 'conectado' && Boolean(socket);
+}
+
+/** Promise com prazo. Sem isso, um sendMessage travado segurava a fila inteira para sempre. */
+function comPrazo(promessa, ms, fase) {
+  let timer;
+  const prazo = new Promise((_, rejeitar) => {
+    timer = setTimeout(() => {
+      const e = new Error(`O WhatsApp não confirmou o envio em ${Math.round(ms / 1000)}s.`);
+      e.fase = fase;
+      rejeitar(e);
+    }, ms);
+  });
+  return Promise.race([promessa, prazo]).finally(() => clearTimeout(timer));
 }
 
 /* ------------------------------ rotas ----------------------------------- */
@@ -357,8 +485,22 @@ app.get('/status', (_req, res) => {
     numero: numeroConectado,
     temQr: Boolean(qrAtual),
     naFila: fila.length,
+    // diagnóstico
+    situacaoHaS: Math.round((Date.now() - situacaoDesde) / 1000),
+    iniciadoEm,
+    ativoHaS: Math.round(process.uptime()),
+    conectadoEm,
+    reconexoes,
+    ultimaQueda,
+    errosSoltos,
+    ultimoErro,
+    envios,
+    memoriaMb: Math.round(process.memoryUsage().rss / 1048576),
   });
 });
+
+/** Só diz se o processo está vivo. Serve de healthcheck: não depende do WhatsApp estar conectado. */
+app.get('/health', (_req, res) => res.json({ vivo: true, situacao }));
 
 /** Página para ler o QR pelo navegador, sem depender do log do Railway. */
 app.get('/qr', exigirToken, async (_req, res) => {
@@ -476,9 +618,25 @@ app.get('/contatos', exigirToken, (_req, res) => {
   res.json({ total: lista.length, contatos: lista });
 });
 
+/*
+ * CONTRATO DE ERRO DO /enviar
+ *   Todo erro volta { erro, fase, podeRepetir }.
+ *   podeRepetir=true  → nada saiu; o app pode tentar de novo com segurança.
+ *   podeRepetir=false → ou o pedido é inválido, ou o envio é AMBÍGUO (pode ter
+ *                       saído): repetir arriscaria mandar duas vezes ao aluno.
+ */
 app.post('/enviar', exigirToken, lerCorpoComAnexo, async (req, res) => {
-  if (situacao !== 'conectado') {
-    return res.status(503).json({ erro: 'WhatsApp desconectado. Leia o QR em /qr.' });
+  if (encerrando) {
+    return res.status(503).json({ erro: 'Serviço de WhatsApp reiniciando.', fase: 'conexao', podeRepetir: true });
+  }
+  if (situacao !== 'conectado' && !(await esperarConexao(ESPERA_CONEXAO_MS))) {
+    anotarFalhaDeEnvio('conexao', `WhatsApp ${situacao}`);
+    const dica = situacao === 'aguardando-qr' ? ' Leia o QR em Configurações → Técnica.' : '';
+    return res.status(503).json({
+      erro: `WhatsApp desconectado (${situacao}).${dica}`,
+      fase: 'conexao',
+      podeRepetir: true,
+    });
   }
 
   // `destino` e o nome novo, que aceita telefone OU JID de grupo. `telefone`
@@ -489,33 +647,56 @@ app.post('/enviar', exigirToken, lerCorpoComAnexo, async (req, res) => {
   const mensagem = String(req.body.mensagem || '').trim();
   const anexo = req.body.anexo && typeof req.body.anexo === 'object' ? req.body.anexo : null;
   if (!ehGrupo && !telefone) {
-    return res.status(400).json({ erro: 'Destino inválido. Use telefone com DDD ou um JID de grupo (…@g.us).' });
+    return res.status(400).json({ erro: 'Destino inválido. Use telefone com DDD ou um JID de grupo (…@g.us).', fase: 'validacao', podeRepetir: false });
   }
   // Com anexo a legenda é opcional: uma imagem sozinha já é a mensagem.
-  if (!mensagem && !anexo) return res.status(400).json({ erro: 'Mensagem vazia.' });
+  if (!mensagem && !anexo) return res.status(400).json({ erro: 'Mensagem vazia.', fase: 'validacao', podeRepetir: false });
 
   const montado = montarConteudo(mensagem, anexo);
-  if (!montado.ok) return res.status(400).json({ erro: montado.motivo });
+  if (!montado.ok) return res.status(400).json({ erro: montado.motivo, fase: 'validacao', podeRepetir: false });
 
   const alvo = ehGrupo ? bruto : telefone;
   try {
     const resultado = await enfileirar(async () => {
+      // Pode ter caído enquanto esperava na fila.
+      if (situacao !== 'conectado' || !socket) {
+        const e = new Error(`WhatsApp caiu antes do envio (${situacao}).`);
+        e.fase = 'conexao';
+        throw e;
+      }
       // Grupo ja e o proprio endereco; so telefone precisa da consulta do
       // nono dígito.
-      const jid = ehGrupo ? bruto : await descobrirJid(telefone);
+      const jid = ehGrupo ? bruto : await comPrazo(descobrirJid(telefone), 15000, 'consulta');
       if (!jid) return { ok: false, motivo: 'Esse número não tem WhatsApp.' };
-      const r = await socket.sendMessage(jid, montado.conteudo);
+      const r = await comPrazo(
+        socket.sendMessage(jid, montado.conteudo),
+        anexo ? ENVIO_TIMEOUT_ANEXO_MS : ENVIO_TIMEOUT_MS,
+        'envio',
+      );
       guardarEnviada(r);
       log('[envio]', r && r.key && r.key.id, '→', jid);
       return { ok: true, id: r && r.key && r.key.id, jid };
     });
 
-    if (!resultado.ok) return res.status(404).json({ erro: resultado.motivo });
+    if (!resultado.ok) {
+      anotarFalhaDeEnvio('destino', resultado.motivo);
+      return res.status(404).json({ erro: resultado.motivo, fase: 'destino', podeRepetir: false });
+    }
+    envios.ok += 1;
+    envios.ultimoOk = new Date().toISOString();
     log('enviado para', alvo, anexo ? `(com anexo ${anexo.mimetype || '?'})` : '');
     res.json({ enviado: true, id: resultado.id });
   } catch (erro) {
-    log('falha no envio:', erro.message);
-    res.status(502).json({ erro: 'Não consegui enviar a mensagem.' });
+    const fase = erro.fase || 'envio';
+    // conexão/consulta: nada saiu. envio: pode ter saído — não repetir.
+    const seguro = fase === 'conexao' || fase === 'consulta';
+    log(`falha no envio para ${alvo} [${fase}]:`, erro.message);
+    anotarFalhaDeEnvio(fase, erro.message);
+    res.status(seguro ? 503 : 502).json({
+      erro: seguro ? erro.message : `Não consegui confirmar o envio: ${erro.message}`,
+      fase,
+      podeRepetir: seguro,
+    });
   }
 });
 
@@ -530,5 +711,66 @@ p{color:#6E7580;font-size:14px;margin:0 0 20px}img{border:1px solid #D2D4CD;bord
 </style></head><body><div class="c"><h1>${titulo}</h1><p>${texto}</p>${extra}</div></body></html>`;
 }
 
-app.listen(PORTA, () => log(`WhatsApp do estúdio na porta ${PORTA}`));
-conectar().catch((e) => log('falha ao iniciar:', e.message));
+/* ------------------------- proteção do processo -------------------------- */
+
+/**
+ * Erro solto dentro do Baileys (acontece) matava o Node inteiro: o Railway
+ * ficava sem nada escutando até reiniciar, e o app recebia o 503 genérico do
+ * proxy ("upstream connect error ... connection termination"). Agora o erro é
+ * registrado e o processo segue. Só se vier uma rajada (algo realmente
+ * quebrado) é que saímos, para o Railway subir um processo limpo.
+ */
+function anotarErroSolto(tipo, erro) {
+  errosSoltos += 1;
+  const mensagem = String((erro && (erro.stack || erro.message)) || erro).slice(0, 500);
+  ultimoErro = { em: new Date().toISOString(), tipo, mensagem: mensagem.split('\n')[0] };
+  log(`[${tipo}]`, mensagem);
+  const agora = Date.now();
+  errosRecentes.push(agora);
+  while (errosRecentes.length && agora - errosRecentes[0] > 60000) errosRecentes.shift();
+  if (errosRecentes.length >= 20) {
+    log('20 erros soltos em 1 minuto: saindo para o Railway reiniciar limpo.');
+    encerrar('rajada-de-erros', 1);
+  }
+}
+process.on('unhandledRejection', (motivo) => anotarErroSolto('unhandledRejection', motivo));
+process.on('uncaughtException', (erro) => anotarErroSolto('uncaughtException', erro));
+
+/**
+ * Vigia: se ficou desconectado sem reconexão agendada (timer perdido, erro
+ * no meio do caminho), religa. Não mexe em quem está esperando QR.
+ */
+const vigia = setInterval(() => {
+  if (encerrando || timerReconexao) return;
+  const parado = Date.now() - situacaoDesde;
+  if ((situacao === 'desconectado' || situacao === 'iniciando') && parado > 120000) {
+    log(`vigia: ${situacao} há ${Math.round(parado / 1000)}s sem reconexão agendada. Religando.`);
+    agendarReconexao(0);
+  }
+}, 60000);
+if (vigia.unref) vigia.unref();
+
+/**
+ * Deploy/restart do Railway manda SIGTERM. Fechar o socket com calma (sem
+ * logout) e gravar o caderno evita sessão corrompida e QR pedido à toa.
+ */
+let servidor = null;
+function encerrar(sinal, codigoSaida = 0) {
+  if (encerrando) return;
+  encerrando = true;
+  log(`${sinal}: fechando a conexão do WhatsApp (sem deslogar).`);
+  if (timerReconexao) clearTimeout(timerReconexao);
+  if (gravacaoNomes) { clearTimeout(gravacaoNomes); gravacaoNomes = null; }
+  gravarContatosAgora();
+  fecharSocket();
+  if (servidor) servidor.close();
+  setTimeout(() => process.exit(codigoSaida), 3000).unref();
+}
+process.on('SIGTERM', () => encerrar('SIGTERM'));
+process.on('SIGINT', () => encerrar('SIGINT'));
+
+servidor = app.listen(PORTA, () => log(`WhatsApp do estúdio na porta ${PORTA}`));
+conectar().catch((e) => {
+  log('falha ao iniciar:', e.message);
+  agendarReconexao(5000);
+});
