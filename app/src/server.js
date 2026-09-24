@@ -5,6 +5,7 @@ const path = require('path');
 const store = require('./store');
 const wellhub = require('./wellhub');
 const pollerPortal = require('./poller-portal');
+const wellhubPortal = require('./wellhub-portal');
 const checkinsStore = require('./checkins-store');
 const matriculas = require('./matriculas-store');
 const alertasFrequencia = require('./alertas-frequencia');
@@ -386,6 +387,63 @@ app.all('/wellhub/poller/auto', (req, res) => {
   const ligado = bruto === true || String(bruto).toLowerCase() === 'true';
   log('[poller] auto-confirmar →', ligado);
   res.json({ ok: true, ...pollerPortal.definirAuto(ligado, 'endpoint') });
+});
+
+/**
+ * Troca o refresh_token do portal sem redeploy.
+ *   GET  → página com o formulário (não mostra nada sensível).
+ *   POST {refresh_token} + X-Panel-Token → testa no Keycloak e, dando certo,
+ *        grava no volume e passa a ser o token em uso.
+ * O token vai no corpo, nunca na URL, para não ficar em log nem no histórico.
+ */
+app.get('/wellhub/poller/sessao', (_req, res) => {
+  res.type('html').send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Sessão do portal Wellhub</title>
+<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:32px auto;padding:0 16px;color:#111}
+label{display:block;margin:16px 0 6px;font-weight:600}input,textarea{width:100%;box-sizing:border-box;padding:10px;font:inherit;border:1px solid #bbb;border-radius:8px}
+textarea{height:160px;font-family:monospace;font-size:12px}button{margin-top:16px;padding:12px 24px;font:inherit;font-weight:600;border:0;border-radius:8px;background:#111;color:#fff;cursor:pointer}
+pre{background:#f3f3f3;padding:12px;border-radius:8px;white-space:pre-wrap}</style></head><body>
+<h2>Sessão do portal Wellhub</h2>
+<p>Cole o <b>refresh_token</b> novo do portal. Ele é testado na hora e passa a valer sem redeploy.</p>
+<label for="p">PANEL_TOKEN</label><input id="p" type="password" autocomplete="off">
+<label for="r">refresh_token</label><textarea id="r" spellcheck="false"></textarea>
+<button id="b">Salvar e testar</button><pre id="s" hidden></pre>
+<script>
+document.getElementById('b').onclick = async () => {
+  const s = document.getElementById('s'); s.hidden = false; s.textContent = 'Testando…';
+  try {
+    const r = await fetch(location.pathname, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Panel-Token': document.getElementById('p').value.trim() },
+      body: JSON.stringify({ refresh_token: document.getElementById('r').value.trim() }) });
+    const d = await r.json();
+    s.textContent = d.ok
+      ? '✅ Sessão renovada. Vence em ' + (d.sessao.expiraEm ? new Date(d.sessao.expiraEm).toLocaleString('pt-BR') : '—')
+        + '\\n\\nCiclo de teste: ' + (d.ciclo && d.ciclo.erro ? '⚠️ ' + d.ciclo.erro : 'ok, ' + ((d.ciclo && d.ciclo.pendentes.length) || 0) + ' na fila')
+      : '❌ ' + d.erro;
+    if (d.ok) document.getElementById('r').value = '';
+  } catch (e) { s.textContent = '❌ ' + e.message; }
+};
+</script></body></html>`);
+});
+
+app.post('/wellhub/poller/sessao', async (req, res) => {
+  if (!tokenPainelConfere(req)) {
+    return res.status(401).json({ ok: false, erro: 'PANEL_TOKEN inválido.' });
+  }
+  const token = String((req.body || {}).refresh_token || '').trim();
+  if (token.split('.').length !== 3) {
+    return res.status(400).json({ ok: false, erro: 'Isso não parece um refresh_token (esperado um JWT com dois pontos).' });
+  }
+  try {
+    await wellhubPortal.renovarSessao(token);
+  } catch (e) {
+    return res.status(400).json({ ok: false, erro: 'O Wellhub recusou o token: ' + e.message });
+  }
+  log('[poller] refresh_token do portal trocado via /wellhub/poller/sessao');
+  // Roda um ciclo já com a sessão nova, sem e-mail, para provar que a fila responde.
+  let ciclo = null;
+  try { ciclo = await pollerPortal.rodarUmaVez({ origem: 'manual', avisar: false }); } catch (e) { ciclo = { erro: e.message, pendentes: [] }; }
+  res.json({ ok: true, sessao: wellhubPortal.situacaoSessao(), ciclo });
 });
 
 /** Roda um ciclo agora, sem esperar os 15 min. ?avisar=false suprime o e-mail. */
