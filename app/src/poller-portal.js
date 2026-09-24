@@ -533,6 +533,18 @@ async function rodarUmaVez(opcoes = {}) {
   // A mesma leitura alimenta o histórico — uma chamada, dois usos.
   const validados = await coletarValidados(rel, querAvisar);
 
+  // Falha que o portal já mostra como validada não é falha: o Wellhub
+  // processou e só a resposta se perdeu (503 no meio do caminho). Sai do aviso.
+  if (validados && rel.falhas.length) {
+    const idsValidados = new Set(validados.map((v) => String(v.gympassId)));
+    rel.falhas = rel.falhas.filter((f) => {
+      if (!idsValidados.has(String(f.gympassId))) return true;
+      log('confirmar', f.gympassId, 'falhou na resposta, mas o portal já mostra validado.');
+      rel.conferidosNoPortal.push({ ...f, confirmadoEm: new Date().toISOString(), recuperado: true });
+      return false;
+    });
+  }
+
   if (rel.confirmados.length) {
     if (validados) {
       const idsValidados = new Set(validados.map((v) => String(v.gympassId)));

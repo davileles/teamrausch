@@ -180,23 +180,59 @@ function listarValidados() { return listarPorStatus('validated'); }
  *  CONFIRMAÇÃO
  * ------------------------------------------------------------------------- */
 
+/*
+ * INSTABILIDADE DO WELLHUB
+ *   O gateway do Wellhub (Envoy) às vezes devolve 502/503/504 com
+ *   "upstream connect error ... connection termination": o serviço deles
+ *   caiu no meio da requisição. Não é recusa do check-in. Repetimos até 3
+ *   vezes (espera de 3 s e 8 s). Repetir é seguro: validar o mesmo passe
+ *   duas vezes não gera cobrança dupla, e o poller confere a lista de
+ *   validados no fim do ciclo de qualquer forma.
+ */
+const ESPERAS_VALIDATE = [3000, 8000];
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function confirmar(checkin) {
   const passNumber = checkin && (checkin.passNumber || checkin.gympassId);
   if (!passNumber) return { ok: false, motivo: 'Check-in sem gympass_id.' };
 
-  const { status, texto } = await fetchTimeout(VALIDATE_URL, {
-    method: 'POST',
-    headers: cabecalhos({ 'content-type': 'application/json' }),
-    body: JSON.stringify({ token: SLUG, pass_number: String(passNumber) }),
-  });
+  let ultimo = null;
+  for (let i = 0; i <= ESPERAS_VALIDATE.length; i++) {
+    if (i > 0) await dormir(ESPERAS_VALIDATE[i - 1]);
+    let status, texto;
+    try {
+      ({ status, texto } = await fetchTimeout(VALIDATE_URL, {
+        method: 'POST',
+        headers: cabecalhos({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ token: SLUG, pass_number: String(passNumber) }),
+      }));
+    } catch (erro) {
+      // Rede caiu ou estourou o prazo: nada garante que saiu, repetimos.
+      const codigo = erro.cause && (erro.cause.code || erro.cause.errno);
+      ultimo = { ok: false, status: null, transitorio: true,
+        motivo: erro.name === 'AbortError'
+          ? 'Wellhub não respondeu a tempo.'
+          : `Sem conexão com o Wellhub (${codigo || erro.message}).` };
+      continue;
+    }
 
-  if ((texto || '').trim().startsWith('<')) {
-    const erro = new Error('SESSAO_EXPIRADA: /validate devolveu HTML.');
-    erro.sessaoExpirada = true;
-    throw erro;
+    if ((texto || '').trim().startsWith('<')) {
+      const erro = new Error('SESSAO_EXPIRADA: /validate devolveu HTML.');
+      erro.sessaoExpirada = true;
+      throw erro;
+    }
+    const ok = status >= 200 && status < 300;
+    if (ok) return { ok, status, motivo: i ? `Confirmado (na tentativa ${i + 1}).` : 'Confirmado.', tentativas: i + 1 };
+
+    if ([502, 503, 504].includes(status)) {
+      ultimo = { ok: false, status, transitorio: true, motivo: `Wellhub instável (HTTP ${status})` };
+      continue;
+    }
+    return { ok: false, status, motivo: `Recusado (HTTP ${status}): ${String(texto || '').slice(0, 160)}`, tentativas: i + 1 };
   }
-  const ok = status >= 200 && status < 300;
-  return { ok, status, motivo: ok ? 'Confirmado.' : `Recusado (HTTP ${status}): ${texto.slice(0, 160)}` };
+  ultimo.tentativas = ESPERAS_VALIDATE.length + 1;
+  ultimo.motivo = `${ultimo.motivo.replace(/\.$/, '')} — ${ultimo.tentativas} tentativas; tento de novo no próximo ciclo.`;
+  return ultimo;
 }
 
 /* Compatível com wellhub.validarAcesso(): acha o pendente e confirma. */
