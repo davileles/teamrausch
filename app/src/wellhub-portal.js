@@ -33,6 +33,9 @@
  *   WELLHUB_KC_CLIENT             (opcional) client id; padrão 'w4p'
  */
 
+const fs = require('fs');
+const path = require('path');
+
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
   + '(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36';
 
@@ -92,10 +95,65 @@ async function fetchTimeout(url, opcoes = {}) {
  *  RENOVAÇÃO DE SESSÃO — refresh_token do Keycloak (OIDC)
  * ------------------------------------------------------------------------- */
 
-async function renovarSessao() {
-  const refreshToken = process.env.WELLHUB_PORTAL_REFRESH_TOKEN || '';
-  if (!refreshToken) throw new Error('WELLHUB_PORTAL_REFRESH_TOKEN não configurado.');
+/*
+ * O refresh_token vive em dois lugares:
+ *   - WELLHUB_PORTAL_REFRESH_TOKEN (Railway): a semente.
+ *   - DATA_DIR/wellhub-portal-sessao.json (volume): o token em uso. O Keycloak
+ *     rotaciona o refresh_token a cada renovação e o app passa a usar sempre o
+ *     mais novo, gravado aqui. Também é onde cai o token colado em
+ *     /wellhub/poller/sessao, sem redeploy.
+ *
+ * Se a variável do Railway mudar, ela vence (você acabou de trocar lá). O
+ * arquivo guarda com qual valor da variável ele foi gerado (`envBase`) para
+ * perceber isso.
+ *
+ * PRAZO: a sessão do Keycloak tem duração máxima (~35 dias desde o login no
+ * portal). Rotacionar não estende esse prazo — só o login novo estende.
+ * `expiraEm` guarda quando ela acaba, para o poller avisar antes.
+ */
+const DATA_DIR = process.env.DATA_DIR || '/data';
+const ARQ_SESSAO = path.join(DATA_DIR, 'wellhub-portal-sessao.json');
 
+let sessao = { refreshToken: '', envBase: '', origem: null, atualizadoEm: null, expiraEm: null };
+
+(function carregarSessao() {
+  try {
+    const bruto = JSON.parse(fs.readFileSync(ARQ_SESSAO, 'utf8'));
+    if (bruto && bruto.refreshToken) sessao = { ...sessao, ...bruto };
+  } catch (e) { /* primeira vez: usa só a variável */ }
+})();
+
+function gravarSessao() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const temp = ARQ_SESSAO + '.tmp';
+    fs.writeFileSync(temp, JSON.stringify(sessao, null, 2));
+    fs.renameSync(temp, ARQ_SESSAO);
+  } catch (e) {
+    console.error('[wellhub-portal] não consegui gravar a sessão no volume:', e.message);
+  }
+}
+
+function tokenDoAmbiente() { return process.env.WELLHUB_PORTAL_REFRESH_TOKEN || ''; }
+
+/** Tokens a tentar, na ordem: o do volume (se a variável não mudou) e o da variável. */
+function candidatos() {
+  const env = tokenDoAmbiente();
+  const lista = [];
+  if (sessao.refreshToken && sessao.envBase === env) lista.push({ token: sessao.refreshToken, origem: sessao.origem || 'volume' });
+  if (env && !lista.some((c) => c.token === env)) lista.push({ token: env, origem: 'railway' });
+  return lista;
+}
+
+/** `exp` de um JWT, sem validar assinatura (só para saber o prazo). */
+function expDoJwt(jwt) {
+  try {
+    const carga = JSON.parse(Buffer.from(String(jwt).split('.')[1], 'base64url').toString('utf8'));
+    return carga.exp ? new Date(carga.exp * 1000).toISOString() : null;
+  } catch (e) { return null; }
+}
+
+async function trocarNoKeycloak(refreshToken) {
   const corpo = new URLSearchParams({
     grant_type: 'refresh_token',
     client_id: KC_CLIENT,
@@ -123,13 +181,61 @@ async function renovarSessao() {
       || (texto.trim().startsWith('<') ? 'CloudFront bloqueou (403) — verifique o user-agent' : `HTTP ${status}`);
     throw new Error('Falha ao renovar sessão: ' + motivo);
   }
+  return dados;
+}
 
-  xSession = dados.access_token;
-  if (dados.refresh_token && dados.refresh_token !== refreshToken) {
-    console.log(new Date().toISOString(),
-      '[wellhub-portal] refresh_token rotacionado — atualize WELLHUB_PORTAL_REFRESH_TOKEN no Railway.');
+/**
+ * Gera um x_session novo. Sem argumento, usa o token do volume e cai para o
+ * da variável se ele falhar. Com `tokenNovo` (colado no endpoint), usa só ele
+ * e, dando certo, passa a ser o token em uso.
+ */
+async function renovarSessao(tokenNovo) {
+  const lista = tokenNovo ? [{ token: String(tokenNovo).trim(), origem: 'endpoint' }] : candidatos();
+  if (!lista.length) throw new Error('WELLHUB_PORTAL_REFRESH_TOKEN não configurado.');
+
+  let ultimoErro = null;
+  for (const cand of lista) {
+    let dados;
+    try {
+      dados = await trocarNoKeycloak(cand.token);
+    } catch (e) {
+      ultimoErro = e;
+      if (lista.length > 1) console.log(new Date().toISOString(), `[wellhub-portal] token (${cand.origem}) recusado: ${e.message}`);
+      continue;
+    }
+
+    xSession = dados.access_token;
+    const novoRefresh = dados.refresh_token || cand.token;
+    const segundos = Number(dados.refresh_expires_in);
+    const expiraEm = segundos > 0
+      ? new Date(Date.now() + segundos * 1000).toISOString()
+      : (segundos === 0 ? null : expDoJwt(novoRefresh));
+    const rotacionou = novoRefresh !== cand.token;
+
+    sessao = {
+      refreshToken: novoRefresh,
+      envBase: tokenDoAmbiente(),
+      // Rotação não muda de onde a sessão veio; o que importa é o login de origem.
+      origem: cand.origem,
+      atualizadoEm: new Date().toISOString(),
+      expiraEm,
+    };
+    gravarSessao();
+    if (rotacionou) console.log(new Date().toISOString(), '[wellhub-portal] refresh_token rotacionado e gravado no volume.');
+    return { ok: true, expiraEm: dados.expires_in, sessao: situacaoSessao() };
   }
-  return { ok: true, expiraEm: dados.expires_in };
+  throw ultimoErro;
+}
+
+/** Estado da sessão, sem o token. */
+function situacaoSessao() {
+  const ms = sessao.expiraEm ? new Date(sessao.expiraEm).getTime() - Date.now() : null;
+  return {
+    origem: sessao.origem,
+    atualizadoEm: sessao.atualizadoEm,
+    expiraEm: sessao.expiraEm,
+    diasRestantes: ms === null ? null : Math.floor(ms / 86400000),
+  };
 }
 
 /* ------------------------------------------------------------------------- *
@@ -245,6 +351,7 @@ async function validarAcesso(gympassId) {
 
 module.exports = {
   renovarSessao,
+  situacaoSessao,
   listarPendentes,
   listarValidados,
   confirmar,
