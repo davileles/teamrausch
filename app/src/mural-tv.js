@@ -5,7 +5,7 @@
  *
  * O que a TV do estúdio mostra: aniversariantes do dia, conquistas batidas
  * hoje e ontem, os rankings (frequência do mês, sequência de semanas,
- * evolução, madrugadores, turmas mais cheias e veteranos) e os avisos que
+ * evolução, madrugadores, presença em dia e veteranos) e os avisos que
  * estiverem valendo.
  *
  * NADA É GRAVADO AQUI
@@ -187,7 +187,6 @@ function conquistasRecentes(hoje) {
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho',
   'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
 /** Quantos dias do mês seguinte ainda mostram o ranking fechado do anterior. */
 const DIAS_CAMPEOES_DO_MES_ANTERIOR = 5;
@@ -205,10 +204,6 @@ const SEMANAS_NA_JANELA = 25;
 /** Evolução só faz sentido depois de uma semana de mês. */
 const EVOLUCAO_A_PARTIR_DO_DIA = 8;
 const EVOLUCAO_MINIMA = 2;
-
-/** Turma mais cheia: média das últimas 4 semanas, com pelo menos 2 aulas dadas. */
-const TURMAS_JANELA_DIAS = 28;
-const TURMAS_MINIMO_DE_AULAS = 2;
 
 const mesDe = (data) => MESES[Number(String(data).slice(5, 7)) - 1];
 const unidade = (n, um, varios) => (Number(n) === 1 ? um : varios);
@@ -407,39 +402,6 @@ function rankingMadrugadores(hoje, quantos, limite) {
     })));
 }
 
-/* 5. Turmas mais cheias: média de presentes por horário, últimas 4 semanas */
-function rankingTurmas(hoje, quantos) {
-  const de = grade.somarDias(hoje, -(TURMAS_JANELA_DIAS - 1));
-  const porHorario = new Map();   // 'dia|hora' → Map(data → Set(telefone))
-  for (const p of agendaStore.listarPresencas({ de, ate: hoje })) {
-    const hora = String(p.hora || '').slice(0, 5);
-    if (!/^\d{2}:\d{2}$/.test(hora) || !p.data) continue;
-    const k = `${grade.diaDaSemana(p.data)}|${hora}`;
-    if (!porHorario.has(k)) porHorario.set(k, new Map());
-    const datas = porHorario.get(k);
-    if (!datas.has(p.data)) datas.set(p.data, new Set());
-    datas.get(p.data).add(p.telefone);
-  }
-  const lista = [];
-  for (const [k, datas] of porHorario) {
-    if (datas.size < TURMAS_MINIMO_DE_AULAS) continue;
-    let soma = 0;
-    for (const s of datas.values()) soma += s.size;
-    const [d, hora] = k.split('|');
-    lista.push({
-      nome: `${DIAS_SEMANA[Number(d)]} ${hora}`,
-      valor: Math.round((soma / datas.size) * 10) / 10,
-    });
-  }
-  const corte = posicionar(lista, quantos);
-  return slide('turmas', 'Turmas em alta', 'Os horários que mais bombam',
-    'Onde a energia está lá em cima · média de alunos por aula nas últimas 4 semanas.',
-    corte.map((x) => ({
-      posicao: x.posicao, nome: x.nome,
-      valor: String(x.valor).replace('.', ','), unidade: 'alunos',
-    })), { pessoas: false });
-}
-
 /* 6. Veteranos: total de aulas desde sempre */
 function rankingVeteranos(quantos) {
   let totais;
@@ -561,7 +523,7 @@ function diagnostico() {
   const saida = { data: hoje, config: {
     ranking: m.ranking, rankingSequencia: m.rankingSequencia, rankingEvolucao: m.rankingEvolucao,
     rankingMadrugadores: m.rankingMadrugadores, horaMadrugadores: m.horaMadrugadores,
-    rankingTurmas: m.rankingTurmas, rankingVeteranos: m.rankingVeteranos, rankingPresenca: m.rankingPresenca,
+    rankingVeteranos: m.rankingVeteranos, rankingPresenca: m.rankingPresenca,
   } };
   const tenta = (nome, fn) => { try { saida[nome] = fn(); } catch (e) { saida[nome] = { erro: e.message }; } };
 
@@ -621,7 +583,6 @@ function rankings(hoje, m) {
     sequencia: topN(m.rankingSequencia, 10),
     evolucao: topN(m.rankingEvolucao, 5),
     madrugadores: topN(m.rankingMadrugadores, 5),
-    turmas: topN(m.rankingTurmas, 5),
     veteranos: topN(m.rankingVeteranos, 10),
   };
   const limite = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(m.horaMadrugadores || '')) ? m.horaMadrugadores : '07:00';
@@ -631,7 +592,6 @@ function rankings(hoje, m) {
   if (n.sequencia) tenta('sequencia', () => rankingSequencia(hoje, n.sequencia));
   if (n.evolucao) tenta('evolucao', () => rankingEvolucao(hoje, n.evolucao));
   if (n.madrugadores) tenta('madrugadores', () => rankingMadrugadores(hoje, n.madrugadores, limite));
-  if (n.turmas) tenta('turmas', () => rankingTurmas(hoje, n.turmas));
   if (n.veteranos) tenta('veteranos', () => rankingVeteranos(n.veteranos));
   return saida;
 }
