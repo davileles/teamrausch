@@ -185,6 +185,45 @@ function metaDoMes(matricula) {
 }
 
 /**
+ * MÊS DE ENTRADA: O PACOTE COMEÇA NO DIA EM QUE O ALUNO VIROU ALUNO
+ *
+ * Quem fez aula experimental até o dia 10 e fechou o plano no dia 10 não
+ * combinou doze check-ins para setembro — combinou doze por mês a partir do
+ * dia 10. Cobrar dele o mês inteiro faz o aluno começar devendo os nove dias
+ * em que ainda nem era aluno, e a primeira mensagem que ele recebe do estúdio
+ * vira cobrança.
+ *
+ * `alunoDesde` é gravado pelo store no momento em que a marca de experimental
+ * sai da ficha (ou informado à mão na ficha). No mês dessa data:
+ *   - a meta é a fração do mês que sobrou: meta cheia × dias ativos ÷ dias do
+ *     mês, arredondada PARA BAIXO — na dúvida, não se cobra o treino a mais;
+ *   - a régua de ritmo corre linear de `alunoDesde` até o último dia;
+ *   - só contam para o pacote os check-ins a partir de `alunoDesde`. Os de
+ *     antes eram aula experimental: rendem repasse igual, mas não quitam um
+ *     pacote que ainda não existia.
+ * Do mês seguinte em diante nada muda: meta cheia desde o dia 1º.
+ *
+ * Devolve o primeiro dia que conta no pacote do mês de `ate` — o dia 1º para
+ * quem já era aluno antes do mês.
+ */
+function inicioDoPacote(matricula, ate) {
+  const primeiro = inicioDoMes(ate);
+  const desde = String((matricula && matricula.alunoDesde) || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) return primeiro;
+  if (desde <= primeiro || desde > fimDoMes(ate)) return primeiro;
+  return desde;
+}
+
+/** Meta do mês já recortada pela data de entrada. `metaCheia` é a de mês inteiro. */
+function metaProporcional(metaCheia, inicio, ate) {
+  const meta = Number(metaCheia) || 0;
+  if (!meta || !inicio || inicio <= inicioDoMes(ate)) return meta;
+  const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
+  const ativos = diasDoMes - Number(String(inicio).slice(8, 10)) + 1;
+  return Math.max(Math.min(Math.floor((meta * ativos) / diasDoMes), meta), 0);
+}
+
+/**
  * Quanto o pacote já deveria ter rendido a esta altura do mês.
  *
  * O combinado é semanal, então a cobrança também é: quem faz 3x por semana
@@ -202,16 +241,20 @@ function metaDoMes(matricula) {
  *   ou três dias sem exigência nenhuma. O mês tem 30 ou 31 dias, e o aluno tem
  *   até o último deles para fechar o pacote.
  */
-function devidoAteAgora(matricula, ate, metaOverride) {
+function devidoAteAgora(matricula, ate, metaOverride, inicio) {
   const meta = metaOverride !== undefined ? Number(metaOverride) : metaDoMes(matricula);
   if (!meta) return 0;
   if (ate >= fimDoMes(ate)) return meta;
 
+  // Mês de entrada: a régua parte do dia em que ele virou aluno, não do dia 1º.
+  const d0 = Number(String(inicio || inicioDoPacote(matricula, ate)).slice(8, 10));
   const dia = Number(String(ate).slice(8, 10));
+  if (dia < d0) return 0;
   const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
+  const diasPacote = diasDoMes - d0 + 1;
   // Fração arredonda para baixo: check-in é inteiro, e cobrar 11 de quem deve
   // 10,45 seria exigir hoje o treino de amanhã.
-  return Math.min(Math.floor((meta * dia) / diasDoMes), meta);
+  return Math.min(Math.floor((meta * (dia - d0 + 1)) / diasPacote), meta);
 }
 
 /**
@@ -235,13 +278,16 @@ function diasRestantes(ate) {
  * alcança o próximo inteiro. Meta 12 num mês de 31 dias exige o 11º a partir
  * do dia 29, porque 12 × 29 ÷ 31 = 11,2.
  */
-function proximoMarco(matricula, ate, metaOverride) {
+function proximoMarco(matricula, ate, metaOverride, inicio) {
   const meta = metaOverride !== undefined ? Number(metaOverride) : metaDoMes(matricula);
   if (!meta || ate >= fimDoMes(ate)) return null;
 
+  const ini = inicio || inicioDoPacote(matricula, ate);
+  const d0 = Number(String(ini).slice(8, 10));
   const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
-  const exigido = Math.min(devidoAteAgora(matricula, ate, meta) + 1, meta);
-  const diaAlvo = Math.min(Math.ceil((exigido * diasDoMes) / meta), diasDoMes);
+  const diasPacote = diasDoMes - d0 + 1;
+  const exigido = Math.min(devidoAteAgora(matricula, ate, meta, ini) + 1, meta);
+  const diaAlvo = Math.min(d0 - 1 + Math.ceil((exigido * diasPacote) / meta), diasDoMes);
   return {
     data: `${String(ate).slice(0, 8)}${String(diaAlvo).padStart(2, '0')}`,
     exigido,
@@ -397,7 +443,11 @@ function repartirConta(participantes, datasDaConta = []) {
 function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
   const dias = Number(opcoes.dias) > 0 ? Number(opcoes.dias) : 7;
   const ate = opcoes.ate || hojeLocal();
-  const primeiroDoMes = inicioDoMes(ate);
+  const inicioMes = inicioDoMes(ate);
+  // No mês em que deixou de ser experimental, o ciclo dele começa no dia da
+  // virada — ver `inicioDoPacote`. Para todos os outros é o dia 1º.
+  const primeiroDoMes = matricula.experimental ? inicioMes : inicioDoPacote(matricula, ate);
+  const proporcional = primeiroDoMes > inicioMes;
 
   // O piso é o dia 1º. Pedir 7 dias no dia 3 devolve uma janela de 3 dias, não
   // uma que invade o mês anterior.
@@ -414,11 +464,14 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
     : aulasPrevistas(matricula, excecoes, { de: primeiroDoMes, ate });
   // Um dia com dois check-ins não vira dois créditos: a grade também conta
   // dias, não aparições.
+  // O teto de doze é do mês inteiro da assinatura: conta também o que ele fez
+  // como experimental antes da virada. Só o pacote é que começa na virada.
   const todasDoMes = [...new Set(
-    datasFeitas.filter((d) => d >= primeiroDoMes && d <= ate))].sort();
+    datasFeitas.filter((d) => d >= inicioMes && d <= ate))].sort();
 
   // Conta compartilhada: a meta vem da fatia da conta, não da grade da ficha.
-  const metaMes = opcoes.metaMes !== undefined ? Number(opcoes.metaMes) : metaDoMes(matricula);
+  const metaCheia = opcoes.metaMes !== undefined ? Number(opcoes.metaMes) : metaDoMes(matricula);
+  const metaMes = metaProporcional(metaCheia, primeiroDoMes, ate);
 
   // O QUE O ALUNO PROMETEU, O QUE AINDA RENDE E O QUE SE PERDE
   //   Nada impede o aluno de passar no portal trinta vezes, e o portal valida
@@ -439,8 +492,10 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
   //     faixa do meio para calcular: o teto do repasse vira o pacote inteiro,
   //     que é como esta tela sempre tratou esse caso.
   const tetoPacote = metaMes > 0 ? Math.min(metaMes, TETO_MES) : TETO_MES;
-  const feitasMes = todasDoMes.slice(0, tetoPacote);
   const pagasMes = todasDoMes.slice(0, TETO_MES);
+  // Antes da virada era experimental: rende (está em `pagasMes`), mas não
+  // quita pacote — cai no excedente pela conta abaixo.
+  const feitasMes = pagasMes.filter((d) => d >= primeiroDoMes).slice(0, tetoPacote);
   const excedenteMes = pagasMes.length - feitasMes.length;
   const ignoradoMes = todasDoMes.length - pagasMes.length;
 
@@ -450,7 +505,7 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
   const realizado = feitas.length;
 
   const faltamNoMes = Math.max(metaMes - feitasMes.length, 0);
-  const devido = devidoAteAgora(matricula, ate, metaMes);
+  const devido = devidoAteAgora(matricula, ate, metaMes, primeiroDoMes);
   const saldoRitmo = feitasMes.length - devido;
 
   // Viabilidade do fechamento: o marco da semana pode estar em dia e o mês já
@@ -527,7 +582,12 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
       devido,
       saldoRitmo,
       atrasoNoRitmo: Math.max(devido - feitasMes.length, 0),
-      proximoMarco: proximoMarco(matricula, ate, metaMes),
+      proximoMarco: proximoMarco(matricula, ate, metaMes, primeiroDoMes),
+      // Mês de entrada: a meta cheia, o dia em que o pacote começou a contar e
+      // se a meta acima já é a fração. A tela mostra "desde dd/mm".
+      metaCheia,
+      inicioPacote: primeiroDoMes,
+      proporcional,
       // Conta dividida: quanto da assinatura do titular é desta ficha.
       conta: opcoes.conta || null,
       // `no-limite`: só fecha vindo todos os dias que sobraram.
@@ -541,7 +601,7 @@ function avaliar(matricula, datasFeitas = [], excecoes = [], opcoes = {}) {
     realizado,
     saldo,
     situacao: classificar(saldo, esperado, matricula,
-      { metaMes, faltamNoMes, saldoRitmo, risco }),
+      { metaMes, faltamNoMes, saldoRitmo, risco, proporcional }),
     previstas,
     datas: feitas,
     ultimoCheckin: ultimo,
@@ -564,6 +624,9 @@ function classificar(saldo, esperado, matricula, mes = {}) {
   // Fica antes do saldo de propósito — é o estado final do ciclo, e cobrar
   // alguém que já entregou tudo é o erro mais caro que esta tela pode cometer.
   if (mes.metaMes && mes.faltamNoMes === 0) return 'quitado';
+  // Virou aluno nos últimos dias: a fração do mês não chega a um treino, então
+  // não há o que cobrar até o dia 1º.
+  if (mes.proporcional && !mes.metaMes) return 'em-dia';
 
   // QUEM TEM PACOTE É JULGADO PELO RITMO DO MÊS, NÃO PELA JANELA DE SETE DIAS
   //   A janela responde "veio esta semana?"; o pacote responde "vai fechar o
@@ -726,8 +789,12 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
         const ate = opcoes.ate || hojeLocal();
         const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
         const passado = Math.min(Number(String(ate).slice(8, 10)), diasDoMes);
-        return Math.round(doPacote.reduce((s, a) =>
-          s + (a.mes.meta * passado) / diasDoMes, 0));
+        return Math.round(doPacote.reduce((s, a) => {
+          // Mês de entrada: a régua dele parte do dia da virada.
+          const d0 = Number(String(a.mes.inicioPacote || '01').slice(-2));
+          if (passado < d0) return s;
+          return s + (a.mes.meta * (passado - d0 + 1)) / (diasDoMes - d0 + 1);
+        }, 0));
       })(),
       devendoNoMes: doPacote.filter((a) => a.mes.faltam > 0).length,
       // Quem já não fecha o pacote: é a conta que o fim do mês vai cobrar.
@@ -892,9 +959,12 @@ function panoramaDoMes({
     for (const d of fatia.datas) donoPorData.set(`${fatia.conta.titularId}|${d}`, id);
   }
 
+  // Mês de entrada: meta e régua a partir do dia em que virou aluno.
+  const inicioPacote = new Map(comPacote.map((m) => [m.id, inicioDoPacote(m, fim)]));
   const metas = new Map(comPacote.map((m) => {
     const fatia = divisao.get(m.id);
-    return [m.id, fatia ? fatia.meta : metaDoMes(m)];
+    const cheia = fatia ? fatia.meta : metaDoMes(m);
+    return [m.id, metaProporcional(cheia, inicioPacote.get(m.id), fim)];
   }));
 
   // A SALA INTEIRA, PARA A CONTA DE OCUPAÇÃO
@@ -1021,8 +1091,11 @@ function panoramaDoMes({
     //   linha ficava abaixo do que o cartão dizia.
     const diasDoMes = Number(fim.slice(8, 10));
     const passado = Math.min(Number(linha.data.slice(8, 10)), diasDoMes);
-    linha.metaAcum = Math.round(comPacote.reduce((s, m) =>
-      s + ((metas.get(m.id) || 0) * passado) / diasDoMes, 0));
+    linha.metaAcum = Math.round(comPacote.reduce((s, m) => {
+      const d0 = Number(String(inicioPacote.get(m.id) || de).slice(8, 10));
+      if (passado < d0) return s;
+      return s + ((metas.get(m.id) || 0) * (passado - d0 + 1)) / (diasDoMes - d0 + 1);
+    }, 0));
   }
 
   // Realizado: deduplicado por pessoa e dia, do mesmo jeito que o repasse. Sem
@@ -1128,7 +1201,10 @@ function panoramaDoMes({
       continue;
     }
     const m = porId.get(c.matriculaId);
-    if (m && m.experimental) {
+    // Antes da virada de experimental para aluno, o check-in é de experimental
+    // mesmo que hoje a ficha já não tenha a marca.
+    const antesDoPacote = m && inicioPacote.has(m.id) && c.data < inicioPacote.get(m.id);
+    if (m && (m.experimental || antesDoPacote)) {
       linha.experimental += 1;
       if (rende) receita.experimentalCent += valor;
       continue;
@@ -1387,6 +1463,7 @@ function panoramaDoMes({
 
 module.exports = {
   avaliar, painel, devedores, aulasPrevistas, metaDoMes, devidoAteAgora, proximoMarco,
+  inicioDoPacote, metaProporcional,
   diasRestantes, repartirConta, dividirContas, repartir, intercalar, panoramaDoMes,
   hojeLocal, agoraEmMinutos, inicioDoMes, fimDoMes, chaveProduto,
   TOLERANCIA_MIN, SEMANAS_NO_MES, TETO_SEMANAL, TETO_MES,

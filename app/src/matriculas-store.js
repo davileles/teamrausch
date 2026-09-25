@@ -663,6 +663,9 @@ function criar(campos = {}, opcoes = {}) {
     // ainda não foi combinado. Sem esta marca ela ficaria indistinguível de um
     // aluno de verdade que alguém esqueceu de montar a grade.
     experimental: Boolean(campos.experimental),
+    // Informado só quando quem cria já sabe que o aluno entrou no meio do mês.
+    ...(/^\d{4}-\d{2}-\d{2}$/.test(String(campos.alunoDesde || '')) && !campos.experimental
+      ? { alunoDesde: String(campos.alunoDesde) } : {}),
     vinculo,
     grade: g.grade,
     vigenteDe: String(campos.vigenteDe || hojeISO()),
@@ -792,7 +795,23 @@ function atualizar(id, campos = {}) {
     if (!r.ok) return r;
   }
   if (campos.ativo !== undefined) definirAtivo(m, campos.ativo);
-  if (campos.experimental !== undefined) m.experimental = Boolean(campos.experimental);
+  if (campos.experimental !== undefined) {
+    const era = Boolean(m.experimental);
+    m.experimental = Boolean(campos.experimental);
+    // VIROU ALUNO: GUARDA O DIA
+    //   A meta do mês de entrada é proporcional a partir daqui (ver
+    //   `frequencia.inicioDoPacote`). Sem a data, quem fechou o plano no dia
+    //   10 seria cobrado pelos doze do mês inteiro.
+    //   Voltou a ser experimental: a data some e é regravada na próxima virada.
+    if (era && !m.experimental && campos.alunoDesde === undefined) m.alunoDesde = hojeISO();
+    if (m.experimental) delete m.alunoDesde;
+  }
+  // Correção manual na ficha (ex.: marcou a virada com atraso). Vazio apaga.
+  if (campos.alunoDesde !== undefined) {
+    const d = String(campos.alunoDesde || '').trim();
+    if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, motivo: 'Data de "aluno desde" inválida.' };
+    if (d) m.alunoDesde = d; else delete m.alunoDesde;
+  }
   if (campos.observacao !== undefined) {
     m.observacao = String(campos.observacao || '').trim() || null;
   }
@@ -1112,6 +1131,11 @@ function mesclar(idFica, idSai, opcoes = {}) {
   // Experimental é "ainda sem horário combinado". Se qualquer uma das duas já
   // tinha horário fixo, a pessoa não é mais experimental.
   if (!sai.experimental) fica.experimental = false;
+  // Data da virada: fica a mais recente — é a que marca o pacote atual.
+  if (sai.alunoDesde && (!fica.alunoDesde || sai.alunoDesde > fica.alunoDesde)) {
+    fica.alunoDesde = sai.alunoDesde;
+  }
+  if (fica.experimental) delete fica.alunoDesde;
   if (sai.nomeTravado) fica.nomeTravado = true;
   if (sai.vinculo === 'wellhub' && fica.vinculo !== 'wellhub' && fica.gympassId) {
     fica.vinculo = 'wellhub';

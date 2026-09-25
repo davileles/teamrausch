@@ -1953,6 +1953,13 @@ function fichaMatricula(m){
     </div>
     <label class="marcar"><input type="checkbox" class="mf-exp" ${m.experimental?'checked':''}>
       Aula experimental — ainda sem horário fixo combinado</label>
+    <!-- Dia em que virou aluno: no mês dessa data a meta de check-ins é
+         proporcional. Preenchido sozinho ao desmarcar o experimental. -->
+    <label class="ajuda" style="display:flex;gap:8px;align-items:center;margin:4px 0">
+      Aluno desde
+      <input type="date" class="mf-desde" value="${esc(m.alunoDesde||'')}"
+        data-original="${esc(m.alunoDesde||'')}" style="max-width:170px">
+      <span class="fraco">meta proporcional no mês de entrada</span></label>
     ${m.nomeOriginal ? `<p class="ajuda nome-antigo">Renomeado pelo Wellhub · na planilha era
       <b>${esc(m.nomeOriginal)}</b></p>` : ''}
     <!-- O número do Wellhub é o que faz o check-in do portal cair nesta ficha.
@@ -2102,6 +2109,10 @@ function lerFicha(el){
     titularWellhub: el.querySelector('.mf-titular')?.value ?? undefined,
     vinculo: el.querySelector('.mf-vinculo').value,
     experimental: el.querySelector('.mf-exp').checked,
+    // Só vai quando mudou: mandar o valor vazio junto com o desmarcar do
+    // experimental apagaria a data que o servidor grava naquele instante.
+    alunoDesde: (()=>{ const i = el.querySelector('.mf-desde');
+      return i && i.value !== (i.dataset.original||'') ? i.value : undefined; })(),
     observacao: el.querySelector('.mf-obs').value,
     grade,
     revisado: true,
@@ -2874,7 +2885,10 @@ function linhaFrequencia(a){
           : `Treina na conta de ${conta.titular} · cota ${conta.cota}`)}">🔗</span>`
       : (a.gympassId ? '' : ' <span class="fraco" title="Sem Wellhub ID vinculado">⚠</span>')}</td>
     <td class="num opc">${semana}×</td>
-    <td class="num">${meta ? `${feitos}/${meta}` : `<span class="fraco">${feitos}/—</span>`}</td>
+    <td class="num"${a.mes && a.mes.proporcional
+      ? ` title="${esc(`Entrou em ${dataCurta(a.mes.inicioPacote)}: meta proporcional (${a.mes.meta} de ${a.mes.metaCheia}). Check-ins antes disso eram de experimental.`)}"` : ''}
+      >${meta ? `${feitos}/${meta}` : `<span class="fraco">${feitos}/—</span>`}${
+      a.mes && a.mes.proporcional ? `<span class="fraco"> · desde ${dataCurta(a.mes.inicioPacote)}</span>` : ''}</td>
     <td class="num opc" title="${a.mes && a.mes.proximoMarco
       ? `A régua sobe para ${a.mes.proximoMarco.exigido} em ${dataCurta(a.mes.proximoMarco.data)}`
       : 'Último dia do mês'}">${meta
