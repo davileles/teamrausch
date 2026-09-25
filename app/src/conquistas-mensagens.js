@@ -23,6 +23,12 @@
  *   de dados), sai só o mais alto. Três parabéns seguidos no mesmo minuto não
  *   parecem carinho, parecem defeito.
  *
+ * O CORTE DE 1º DE SETEMBRO NÃO REPETE PARABÉNS
+ *   A contagem recomeçou em `historico-aulas.CONTAR_DESDE`, e muita gente caiu
+ *   abaixo de marcos que já comemorou. Marco igual ou abaixo do total que a
+ *   pessoa tinha antes do corte não sai de novo — nem se o envio da época tiver
+ *   falhado. Quem tinha 26 e caiu para 17 só volta a receber no marco de 50.
+ *
  * NA HORA, COM REDE DE SEGURANÇA À NOITE
  *   `gatilhos-mensagens.js` chama `rodar()` assim que entra check-in ou
  *   presença nova. A passada agendada abaixo continua e pega o que ficou.
@@ -186,7 +192,8 @@ async function rodarAgora(opcoes = {}) {
 
     const avisados = jaAvisados(ficha.id);
     const alcancados = marcos.filter((m) => total >= m.aulas);
-    let novos = alcancados.filter((m) => !avisados.has(m.aulas));
+    const jaTinha = historico.totalAntesDoCorte(ficha.id);
+    let novos = alcancados.filter((m) => !avisados.has(m.aulas) && m.aulas > jaTinha);
     if (!novos.length) continue;
 
     // Experimental recebe a boas-vindas de `boas-vindas-experimental.js` no

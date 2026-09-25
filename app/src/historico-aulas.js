@@ -46,6 +46,20 @@
  *   execução, o acumulado nasce com a melhor conta possível do passado —
  *   reserva passada ∪ check-in ∪ presença — e daí para frente só cresce por
  *   presença. `semeadoEm` marca que isso já aconteceu e não se repete.
+ *
+ * A CONTAGEM COMEÇA EM 1º DE SETEMBRO DE 2026 (CONTAR_DESDE)
+ *   Em agosto só existia o check-in do Wellhub; o totem ainda não estava na
+ *   entrada. Quem é mensalista não tem check-in, então agosto contava só para
+ *   o aluno Wellhub e o mensalista ficava para trás em todo ranking. Por isso
+ *   nada antes de CONTAR_DESDE entra em conta nenhuma daqui — total, TV, aba
+ *   Meus dados. A cobrança do Wellhub (`frequencia.js`) não passa por aqui e
+ *   não muda.
+ *
+ *   Na primeira vez que o processo sobe com um corte novo, `aplicarCorte()`
+ *   guarda uma cópia do arquivo, anota o total que cada matrícula tinha
+ *   (`picoAnterior`) e zera o acumulado. O pico existe para as conquistas:
+ *   quem já recebeu "25 aulas" e caiu para 17 não recebe o 25 de novo — só
+ *   volta a ser parabenizado no próximo marco acima do que já tinha.
  */
 
 const fs = require('fs');
@@ -63,9 +77,18 @@ const ARQUIVO = path.join(DIR, 'historico-aulas.json');
 /** Dias recentes que continuam contados ao vivo, fora do acumulado. */
 const JANELA_VIVA_DIAS = Number(process.env.HISTORICO_JANELA_DIAS || 90);
 
+/** Primeiro dia que conta como aula em qualquer conta daqui (ver acima). */
+const CONTAR_DESDE = /^\d{4}-\d{2}-\d{2}$/.test(String(process.env.HISTORICO_CONTAR_DESDE || ''))
+  ? process.env.HISTORICO_CONTAR_DESDE : '2026-09-01';
+
+/** Início de janela respeitando o corte: nada antes de CONTAR_DESDE. */
+function aPartirDoCorte(de) {
+  return !de || de < CONTAR_DESDE ? CONTAR_DESDE : de;
+}
+
 function log(...a) { console.log('[historico-aulas]', ...a); }
 
-let dados = { semeadoEm: null, consolidadoAte: null, totais: {} };
+let dados = { semeadoEm: null, consolidadoAte: null, totais: {}, contarDesde: null, picoAnterior: {} };
 
 (function carregar() {
   try {
@@ -73,6 +96,9 @@ let dados = { semeadoEm: null, consolidadoAte: null, totais: {} };
     dados.semeadoEm = bruto.semeadoEm || null;
     dados.consolidadoAte = bruto.consolidadoAte || null;
     dados.totais = bruto.totais && typeof bruto.totais === 'object' ? bruto.totais : {};
+    dados.contarDesde = bruto.contarDesde || null;
+    dados.cortadoEm = bruto.cortadoEm || null;
+    dados.picoAnterior = bruto.picoAnterior && typeof bruto.picoAnterior === 'object' ? bruto.picoAnterior : {};
   } catch (e) { /* primeira vez */ }
 })();
 
@@ -127,8 +153,12 @@ function totemContaWellhub(checkinsDaFicha, data) {
  * Dias com presença de verdade, por matrícula, numa janela.
  * @returns {Map<string, Set<string>>}
  */
-function diasComPresenca({ de, ate } = {}) {
+function diasComPresenca({ de, ate, semCorte = false } = {}) {
   const mapa = new Map();
+  if (!semCorte) {
+    de = aPartirDoCorte(de);
+    if (ate && ate < de) return mapa;
+  }
   const daMatricula = indiceDeTelefones();
 
   // Check-ins desde o 1º do mês de `de`: a regra do teto olha o mês inteiro.
@@ -166,7 +196,7 @@ function diasComPresenca({ de, ate } = {}) {
 function diasDoPassado(ate) {
   const mapa = diasComPresenca({ ate });
   const daMatricula = indiceDeTelefones();
-  for (const a of agendaStore.listarAgendamentos({ ate })) {
+  for (const a of agendaStore.listarAgendamentos({ de: CONTAR_DESDE, ate })) {
     if (a.status !== 'ativo') continue;
     acrescentar(mapa, daMatricula(a.telefone), a.data);
   }
@@ -190,10 +220,50 @@ function semear() {
   const totais = {};
   for (const [matriculaId, dias] of mapa) totais[matriculaId] = dias.size;
 
-  dados = { semeadoEm: new Date().toISOString(), consolidadoAte: ate, totais };
+  dados = {
+    semeadoEm: new Date().toISOString(), consolidadoAte: ate, totais,
+    contarDesde: CONTAR_DESDE, picoAnterior: dados.picoAnterior || {},
+  };
   gravar();
   log(`semeado: ${Object.keys(totais).length} matrícula(s), corte em ${ate}.`);
   return { semeado: true, matriculas: Object.keys(totais).length, ate };
+}
+
+/**
+ * Troca de corte (ver CONTAR_DESDE no topo). Roda uma vez por valor de
+ * CONTAR_DESDE: o arquivo passa a lembrar qual corte já foi aplicado.
+ */
+function aplicarCorte() {
+  if (!dados.semeadoEm || dados.contarDesde === CONTAR_DESDE) return;
+
+  // O total de agora, pela conta antiga, antes de apagar qualquer coisa.
+  const antes = new Map();
+  for (const [id, n] of Object.entries(dados.totais)) antes.set(id, Number(n) || 0);
+  const vivoDesde = dados.consolidadoAte ? grade.somarDias(dados.consolidadoAte, 1) : undefined;
+  for (const [id, dias] of diasComPresenca({ de: vivoDesde, semCorte: true })) {
+    antes.set(id, (antes.get(id) || 0) + dias.size);
+  }
+  const picoAnterior = { ...(dados.picoAnterior || {}) };
+  for (const [id, n] of antes) picoAnterior[id] = Math.max(Number(picoAnterior[id]) || 0, n);
+
+  try {
+    fs.mkdirSync(DIR, { recursive: true });
+    fs.writeFileSync(path.join(DIR, `historico-aulas-antes-do-corte-${CONTAR_DESDE}.json`),
+      JSON.stringify(dados, null, 2));
+  } catch (e) { log('não consegui guardar a cópia de antes do corte:', e.message); }
+
+  dados = {
+    semeadoEm: dados.semeadoEm,
+    // Tudo a partir do corte volta a ser contado ao vivo; o acumulado recomeça
+    // em zero e a consolidação segue normal a partir daqui.
+    consolidadoAte: grade.somarDias(CONTAR_DESDE, -1),
+    totais: {},
+    contarDesde: CONTAR_DESDE,
+    cortadoEm: new Date().toISOString(),
+    picoAnterior,
+  };
+  gravar();
+  log(`contagem recomeçada em ${CONTAR_DESDE}: ${Object.keys(picoAnterior).length} matrícula(s) com total anterior guardado.`);
 }
 
 /**
@@ -202,6 +272,7 @@ function semear() {
  */
 function consolidar() {
   if (!dados.semeadoEm) return semear();
+  aplicarCorte();
   const hoje = frequencia.hojeLocal();
   const corte = grade.somarDias(hoje, -JANELA_VIVA_DIAS);
   if (!dados.consolidadoAte || corte <= dados.consolidadoAte) {
@@ -225,6 +296,7 @@ function consolidar() {
 
 /** Mapa matriculaId → total de aulas, acumulado + janela viva. */
 function totais() {
+  aplicarCorte();
   const saida = new Map();
   for (const [id, n] of Object.entries(dados.totais)) saida.set(id, Number(n) || 0);
 
@@ -237,6 +309,7 @@ function totais() {
 
 function total(matriculaId) {
   if (!matriculaId) return 0;
+  aplicarCorte();
   const base = Number(dados.totais[matriculaId]) || 0;
   const de = dados.consolidadoAte ? grade.somarDias(dados.consolidadoAte, 1) : undefined;
   // Mesma regra de `diasComPresenca` — duas contas diferentes fariam a tela e
@@ -254,7 +327,8 @@ function porTelefone(telefone) {
   const m = matriculas.porTelefone(telefone);
   if (m) return { matriculaId: m.id, total: total(m.id) };
 
-  const de = dados.consolidadoAte ? grade.somarDias(dados.consolidadoAte, 1) : undefined;
+  aplicarCorte();
+  const de = aPartirDoCorte(dados.consolidadoAte ? grade.somarDias(dados.consolidadoAte, 1) : undefined);
   const dias = new Set();
   for (const p of agendaStore.listarPresencas({ de })) {
     if (p.telefone === telefone) dias.add(p.data);
@@ -271,6 +345,8 @@ function porTelefone(telefone) {
  */
 function horaMaisCedoPorDia({ de, ate } = {}) {
   const mapa = new Map();
+  de = aPartirDoCorte(de);
+  if (ate && ate < de) return mapa;
   const anota = (id, data, hora) => {
     // A planilha do Wellhub às vezes traz "6:05"; sem o zero, "6:05" > "07:00" como texto.
     const mm = String(hora || '').trim().match(/^(\d{1,2}):(\d{2})/);
@@ -286,10 +362,18 @@ function horaMaisCedoPorDia({ de, ate } = {}) {
   return mapa;
 }
 
+/**
+ * Quanto a matrícula tinha antes do corte de CONTAR_DESDE. Marco igual ou
+ * abaixo disso já foi comemorado (WhatsApp e TV) e não se repete.
+ */
+function totalAntesDoCorte(matriculaId) {
+  return Number((dados.picoAnterior || {})[matriculaId]) || 0;
+}
+
 /** Dias distintos com presença de um telefone, dentro do que ainda está vivo. */
 function diasVivosDoTelefone(telefone) {
   const dias = new Map();
-  for (const p of agendaStore.listarPresencas({})) {
+  for (const p of agendaStore.listarPresencas({ de: CONTAR_DESDE })) {
     if (p.telefone !== telefone) continue;
     if (!dias.has(p.data)) dias.set(p.data, []);
     dias.get(p.data).push(p.hora);
@@ -302,12 +386,16 @@ function situacao() {
     semeadoEm: dados.semeadoEm,
     consolidadoAte: dados.consolidadoAte,
     janelaVivaDias: JANELA_VIVA_DIAS,
+    contarDesde: CONTAR_DESDE,
+    cortadoEm: dados.cortadoEm || null,
+    matriculasComTotalAnterior: Object.keys(dados.picoAnterior || {}).length,
     matriculasComAcumulado: Object.keys(dados.totais).length,
   };
 }
 
 module.exports = {
   semear, consolidar, total, totais, porTelefone, diasVivosDoTelefone, situacao,
+  totalAntesDoCorte, CONTAR_DESDE,
   // O mural da TV precisa saber em que dia cada aula caiu para dizer se o
   // marco foi batido hoje ou ontem — mesma regra de "o que conta como aula".
   diasComPresenca, horaMaisCedoPorDia,

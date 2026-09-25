@@ -167,7 +167,10 @@ function conquistasRecentes(hoje) {
     if (inicioOntem === total) continue;   // não treinou nem hoje nem ontem
 
     // Um marco por pessoa, o mais alto — igual ao WhatsApp.
-    const batidos = marcos.filter((m) => m.aulas > inicioOntem && m.aulas <= total);
+    // Marco já comemorado antes do corte de 1º/set (a contagem recomeçou) não
+    // volta para a TV — igual ao WhatsApp.
+    const jaTinha = historico.totalAntesDoCorte(ficha.id);
+    const batidos = marcos.filter((m) => m.aulas > inicioOntem && m.aulas <= total && m.aulas > jaTinha);
     if (!batidos.length) continue;
     const m = batidos[batidos.length - 1];
     if (!String(ficha.nome || '').trim()) continue;
@@ -402,7 +405,14 @@ function rankingMadrugadores(hoje, quantos, limite) {
     })));
 }
 
-/* 6. Veteranos: total de aulas desde sempre */
+/** "1º de setembro" — o dia em que a contagem do histórico começa. */
+function desdeQuando() {
+  const d = String(historico.CONTAR_DESDE || '');
+  const dia = Number(d.slice(8, 10));
+  return `${dia === 1 ? '1º' : dia} de ${mesDe(d)}`;
+}
+
+/* 6. Veteranos: total de aulas desde o início da contagem */
 function rankingVeteranos(quantos) {
   let totais;
   try { totais = historico.totais(); } catch (e) {
@@ -412,7 +422,7 @@ function rankingVeteranos(quantos) {
   const lista = porPessoa((id) => totais.get(id) || null, (a, b) => a + b)
     .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado }));
   return slide('veteranos', 'Hall da fama', 'Mais aulas no estúdio',
-    'Total de aulas desde que entrou no Team Rausch.',
+    `Total de aulas desde ${desdeQuando()}.`,
     linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'aula', 'aulas') })));
 }
 
@@ -444,6 +454,9 @@ const PRESENCA_MAXIMO_NA_TV = 30;
  *   foi cadastrado não pode derrubar a turma inteira.
  */
 function presencaPorPessoa(de, ate) {
+  // Antes do corte não havia totem: mensalista apareceria faltando em tudo.
+  if (historico.CONTAR_DESDE && de < historico.CONTAR_DESDE) de = historico.CONTAR_DESDE;
+  if (ate < de) return [];
   const c = config.ler();
   const bloqueadas = new Set((c.agenda || {}).datasBloqueadas || []);
   const horas = historico.horaMaisCedoPorDia({ de, ate });

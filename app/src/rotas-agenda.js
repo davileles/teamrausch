@@ -724,8 +724,12 @@ function numerosDoAluno(telefone) {
     .filter((m) => Number(m.aulas) > 0)
     .map((m) => ({ aulas: Number(m.aulas), titulo: m.titulo, emoji: m.emoji }))
     .sort((x, y) => x.aulas - y.aulas);
-  const alcancadas = marcos.filter((m) => total >= m.aulas);
-  const proxima = marcos.find((m) => total < m.aulas) || null;
+  // A contagem recomeçou em 1º/set (historico-aulas.CONTAR_DESDE). Marco que
+  // a pessoa já tinha continua dela, e a próxima é a primeira acima de tudo o
+  // que ela já comemorou — a mesma régua das mensagens.
+  const jaTinha = ficha ? historicoAulas.totalAntesDoCorte(ficha.id) : 0;
+  const alcancadas = marcos.filter((m) => total >= m.aulas || jaTinha >= m.aulas);
+  const proxima = marcos.find((m) => Math.max(total, jaTinha) < m.aulas) || null;
 
   return {
     conquistas: alcancadas,
