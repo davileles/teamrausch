@@ -5494,6 +5494,7 @@ async function carregarConfig(){
         ['c-mural-rk-seq','rankingSequencia',10,'Semanas seguidas','Semanas seguidas com pelo menos 2 treinos.'],
         ['c-mural-rk-evo','rankingEvolucao',5,'Quem mais subiu','Treinos do mês contra o mesmo período do mês anterior. Aparece a partir do dia 8.'],
         ['c-mural-rk-mad','rankingMadrugadores',5,'Madrugadores','Dias do mês com treino antes do horário ao lado.'],
+        ['c-mural-rk-pon','rankingPontuais',5,'Mais pontuais','Menor diferença média entre o check-in no totem e a hora da aula (antes ou depois conta igual). Mínimo de 4 check-ins no mês.'],
         ['c-mural-rk-vet','rankingVeteranos',10,'Mais aulas no estúdio','Total de aulas desde sempre.'],
       ].map(([id,k,pad,rot,aj])=>`
       <div class="dupla">
@@ -6165,6 +6166,7 @@ async function salvarConfig(){
       rankingEvolucao: n('c-mural-rk-evo'),
       rankingMadrugadores: n('c-mural-rk-mad'),
       horaMadrugadores: v('c-mural-hora-mad') || '07:00',
+      rankingPontuais: n('c-mural-rk-pon'),
       rankingVeteranos: n('c-mural-rk-vet'),
       rankingPresenca: n('c-mural-rk-pre'),
       castAppId: v('c-mural-cast'),

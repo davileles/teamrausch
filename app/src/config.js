@@ -181,6 +181,7 @@ const PADRAO = {
     rankingEvolucao: 5,         // quem mais subiu contra o mesmo período do mês anterior
     rankingMadrugadores: 5,     // dias do mês com treino antes de horaMadrugadores
     horaMadrugadores: '07:00',
+    rankingPontuais: 5,         // menor diferença média entre o check-in no totem e a hora da aula
     rankingVeteranos: 10,       // total de aulas desde sempre
     rankingPresenca: 1,         // presença em dia: 90%+ das aulas combinadas (0 desliga)
     castAppId: '',

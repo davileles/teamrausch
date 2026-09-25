@@ -5,7 +5,7 @@
  *
  * O que a TV do estúdio mostra: aniversariantes do dia, conquistas batidas
  * hoje e ontem, os rankings (frequência do mês, sequência de semanas,
- * evolução, madrugadores, presença em dia e veteranos) e os avisos que
+ * evolução, madrugadores, pontuais, presença em dia e veteranos) e os avisos que
  * estiverem valendo.
  *
  * NADA É GRAVADO AQUI
@@ -405,6 +405,75 @@ function rankingMadrugadores(hoje, quantos, limite) {
     })));
 }
 
+/* 5. Pontuais: quem confirma no totem mais perto da hora da aula */
+
+/** Menos check-ins que isso no mês e a média é sorte, não hábito. */
+const PONTUAIS_MINIMO_CHECKINS = 4;
+
+/** Segundos do dia no fuso do estúdio, a partir do ISO gravado no totem. */
+function segundosLocais(iso, fuso) {
+  try {
+    const partes = new Intl.DateTimeFormat('en-GB', {
+      timeZone: fuso, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).formatToParts(new Date(iso));
+    const v = (t) => (partes.find((x) => x.type === t) || {}).value;
+    const h = Number(v('hour')) % 24;
+    return { data: `${v('year')}-${v('month')}-${v('day')}`, s: h * 3600 + Number(v('minute')) * 60 + Number(v('second')) };
+  } catch (e) { return null; }
+}
+
+/**
+ * Diferença, em minutos, entre a confirmação no totem e a hora agendada.
+ *
+ * Só a confirmação normal do totem conta: ela guarda a aula (`hora`) e o
+ * instante do toque (`criadoEm`). A liberada pelo professor não entra — ali a
+ * "hora" já é a chegada arredondada, e a diferença sairia sempre perto de zero.
+ * Chegar antes ou depois pesa igual: 6h58 e 7h02 são os dois 2 minutos.
+ */
+function pontualidadePorPessoa(de, ate) {
+  const fuso = (config.ler().estudio || {}).fuso || 'America/Sao_Paulo';
+  const fichaDe = new Map();
+  const porFicha = new Map();
+  for (const p of agendaStore.listarPresencas({ de, ate })) {
+    if (p.origem !== 'totem' || !p.criadoEm || !/^\d{2}:\d{2}$/.test(String(p.hora || ''))) continue;
+    const local = segundosLocais(p.criadoEm, fuso);
+    if (!local || local.data !== p.data) continue;
+    if (!fichaDe.has(p.telefone)) fichaDe.set(p.telefone, matriculas.porTelefone(p.telefone) || null);
+    const ficha = fichaDe.get(p.telefone);
+    if (!ficha) continue;
+    const aula = Number(p.hora.slice(0, 2)) * 3600 + Number(p.hora.slice(3, 5)) * 60;
+    if (!porFicha.has(ficha.id)) porFicha.set(ficha.id, []);
+    porFicha.get(ficha.id).push(Math.abs(local.s - aula) / 60);
+  }
+  return porPessoa((id) => porFicha.get(id) || null, (a, b) => a.concat(b))
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, difs: x.dado }));
+}
+
+/** "1,5 min" / "40 s": abaixo de um minuto, segundo diz mais que "0,4 min". */
+function fmtMinutos(min) {
+  if (min < 1) return { valor: Math.round(min * 60), unidade: 's' };
+  return { valor: min.toFixed(1).replace('.', ','), unidade: 'min' };
+}
+
+function rankingPontuais(hoje, quantos) {
+  const de = frequencia.inicioDoMes(hoje);
+  const lista = pontualidadePorPessoa(de, hoje)
+    .filter((x) => x.difs.length >= PONTUAIS_MINIMO_CHECKINS)
+    .map((x) => {
+      // Décimo de minuto: é o que aparece na tela, e só empata quem empata ali.
+      const media = Math.round((x.difs.reduce((a, b) => a + b, 0) / x.difs.length) * 10) / 10;
+      // `posicionar` põe o maior na frente; aqui ganha a menor diferença.
+      return { nomeCompleto: x.nomeCompleto, valor: -media, desempate: x.difs.length, media };
+    });
+  return slide('pontuais', `Pontualidade · ${mesDe(hoje)}`, 'Mais pontuais',
+    `Distância média entre o check-in no totem e a hora da aula (antes ou depois) · mínimo de ${PONTUAIS_MINIMO_CHECKINS} check-ins · empate: quem fez mais check-ins.`,
+    linhas(posicionar(lista, quantos), (x) => ({
+      ...fmtMinutos(x.media),
+      detalhe: `média em ${x.desempate} check-ins`,
+    })));
+}
+
 /** "1º de setembro" — o dia em que a contagem do histórico começa. */
 function desdeQuando() {
   const d = String(historico.CONTAR_DESDE || '');
@@ -537,6 +606,7 @@ function diagnostico() {
     ranking: m.ranking, rankingSequencia: m.rankingSequencia, rankingEvolucao: m.rankingEvolucao,
     rankingMadrugadores: m.rankingMadrugadores, horaMadrugadores: m.horaMadrugadores,
     rankingVeteranos: m.rankingVeteranos, rankingPresenca: m.rankingPresenca,
+    rankingPontuais: m.rankingPontuais,
   } };
   const tenta = (nome, fn) => { try { saida[nome] = fn(); } catch (e) { saida[nome] = { erro: e.message }; } };
 
@@ -561,6 +631,13 @@ function diagnostico() {
   tenta('madrugadoresTop', () => {
     const r = rankingMadrugadores(hoje, 5, m.horaMadrugadores || '07:00');
     return { noTop5: r ? r.itens.length : 0 };
+  });
+  tenta('pontuais', () => {
+    const lista = pontualidadePorPessoa(frequencia.inicioDoMes(hoje), hoje);
+    return {
+      pessoasComCheckinNoTotem: lista.length,
+      comMinimoDeCheckins: lista.filter((x) => x.difs.length >= PONTUAIS_MINIMO_CHECKINS).length,
+    };
   });
   tenta('presenca', () => {
     const dia = Number(hoje.slice(8, 10));
@@ -596,6 +673,7 @@ function rankings(hoje, m) {
     sequencia: topN(m.rankingSequencia, 10),
     evolucao: topN(m.rankingEvolucao, 5),
     madrugadores: topN(m.rankingMadrugadores, 5),
+    pontuais: topN(m.rankingPontuais, 5),
     veteranos: topN(m.rankingVeteranos, 10),
   };
   const limite = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(m.horaMadrugadores || '')) ? m.horaMadrugadores : '07:00';
@@ -605,6 +683,7 @@ function rankings(hoje, m) {
   if (n.sequencia) tenta('sequencia', () => rankingSequencia(hoje, n.sequencia));
   if (n.evolucao) tenta('evolucao', () => rankingEvolucao(hoje, n.evolucao));
   if (n.madrugadores) tenta('madrugadores', () => rankingMadrugadores(hoje, n.madrugadores, limite));
+  if (n.pontuais) tenta('pontuais', () => rankingPontuais(hoje, n.pontuais));
   if (n.veteranos) tenta('veteranos', () => rankingVeteranos(n.veteranos));
   return saida;
 }
