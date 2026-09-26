@@ -139,6 +139,24 @@ const PADRAO = {
    * texto padrão de `boas-vindas-experimental.js`. Marcadores: {{nome}},
    * {{nomeCompleto}}, {{estudio}} e {{noEstudio}} (" no <estúdio>").
    */
+  /**
+   * BOAS-VINDAS AO APP
+   *
+   * Instruções de uso (horários fixos salvos, app só para trocar, prazo da
+   * troca e link) para quem passa a ter grade: primeiro acesso com grade,
+   * aluno antigo confirmando a grade e experimental que vira aluno (pelo app
+   * ou pelo painel). Uma vez por matrícula. `mensagem` vazia usa o texto
+   * padrão de `boas-vindas-app.js`. Marcadores: {{nome}}, {{nomeCompleto}},
+   * {{estudio}}, {{grade}}, {{prazoTroca}} e {{link}}.
+   */
+  boasVindasApp: {
+    ativo: true,
+    inicio: '08:00',
+    fim: '21:00',
+    diasMaximos: 7,
+    link: 'https://app.teamrausch.com.br',
+    mensagem: '',
+  },
   experimentalAviso: {
     ativo: true,
     inicio: '08:00',

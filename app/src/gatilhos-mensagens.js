@@ -39,6 +39,7 @@ async function rodarTudo(origens) {
     ['conquistas', require('./conquistas-mensagens')],
     ['meta-mensal', require('./meta-mensal-mensagens')],
     ['experimental', require('./boas-vindas-experimental')],
+    ['boas-vindas-app', require('./boas-vindas-app')],
   ];
   for (const [nome, mod] of modulos) {
     try {

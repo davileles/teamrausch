@@ -468,8 +468,11 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
 
     sincronizarNascimento(r.matricula);
     // Marcou experimental ou preencheu o telefone agora: a boas-vindas não
-    // precisa esperar a varredura de 5 min.
-    if (r.matricula.experimental) gatilhos.cadastro();
+    // precisa esperar a varredura de 5 min. Virou aluno (saiu do
+    // experimental): as instruções do app também saem na mesma passada.
+    if (r.matricula.experimental || (antes.experimental && !r.matricula.experimental)) {
+      gatilhos.cadastro();
+    }
     res.json(ficha(r.matricula));
   });
 

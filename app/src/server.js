@@ -16,6 +16,7 @@ const conquistas = require('./conquistas-mensagens');
 const metaMensal = require('./meta-mensal-mensagens');
 const resumoGrupo = require('./resumo-grupo');
 const boasVindasExperimental = require('./boas-vindas-experimental');
+const boasVindasApp = require('./boas-vindas-app');
 const planilhaAlunos = require('./planilha-alunos');
 const configApp = require('./config');
 const { lerCheckin } = require('./payload-map');
@@ -760,4 +761,5 @@ app.listen(PORTA, () => {
   metaMensal.iniciar(); // agradecimento quando o aluno Wellhub fecha a meta de check-ins do mês
   resumoGrupo.iniciar(); // resumo das conquistas e metas para o grupo do operador, às 14h e 21h
   boasVindasExperimental.iniciar(); // obrigado pela aula experimental, uma vez por aluno
+  boasVindasApp.iniciar(); // instruções do app para quem passa a ter grade fixa
 });

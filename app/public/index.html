@@ -5738,6 +5738,38 @@ async function carregarConfig(){
       <p class="ajuda"><b>A primeira noite não envia nada.</b> Quem já fechou a meta deste mês
         antes do recurso existir é só anotado. A partir daí, só quem fechar depois.</p>
 
+      <h3>Instruções do app (boas-vindas do aluno)</h3>
+      <p class="ajuda">Quem passa a ter horários fixos recebe no WhatsApp os horários salvos, o aviso de que não
+        precisa agendar todo dia, como trocar de horário (com o prazo de "minutos para cancelar") e o link do app.
+        Sai no primeiro acesso com grade, quando o aluno antigo confirma a grade e quando o experimental vira
+        aluno — pelo app ou pelo painel. Uma vez por aluno. O experimental continua só com o obrigado abaixo.</p>
+      <div class="dupla">
+        <div class="campo"><label for="c-bva-ativo">Instruções automáticas</label>
+          <select id="c-bva-ativo">
+            <option value="0"${(c.boasVindasApp||{}).ativo===false?' selected':''}>Desligado</option>
+            <option value="1"${(c.boasVindasApp||{}).ativo===false?'':' selected'}>Ligado</option>
+          </select></div>
+        <div class="campo"><label for="c-bva-link">Link do app</label>
+          <input id="c-bva-link" type="url" value="${esc((c.boasVindasApp||{}).link || 'https://app.teamrausch.com.br')}"></div>
+      </div>
+      <div class="dupla">
+        <div class="campo"><label for="c-bva-inicio">Envia a partir de</label>
+          <input id="c-bva-inicio" type="time" value="${esc((c.boasVindasApp||{}).inicio || '08:00')}"></div>
+        <div class="campo"><label for="c-bva-fim">Até</label>
+          <input id="c-bva-fim" type="time" value="${esc((c.boasVindasApp||{}).fim || '21:00')}">
+          <p class="ajuda">Vale para quem virou aluno pelo painel. No login a mensagem sai na hora.</p></div>
+      </div>
+      <div class="campo"><label for="c-bva-dias">Prazo após virar aluno (dias)</label>
+        <input id="c-bva-dias" type="number" min="1" max="60" value="${esc(String((c.boasVindasApp||{}).diasMaximos || 7))}"></div>
+      <div class="campo"><label for="c-bva-texto">Texto das instruções</label>
+        <textarea id="c-bva-texto" maxlength="1500" style="min-height:160px"
+          placeholder="Vazio usa o texto padrão">${esc((c.boasVindasApp||{}).mensagem || '')}</textarea>
+        <p class="ajuda">Marcadores: <code>{{nome}}</code>, <code>{{nomeCompleto}}</code>, <code>{{estudio}}</code>,
+          <code>{{grade}}</code> (um horário por linha), <code>{{prazoTroca}}</code> (ex.: "30 minutos") e
+          <code>{{link}}</code>. Vazio usa o texto padrão.</p></div>
+      <button class="leve" id="c-bva-previa">Ver quem receberia agora</button>
+      <div id="c-bva-previa-saida" class="ajuda" style="white-space:pre-wrap;margin-top:8px"></div>
+
       <h3>Boas-vindas ao experimental</h3>
       <p class="ajuda">Aluno marcado como experimental recebe um obrigado no WhatsApp assim que a
         primeira aula dele for contada (check-in ou tablet) e houver telefone na ficha. Uma vez
@@ -5944,6 +5976,25 @@ async function carregarConfig(){
       }catch(e){ saida.textContent = 'Não consegui consultar: ' + (e.message || e); }
     });
 
+    document.getElementById('c-bva-previa').addEventListener('click', async ()=>{
+      const saida = document.getElementById('c-bva-previa-saida');
+      saida.textContent = 'Consultando…';
+      try{
+        const r = await api('/admin/boas-vindas-app/previa');
+        const lista = r.pendentes || [];
+        if (!lista.length) { saida.textContent = 'Ninguém para receber pela varredura agora. (No login a mensagem sai na hora.)'; return; }
+        if (r.seraSemeado) {
+          saida.textContent = 'Primeira passada: estes serão só anotados, sem envio.\n\n'
+            + lista.map(p=>`• ${p.nome}`).join('\n');
+          return;
+        }
+        const comTexto = lista.find(p=>p.telefone) || lista[0];
+        saida.textContent = (r.foraDaJanela ? 'Fora da janela de horário agora — sai na próxima.\n\n' : '')
+          + lista.map(p=>`• ${p.nome}${p.telefone ? '' : ' ⚠️ sem telefone'}`).join('\n')
+          + '\n\nTexto para ' + comTexto.nome + ':\n' + comTexto.texto;
+      }catch(e){ saida.textContent = 'Não consegui consultar: ' + (e.message || e); }
+    });
+
     document.getElementById('c-exp-previa').addEventListener('click', async ()=>{
       const saida = document.getElementById('c-exp-previa-saida');
       saida.textContent = 'Consultando…';
@@ -6110,6 +6161,14 @@ async function salvarConfig(){
 
   const corpo = {
     conquistas,
+    boasVindasApp: {
+      ativo: v('c-bva-ativo') === '1',
+      link: v('c-bva-link') || 'https://app.teamrausch.com.br',
+      inicio: v('c-bva-inicio') || '08:00',
+      fim: v('c-bva-fim') || '21:00',
+      diasMaximos: Number(v('c-bva-dias')) || 7,
+      mensagem: document.getElementById('c-bva-texto').value,
+    },
     experimentalAviso: {
       ativo: v('c-exp-ativo') === '1',
       avisarGrupo: v('c-exp-grupo') === '1',

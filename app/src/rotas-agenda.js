@@ -15,6 +15,7 @@ const historicoAulas = require('./historico-aulas');
 const conquistas = require('./conquistas-mensagens');
 const metaMensal = require('./meta-mensal-mensagens');
 const boasVindasExperimental = require('./boas-vindas-experimental');
+const boasVindasApp = require('./boas-vindas-app');
 
 const rotas = express.Router();
 
@@ -598,6 +599,9 @@ rotas.post('/auth/entrar', (req, res) => {
   if (gradeEscolhida) {
     const r = aplicarGradeNaMatricula(telefone, aluno.nome, aniversario, gradeEscolhida);
     if (!r.ok) console.warn(`[acesso] grade de ${telefone} não foi gravada: ${r.motivo}`);
+    // Instruções do app com a grade que acabou de ser salva: primeiro acesso,
+    // aluno antigo confirmando a grade ou experimental virando aluno.
+    else boasVindasApp.enviarPorTelefone(telefone);
   }
 
   let marcouExperimental = false;
@@ -1213,6 +1217,29 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     novo.metaMensalAviso = mm;
   }
 
+  if (novo.boasVindasApp !== undefined) {
+    const bv = novo.boasVindasApp || {};
+    const hora = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (bv.inicio !== undefined && !hora.test(String(bv.inicio))) {
+      return res.status(400).json({ erro: 'Início da janela das instruções do app inválido. Use HH:MM.' });
+    }
+    if (bv.fim !== undefined && !hora.test(String(bv.fim))) {
+      return res.status(400).json({ erro: 'Fim da janela das instruções do app inválido. Use HH:MM.' });
+    }
+    if (bv.inicio !== undefined && bv.fim !== undefined && String(bv.inicio) >= String(bv.fim)) {
+      return res.status(400).json({ erro: 'A janela das instruções do app precisa começar antes de terminar.' });
+    }
+    if (bv.diasMaximos !== undefined) {
+      const erro = faixa(bv.diasMaximos, 1, 60, 'Prazo das instruções do app');
+      if (erro) return res.status(400).json({ erro });
+      bv.diasMaximos = Math.round(Number(bv.diasMaximos));
+    }
+    if (bv.ativo !== undefined) bv.ativo = Boolean(bv.ativo);
+    if (bv.link !== undefined) bv.link = String(bv.link).trim().slice(0, 200);
+    if (bv.mensagem !== undefined) bv.mensagem = String(bv.mensagem).slice(0, 1500);
+    novo.boasVindasApp = bv;
+  }
+
   if (novo.experimentalAviso !== undefined) {
     const ex = novo.experimentalAviso || {};
     const hora = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -1454,6 +1481,21 @@ rotas.get('/admin/meta-mensal/previa', exigirLogin, exigirAdmin, async (_req, re
 rotas.post('/admin/meta-mensal/rodar', exigirLogin, exigirAdmin, async (_req, res) => {
   try {
     res.json(await metaMensal.rodar({}));
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+/* ------------------------ boas-vindas ao app ------------------------------ */
+
+rotas.get('/admin/boas-vindas-app/situacao', exigirLogin, exigirAdmin, (_req, res) => {
+  res.json(boasVindasApp.situacao());
+});
+
+/** Quem receberia pela varredura agora e com que texto. Não envia nem anota. */
+rotas.get('/admin/boas-vindas-app/previa', exigirLogin, exigirAdmin, async (_req, res) => {
+  try {
+    res.json(await boasVindasApp.rodar({ avisar: false }));
   } catch (e) {
     res.status(500).json({ erro: e.message });
   }
