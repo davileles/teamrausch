@@ -177,7 +177,14 @@ function motivoDe(f, m) {
       : 'sem dados de frequência';
   }
   const partes = [ROTULO[f.situacao] || f.situacao];
-  if (f.mes && f.mes.meta) partes.push(`${f.mes.realizado}/${f.mes.esperado} no mês`);
+  // Check-ins contra a META do pacote, que é o que decide a situação. Antes o
+  // divisor era a grade prevista até hoje (`mes.esperado`), e "10/8" parecia
+  // aluno adiantado sendo cobrado.
+  if (f.mes && f.mes.meta) {
+    const faltam = Number(f.mes.faltam || 0);
+    partes.push(`${f.mes.realizado} de ${f.mes.meta} no mês`
+      + (faltam ? ` · faltam ${faltam}` : ''));
+  }
   if (f.ultimoCheckin) {
     partes.push('último em ' + f.ultimoCheckin.split('-').reverse().slice(0, 2).join('/'));
   } else {
