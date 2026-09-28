@@ -1289,13 +1289,14 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     if (erro) return res.status(400).json({ erro });
     if (mu.ativo !== undefined) mu.ativo = Boolean(mu.ativo);
     for (const k of ['ranking', 'rankingSequencia', 'rankingEvolucao', 'rankingMadrugadores',
-      'rankingTurmas', 'rankingVeteranos', 'rankingPontuais']) {
+      'rankingTurmas', 'rankingVeteranos', 'rankingPontuais', 'rankingPalavra']) {
       if (mu[k] === undefined) continue;
       const r = Number(mu[k]);
       if (![0, 5, 10].includes(r)) return res.status(400).json({ erro: 'Rankings da TV: use 0, 5 ou 10.' });
       mu[k] = r;
     }
     if (mu.rankingPresenca !== undefined) mu.rankingPresenca = Number(mu.rankingPresenca) ? 1 : 0;
+    if (mu.rankingSexta !== undefined) mu.rankingSexta = Number(mu.rankingSexta) ? 1 : 0;
     if (mu.horaMadrugadores !== undefined) {
       const h = String(mu.horaMadrugadores || '').trim();
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(h)) {

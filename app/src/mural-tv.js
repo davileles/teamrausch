@@ -5,7 +5,8 @@
  *
  * O que a TV do estúdio mostra: aniversariantes do dia, conquistas batidas
  * hoje e ontem, os rankings (frequência do mês, sequência de semanas,
- * evolução, madrugadores, pontuais, presença em dia e veteranos) e os avisos que
+ * evolução, madrugadores, pontuais, presença em dia, palavra cumprida, sexta-feira
+ * não perdoa e veteranos) e os avisos que
  * estiverem valendo.
  *
  * NADA É GRAVADO AQUI
@@ -522,17 +523,28 @@ const PRESENCA_MAXIMO_NA_TV = 30;
  *   dias em que ninguém registrou presença no estúdio — dia fechado que não
  *   foi cadastrado não pode derrubar a turma inteira.
  */
-function presencaPorPessoa(de, ate) {
-  // Antes do corte não havia totem: mensalista apareceria faltando em tudo.
-  if (historico.CONTAR_DESDE && de < historico.CONTAR_DESDE) de = historico.CONTAR_DESDE;
-  if (ate < de) return [];
-  const c = config.ler();
-  const bloqueadas = new Set((c.agenda || {}).datasBloqueadas || []);
+/**
+ * Dias em que o estúdio funcionou de fato: alguém registrou presença e a data
+ * não está bloqueada na agenda. Dia fechado que não foi cadastrado não pode
+ * virar falta da turma inteira. `horas` volta junto porque é dele que sai
+ * quem veio em cada dia.
+ */
+function diasDoEstudio(de, ate) {
+  const bloqueadas = new Set((config.ler().agenda || {}).datasBloqueadas || []);
   const horas = historico.horaMaisCedoPorDia({ de, ate });
-
   const abertos = new Set();
   for (const dias of horas.values()) for (const d of dias.keys()) abertos.add(d);
   for (const p of agendaStore.listarPresencas({ de, ate })) abertos.add(p.data);
+  for (const d of bloqueadas) abertos.delete(d);
+  return { abertos, horas };
+}
+
+/** Datas combinadas (`c`) e cumpridas (`p`) de cada pessoa, em Sets. */
+function compromissosPorPessoa(de, ate) {
+  // Antes do corte não havia totem: mensalista apareceria faltando em tudo.
+  if (historico.CONTAR_DESDE && de < historico.CONTAR_DESDE) de = historico.CONTAR_DESDE;
+  if (ate < de) return [];
+  const { abertos, horas } = diasDoEstudio(de, ate);
 
   const reservas = new Map();
   for (const a of agendaStore.listarAgendamentos({ de, ate })) {
@@ -549,7 +561,7 @@ function presencaPorPessoa(de, ate) {
     const combinados = new Set(grade.proximasDaMatricula(ficha, excecoes, { de, dias: nDias }).map((x) => x.data));
     for (const d of reservas.get(ficha.telefone) || []) combinados.add(d);
     for (const d of [...combinados]) {
-      if (d < de || d > ate || bloqueadas.has(d) || !abertos.has(d)) combinados.delete(d);
+      if (d < de || d > ate || !abertos.has(d)) combinados.delete(d);
     }
     if (!combinados.size) return null;
     const veio = horas.get(ficha.id) || new Map();
@@ -557,7 +569,12 @@ function presencaPorPessoa(de, ate) {
   };
   const fichas = new Map(matriculas.listar().map((f) => [f.id, f]));
   return porPessoa((id) => daFicha(fichas.get(id)), (x, y) => ({ c: uniao(x.c, y.c), p: uniao(x.p, y.p) }))
-    .map((x) => ({ nomeCompleto: x.nomeCompleto, combinadas: x.dado.c.size, cumpridas: x.dado.p.size }));
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, c: x.dado.c, p: x.dado.p }));
+}
+
+function presencaPorPessoa(de, ate) {
+  return compromissosPorPessoa(de, ate)
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, combinadas: x.c.size, cumpridas: x.p.size }));
 }
 
 function rankingPresenca(hoje) {
@@ -593,6 +610,113 @@ function rankingPresenca(hoje) {
     })), { semPosicao: true });
 }
 
+/* 8. Palavra cumprida: semanas seguidas sem faltar a nenhuma aula marcada */
+
+/**
+ * Conta em semanas, não em aulas: quem treina 2x e nunca falha empata com quem
+ * treina 5x e nunca falha. As aulas cumpridas só desempatam.
+ *
+ * Semana sem nada marcado (férias com a grade desmarcada) não conta nem
+ * quebra. A semana corrente vale até ontem: se já houve falta nela, a
+ * sequência zerou. E a sequência precisa estar viva — ter compromisso nesta
+ * semana ou na anterior — senão quem sumiu há um mês continuaria no topo.
+ */
+const PALAVRA_MINIMO_SEMANAS = 2;
+
+function rankingPalavra(hoje, quantos) {
+  const ontem = grade.somarDias(hoje, -1);
+  const estaSemana = segundaDaSemana(hoje);
+  const semanaPassada = grade.somarDias(estaSemana, -7);
+  const inicio = grade.somarDias(estaSemana, -7 * (SEMANAS_NA_JANELA - 1));
+  const primeira = segundaDaSemana(historico.CONTAR_DESDE && inicio < historico.CONTAR_DESDE
+    ? historico.CONTAR_DESDE : inicio);
+
+  const lista = [];
+  for (const x of compromissosPorPessoa(inicio, ontem)) {
+    const semanas = new Map();
+    for (const d of x.c) {
+      const s = segundaDaSemana(d);
+      const w = semanas.get(s) || { c: 0, p: 0 };
+      w.c += 1;
+      if (x.p.has(d)) w.p += 1;
+      semanas.set(s, w);
+    }
+    if (!semanas.has(estaSemana) && !semanas.has(semanaPassada)) continue;
+    let n = 0; let aulas = 0;
+    for (let s = estaSemana; s >= primeira; s = grade.somarDias(s, -7)) {
+      const w = semanas.get(s);
+      if (!w) continue;
+      if (w.p < w.c) break;
+      n += 1; aulas += w.c;
+    }
+    if (n >= PALAVRA_MINIMO_SEMANAS) lista.push({ nomeCompleto: x.nomeCompleto, valor: n, desempate: aulas });
+  }
+  return slide('palavra', 'Palavra cumprida', 'Marcou, veio',
+    'Semanas seguidas sem faltar a nenhuma aula marcada (grade fixa + reservas) · empate: quem cumpriu mais aulas.',
+    linhas(posicionar(lista, quantos), (x) => ({
+      valor: x.valor >= SEMANAS_NA_JANELA ? `${x.valor}+` : x.valor,
+      unidade: unidade(x.valor, 'semana', 'semanas'),
+      detalhe: `${x.desempate} ${unidade(x.desempate, 'aula marcada', 'aulas marcadas')}, nenhuma falta`,
+    })));
+}
+
+/* 9. Sexta-feira não perdoa: quem treinou em todas as sextas do mês */
+
+const SEXTA = 5;
+/** Menos sextas que isso e "todas" é sorte; mostra o mês anterior fechado. */
+const SEXTA_MINIMO = 2;
+const SEXTA_MAXIMO_NA_TV = 30;
+
+function sextasComEstudio(de, ate) {
+  const { abertos, horas } = diasDoEstudio(de, ate);
+  const sextas = [];
+  for (let d = de; d <= ate; d = grade.somarDias(d, 1)) {
+    if (grade.diaDaSemana(d) === SEXTA && abertos.has(d)) sextas.push(d);
+  }
+  return { sextas, horas };
+}
+
+function rankingSexta(hoje) {
+  // A sexta de hoje ainda não acabou: só entram as que já passaram.
+  let ate = grade.somarDias(hoje, -1);
+  let de = frequencia.inicioDoMes(hoje);
+  if (historico.CONTAR_DESDE && de < historico.CONTAR_DESDE) de = historico.CONTAR_DESDE;
+  let r = ate >= de ? sextasComEstudio(de, ate) : { sextas: [], horas: new Map() };
+  let fechado = false;
+  if (r.sextas.length < SEXTA_MINIMO) {
+    ate = grade.somarDias(frequencia.inicioDoMes(hoje), -1);
+    de = frequencia.inicioDoMes(ate);
+    if (historico.CONTAR_DESDE && de < historico.CONTAR_DESDE) de = historico.CONTAR_DESDE;
+    if (ate < de) return null;
+    r = sextasComEstudio(de, ate);
+    fechado = true;
+    if (r.sextas.length < SEXTA_MINIMO) return null;
+  }
+  const { sextas, horas } = r;
+  const lista = porPessoa((id) => {
+    const veio = horas.get(id);
+    if (!veio) return null;
+    const s = new Set(sextas.filter((d) => veio.has(d)));
+    return s.size ? s : null;
+  }, uniao)
+    .filter((x) => x.dado.size === sextas.length)
+    .map((x) => ({ nomeCompleto: x.nomeCompleto }))
+    .sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto, 'pt-BR'))
+    .slice(0, SEXTA_MAXIMO_NA_TV);
+  if (lista.length < MINIMO_NO_RANKING) return null;
+
+  const mes = mesDe(ate);
+  const n = sextas.length;
+  const ehSexta = grade.diaDaSemana(hoje) === SEXTA;
+  return slide('sexta', `Sextou no estúdio · ${mes}`, 'Sexta-feira não perdoa',
+    `A sexta é o dia em que mais gente some. Esta turma treinou em todas as ${n} sextas de ${mes}`
+      + (fechado ? '.' : ', até agora.')
+      + (ehSexta ? ' Hoje é sexta: vai deixar a turma te esperando?' : ' Sexta que vem tem mais.'),
+    semRepetidos(lista).map((x) => ({
+      nome: x.nome, completo: true, valor: `${n}/${n}`, unidade: 'sextas',
+    })), { semPosicao: true });
+}
+
 /* ------------------------------ diagnóstico ------------------------------- */
 
 /**
@@ -606,7 +730,7 @@ function diagnostico() {
     ranking: m.ranking, rankingSequencia: m.rankingSequencia, rankingEvolucao: m.rankingEvolucao,
     rankingMadrugadores: m.rankingMadrugadores, horaMadrugadores: m.horaMadrugadores,
     rankingVeteranos: m.rankingVeteranos, rankingPresenca: m.rankingPresenca,
-    rankingPontuais: m.rankingPontuais,
+    rankingPontuais: m.rankingPontuais, rankingPalavra: m.rankingPalavra, rankingSexta: m.rankingSexta,
   } };
   const tenta = (nome, fn) => { try { saida[nome] = fn(); } catch (e) { saida[nome] = { erro: e.message }; } };
 
@@ -651,6 +775,17 @@ function diagnostico() {
     }
     return { pessoasComAulaCombinada: lista.length, faixas };
   });
+  tenta('palavra', () => {
+    const r = rankingPalavra(hoje, 50);
+    return { pessoasComSequenciaDe2Mais: r ? r.itens.length : 0 };
+  });
+  tenta('sexta', () => {
+    const ate = grade.somarDias(hoje, -1);
+    const de = frequencia.inicioDoMes(hoje);
+    const sextas = ate >= de ? sextasComEstudio(de, ate).sextas.length : 0;
+    const r = rankingSexta(hoje);
+    return { sextasNoMesAteOntem: sextas, pessoasEmTodas: r ? r.itens.length : 0 };
+  });
   return saida;
 }
 
@@ -675,15 +810,18 @@ function rankings(hoje, m) {
     madrugadores: topN(m.rankingMadrugadores, 5),
     pontuais: topN(m.rankingPontuais, 5),
     veteranos: topN(m.rankingVeteranos, 10),
+    palavra: topN(m.rankingPalavra, 10),
   };
   const limite = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(m.horaMadrugadores || '')) ? m.horaMadrugadores : '07:00';
 
   if (n.mes) tenta('mes', () => rankingDoMes(hoje, n.mes));
   if (m.rankingPresenca !== false && Number(m.rankingPresenca) !== 0) tenta('presenca', () => rankingPresenca(hoje));
+  if (n.palavra) tenta('palavra', () => rankingPalavra(hoje, n.palavra));
   if (n.sequencia) tenta('sequencia', () => rankingSequencia(hoje, n.sequencia));
   if (n.evolucao) tenta('evolucao', () => rankingEvolucao(hoje, n.evolucao));
   if (n.madrugadores) tenta('madrugadores', () => rankingMadrugadores(hoje, n.madrugadores, limite));
   if (n.pontuais) tenta('pontuais', () => rankingPontuais(hoje, n.pontuais));
+  if (m.rankingSexta !== false && Number(m.rankingSexta) !== 0) tenta('sexta', () => rankingSexta(hoje));
   if (n.veteranos) tenta('veteranos', () => rankingVeteranos(n.veteranos));
   return saida;
 }

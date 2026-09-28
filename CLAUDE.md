@@ -380,6 +380,7 @@ Cron do GitHub está degradado (atrasa 2–4 h): disparo real vem do Railway; cr
   - Experimental recebe **só** a mensagem de boas-vindas (agradecer, convidar a voltar), sem a conquista "Primeira aula".
   - Ciclos: manhã 5h–14h; tarde até 21h. Avisos ao grupo do operador de conquista/meta saem em **dois resumos diários (14h e 21h)**; check-in individual no funcional e aniversariantes continuam na hora.
   - Horários: planilha 05:00, aniversariantes 05:30, relatório 06:00, modelos 09:00, frequência 10:00, redes de segurança 20:30/20:45.
+  - Rankings da TV (`app/src/mural-tv.js`) valorizam aspectos além do volume: presença em dia (90%+ do combinado), **palavra cumprida** (semanas seguidas sem faltar a aula marcada — grade fixa + reservas; conta semanas, não aulas), **sexta-feira não perdoa** (treinou em todas as sextas do mês, lista sem posição, tom bem-humorado), madrugadores, pontuais, evolução. Nunca mostrar ranking negativo (quem mais falta/atrasa). Combinado do mensalista vem da grade da matrícula.
   - Pendências de UI de créditos: badge de saldo, aviso "custa 1 crédito" por horário, botão de fechamento do estúdio em lote, extrato de créditos no perfil.
 - Sem `.github/` nem guardas neste repo.
 

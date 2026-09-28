@@ -202,6 +202,8 @@ const PADRAO = {
     rankingPontuais: 5,         // menor diferença média entre o check-in no totem e a hora da aula
     rankingVeteranos: 10,       // total de aulas desde sempre
     rankingPresenca: 1,         // presença em dia: 90%+ das aulas combinadas (0 desliga)
+    rankingPalavra: 10,         // palavra cumprida: semanas seguidas sem faltar a aula marcada
+    rankingSexta: 1,            // sexta-feira não perdoa: treinou em todas as sextas do mês (0 desliga)
     castAppId: '',
   },
   acesso: {
