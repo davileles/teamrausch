@@ -2027,6 +2027,7 @@ function fichaMatricula(m){
       <button class="leve mf-salvar">${novo ? 'Cadastrar' : 'Salvar'}</button>
       <button class="leve mf-cancelar">Cancelar</button>
       ${novo ? '' : `<button class="leve mf-inativar">${m.ativo?'Inativar':'Reativar'}</button>`}
+      ${novo || m.ativo ? '' : `<button class="leve mf-excluir">Excluir de vez</button>`}
     </div>
   </div>`;
 }
@@ -2396,6 +2397,19 @@ function ligarFicha(el, id){
     try{
       if (ativo) await api('/matriculas/'+id, {method:'DELETE'});
       else await api('/matriculas/'+id, {method:'PUT', body: JSON.stringify({ativo:true})});
+      matEstado.aberta = null; redesenhar();
+    }catch(e){ avisar(e.message,'erro'); }
+  });
+
+  // Só para ficha inativa. Apagar de vez leva junto faltas e aulas extras; os
+  // check-ins ficam sem dono — por isso, se a ficha tem histórico, mesclar é
+  // o caminho certo.
+  const exc = el.querySelector('.mf-excluir');
+  if (exc) exc.addEventListener('click', async ()=>{
+    if (!confirm('Excluir esta ficha de vez? Não tem volta.\n\nSe ela tem check-ins ou histórico da mesma pessoa, use "Ficha duplicada" (mesclar) na ficha ativa em vez de excluir.')) return;
+    try{
+      await api('/matriculas/'+id+'?remover=1', {method:'DELETE'});
+      avisar('Ficha excluída.', 'ok');
       matEstado.aberta = null; redesenhar();
     }catch(e){ avisar(e.message,'erro'); }
   });

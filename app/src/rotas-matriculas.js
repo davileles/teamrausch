@@ -148,7 +148,21 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
         return { ok: false, motivo: 'Este número é de administrador. '
           + 'Ajuste a lista em Configurações antes de trocar.' };
       }
-      const r = alunosLogin.trocarTelefone(antes, agora);
+      let r;
+      if (alunosLogin.aluno(agora)) {
+        // O número novo já tem login: normalmente é a própria pessoa, que
+        // entrou no app com o celular que usa de fato. Só junta se nenhuma
+        // OUTRA matrícula ativa estiver nesse número — aí seria outra pessoa.
+        const dono = store.listar().find((x) => x.ativo && x.id !== m.id
+          && telefone.normalizar(x.telefone) === agora);
+        if (dono) {
+          return { ok: false, motivo: `Este telefone já é da ficha ativa de ${dono.nome}. `
+            + 'Se for a mesma pessoa, mescle as duas fichas; senão, corrija o número dela antes.' };
+        }
+        r = alunosLogin.juntarTelefone(antes, agora);
+      } else {
+        r = alunosLogin.trocarTelefone(antes, agora);
+      }
       if (!r.ok) return { ok: false, motivo: r.motivo };
     }
 

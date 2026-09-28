@@ -75,6 +75,11 @@ function trocarTelefone(antigo, novo) {
   for (const a of dados.agendamentos) {
     if (a.telefone === antigo) a.telefone = novo;
   }
+  // As presenças do totem também são pelo telefone: sem isto o histórico de
+  // quem trocou de número some da ficha dele.
+  for (const p of dados.presencas || []) {
+    if (p.telefone === antigo) p.telefone = novo;
+  }
   for (const [t, s] of Object.entries(dados.sessoes)) {
     if (s.telefone === antigo) delete dados.sessoes[t];
   }
@@ -83,6 +88,70 @@ function trocarTelefone(antigo, novo) {
   gravar();
   backup.sincronizar(listarAlunos);
   return { ok: true, aluno: dados.alunos[novo] };
+}
+
+/**
+ * A mesma pessoa com DOIS cadastros de login: um no número antigo (o da
+ * matrícula) e outro no número que ela usa de fato. `trocarTelefone` recusa
+ * esse caso; aqui os dois viram um só, no número novo — que é o que a pessoa
+ * está usando para entrar no app.
+ *
+ *   • o login do número novo fica (sessão aberta no celular dela continua);
+ *     campo vazio nele é preenchido com o do antigo;
+ *   • reservas e presenças do número antigo passam para o novo; reserva ativa
+ *     repetida (mesmo dia e hora nos dois) é cancelada, e presença repetida
+ *     fica só a do número novo;
+ *   • o login antigo some, com as sessões e o código pendente.
+ *
+ * Quem chama garante que o número novo não é de outra pessoa.
+ */
+function juntarTelefone(antigo, novo) {
+  const velho = dados.alunos[antigo];
+  const fica = dados.alunos[novo];
+  if (!velho || !fica) return trocarTelefone(antigo, novo);
+  if (antigo === novo) return { ok: true, aluno: fica };
+
+  for (const campo of ['nome', 'aniversario']) {
+    if (!fica[campo] && velho[campo]) fica[campo] = velho[campo];
+  }
+  if (velho.criadoEm && (!fica.criadoEm || velho.criadoEm < fica.criadoEm)) {
+    fica.criadoEm = velho.criadoEm;
+  }
+
+  let reservasMovidas = 0;
+  for (const a of dados.agendamentos) {
+    if (a.telefone !== antigo) continue;
+    const repetida = a.status === 'ativo' && dados.agendamentos.some((x) =>
+      x !== a && x.telefone === novo && x.status === 'ativo'
+      && x.data === a.data && x.hora === a.hora);
+    a.telefone = novo;
+    if (repetida) {
+      a.status = 'cancelado';
+      a.canceladoEm = new Date().toISOString();
+      a.canceladoPor = 'juntar-cadastros';
+    } else {
+      reservasMovidas += 1;
+    }
+  }
+
+  dados.presencas = (dados.presencas || []).filter((p) => {
+    if (p.telefone !== antigo) return true;
+    const repetida = dados.presencas.some((x) =>
+      x.telefone === novo && x.data === p.data && x.hora === p.hora);
+    if (repetida) return false;
+    p.telefone = novo;
+    return true;
+  });
+
+  delete dados.alunos[antigo];
+  for (const [t, s] of Object.entries(dados.sessoes)) {
+    if (s.telefone === antigo) delete dados.sessoes[t];
+  }
+  delete dados.codigos[antigo];
+
+  gravar();
+  backup.sincronizar(listarAlunos);
+  return { ok: true, aluno: fica, juntou: true, reservasMovidas };
 }
 
 /**
@@ -323,7 +392,7 @@ carregar();
 setInterval(() => limparAntigos(), 6 * 3600000).unref();
 
 module.exports = {
-  aluno, salvarAluno, listarAlunos, removerAluno, trocarTelefone, backup,
+  aluno, salvarAluno, listarAlunos, removerAluno, trocarTelefone, juntarTelefone, backup,
   guardarCodigo, conferirCodigo, pedidosNaUltimaHora,
   abrirSessao, sessao, fecharSessao,
   daData, doHorario, doAluno, historicoDoAluno, listarAgendamentos,

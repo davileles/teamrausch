@@ -1103,7 +1103,8 @@ function mesclar(idFica, idSai, opcoes = {}) {
   }
   if (fica.telefone && sai.telefone && !mesmoTelefone(fica.telefone, sai.telefone)) {
     return { ok: false, motivo: `As duas fichas têm telefones diferentes `
-      + `(${fica.telefone} e ${sai.telefone}). Apague o errado antes de mesclar.` };
+      + `(${fica.telefone} e ${sai.telefone}). Corrija o telefone de uma delas para o mesmo `
+      + 'número (ou apague o errado) e mescle de novo.' };
   }
 
   const trazidos = [];

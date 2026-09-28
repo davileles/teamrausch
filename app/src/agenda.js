@@ -147,8 +147,8 @@ function domingoDa(data) {
  */
 function lotacao(data, hora, naGrade) {
   const reservas = store.doHorario(data, hora);
-  const telsFixos = new Set(naGrade.map((f) => f.telefone).filter(Boolean));
-  const avulsas = reservas.filter((r) => !telsFixos.has(r.telefone));
+  const telsFixos = new Set(naGrade.map((f) => presencas.finalDoTelefone(f.telefone)).filter(Boolean));
+  const avulsas = reservas.filter((r) => !telsFixos.has(presencas.finalDoTelefone(r.telefone)));
   return { reservas, avulsas, ocupadas: naGrade.length + avulsas.length };
 }
 
@@ -718,7 +718,9 @@ function listaDoDia(data, opcoes = {}) {
 
   const base = dia.horarios.map((h) => {
     const naGrade = fixos.get(h.hora) || [];
-    const telsFixos = new Set(naGrade.map((f) => f.telefone).filter(Boolean));
+    // Pelos 8 últimos dígitos: a ficha guarda o número como foi digitado e a
+    // reserva, normalizado com 55 — comparar o texto inteiro duplicava a linha.
+    const telsFixos = new Set(naGrade.map((f) => presencas.finalDoTelefone(f.telefone)).filter(Boolean));
     const alunos = [
       ...naGrade.map((f) => ({
         id: null,
@@ -730,7 +732,7 @@ function listaDoDia(data, opcoes = {}) {
         criadoEm: null,
       })),
       ...store.doHorario(data, h.hora)
-        .filter((r) => !telsFixos.has(r.telefone))
+        .filter((r) => !telsFixos.has(presencas.finalDoTelefone(r.telefone)))
         .map((r) => ({
           id: r.id,
           matriculaId: null,
