@@ -577,6 +577,21 @@ function presencaPorPessoa(de, ate) {
     .map((x) => ({ nomeCompleto: x.nomeCompleto, combinadas: x.c.size, cumpridas: x.p.size }));
 }
 
+/**
+ * Limite inferior de Wilson (95%): o percentual de presença descontado pela
+ * incerteza da amostra. 4 de 4 dá 51, 11 de 12 dá 65 — quem cumpriu muitas
+ * aulas fica à frente de quem tem 100% em poucas. Só ordena; a tela continua
+ * mostrando o percentual real.
+ */
+function wilsonInferior(cumpridas, combinadas) {
+  if (!combinadas) return 0;
+  const z = 1.96;
+  const z2 = z * z;
+  const p = cumpridas / combinadas;
+  const n = combinadas;
+  return (p + z2 / (2 * n) - z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / (1 + z2 / n);
+}
+
 function rankingPresenca(hoje) {
   const dia = Number(hoje.slice(8, 10));
   let de; let ate; let fechado = false;
@@ -591,7 +606,8 @@ function rankingPresenca(hoje) {
   const lista = presencaPorPessoa(de, ate)
     .filter((x) => x.combinadas >= PRESENCA_MINIMO_COMBINADAS
       && x.cumpridas / x.combinadas >= PRESENCA_PERCENTUAL_MINIMO)
-    .sort((a, b) => (b.cumpridas / b.combinadas) - (a.cumpridas / a.combinadas)
+    .map((x) => ({ ...x, score: wilsonInferior(x.cumpridas, x.combinadas) }))
+    .sort((a, b) => b.score - a.score
       || b.combinadas - a.combinadas
       || a.nomeCompleto.localeCompare(b.nomeCompleto, 'pt-BR'))
     .slice(0, PRESENCA_MAXIMO_NA_TV);
@@ -600,7 +616,7 @@ function rankingPresenca(hoje) {
   const mes = mesDe(ate);
   return slide('presenca', `Compromisso · ${mes}`, fechado ? `Presença em dia em ${mes}` : 'Presença em dia',
     `Foram a pelo menos ${Math.round(PRESENCA_PERCENTUAL_MINIMO * 100)}% das aulas combinadas`
-      + (fechado ? ' no mês.' : ' no mês, até ontem.') + ' Não é quem vem mais — é quem cumpre o que marcou.',
+      + (fechado ? ' no mês.' : ' no mês, até ontem.') + ' Não é quem vem mais — é quem cumpre o que marcou. Na ordem, pesa também o número de aulas cumpridas.',
     semRepetidos(lista).map((x) => ({
       nome: x.nome,
       completo: x.cumpridas === x.combinadas,
