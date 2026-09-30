@@ -293,4 +293,9 @@ function situacao() {
   };
 }
 
-module.exports = { iniciar, rodar, situacao, ativo, TEXTO_PADRAO };
+/** Quem já passou pela boas-vindas (ou era experimental quando ela entrou no ar). */
+function marcados() {
+  return { ...estado.porMatricula };
+}
+
+module.exports = { iniciar, rodar, situacao, ativo, marcados, TEXTO_PADRAO };

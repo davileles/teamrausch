@@ -227,6 +227,37 @@
   .lot-legenda i{font-style:normal}
   .lot-legenda i.cheio{color:var(--vermelho)}
   .lot-legenda i.fora{color:var(--amarelo-2)}
+  /* Ponto na célula: tem aluno fixo ali que não está vindo */
+  .lot-tabela td .aus{display:inline-block;width:6px;height:6px;border-radius:50%;
+    background:var(--vermelho);margin-left:4px;vertical-align:middle}
+  .lot-legenda i.aus{color:var(--vermelho)}
+  .nome-linha .quem{display:flex;flex-direction:column;min-width:0}
+  .nome-linha .quem small{font:500 11.5px 'Work Sans',sans-serif;color:var(--fraco)}
+  .nome-linha .quem small.sumido{color:var(--vermelho)}
+  .nome-linha .quem small.baixa{color:var(--amarelo)}
+  .nome-linha .botoes-linha{display:flex;gap:6px;flex-shrink:0}
+
+  /* Retenção: vagas presas e experimentais */
+  #sub-mat{overflow-x:auto;scrollbar-width:none}
+  #sub-mat::-webkit-scrollbar{display:none}
+  #sub-mat button{flex:1 0 auto;white-space:nowrap}
+  .ret-barra{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0 14px}
+  .ret-barra .grupo-filtro{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .ret-barra .grupo-filtro > span{font:600 10.5px 'Work Sans',sans-serif;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--fraco);margin-right:2px}
+  .ret-barra .chip{padding:8px 11px;min-height:36px;font-size:11px}
+  .ret-item{border-left:4px solid var(--linha-2)}
+  .ret-item.sumido,.ret-item.retomar,.ret-item.sumiu{border-left-color:var(--vermelho)}
+  .ret-item.baixa,.ret-item.decidir,.ret-item.vem-pouco{border-left-color:var(--amarelo)}
+  .ret-item.firme{border-left-color:var(--liberado)}
+  .ret-item p.ajuda{margin:4px 0 0;font-size:12.5px}
+  .ret-item .ret-num{color:var(--texto);font-weight:600}
+  .ret-item .acoes-ret{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .ret-item .acoes-ret button,.ret-item .acoes-ret a{padding:7px 11px;min-height:36px;font-size:11px}
+  a.leve{display:inline-flex;align-items:center;text-decoration:none;border:1px solid var(--linha-3);
+    color:var(--apagado);border-radius:var(--raio);font:400 14px Anton,sans-serif;
+    letter-spacing:.08em;text-transform:uppercase}
+  a.leve:hover{border-color:var(--vermelho);color:#fff;background:var(--vermelho)}
 
   .recado{background:var(--superficie);border:1px solid var(--linha-2);color:var(--texto);padding:14px 16px;
     font:500 14px/1.55 'Work Sans',sans-serif;margin:20px 0;border-left:4px solid var(--amarelo)}
@@ -1208,7 +1239,7 @@ const ABAS_ADMIN  = ['dia','matriculas','mensagens','config'];
  * empilhar cada troca no histórico faria o botão voltar do celular percorrer
  * as abas uma a uma antes de sair do app.
  * ------------------------------------------------------------------------- */
-const SUBS = { matriculas: ['alunos','grade','lotacao','freq','mes'],
+const SUBS = { matriculas: ['alunos','grade','lotacao','freq','mes','retencao'],
                config: ['negocio','tecnica'] };
 
 function lerRota(){
@@ -1816,7 +1847,8 @@ const NOME_DIA = {0:'dom',1:'seg',2:'ter',3:'qua',4:'qui',5:'sex',6:'sáb'};
 function matEstadoInicial(){
   return { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
     experimental:false, acesso:'', data:null, aberta:null, freqDias:7, freqSo:'devendo',
-    focarFicha:false, mesRef:null };
+    focarFicha:false, mesRef:null,
+    ret:'vagas', retDias:28, retSo:'atencao', retVin:'', expDias:0 };
 }
 let matEstado = matEstadoInicial();
 /* Fora da função de propósito: `carregarMatriculas` roda de novo a cada
@@ -2442,6 +2474,7 @@ async function carregarMatriculas(){
         <button data-sub="lotacao" aria-selected="${matEstado.sub==='lotacao'}">Lotação da semana</button>
         <button data-sub="freq" aria-selected="${matEstado.sub==='freq'}">Frequência</button>
         <button data-sub="mes" aria-selected="${matEstado.sub==='mes'}">Indicadores</button>
+        <button data-sub="retencao" aria-selected="${matEstado.sub==='retencao'}">Retenção</button>
       </div>
       <div data-painel="alunos" ${matEstado.sub==='alunos'?'':'hidden'}>
         <p class="ajuda">${resumo.ativas} ativos · ${resumo.mensalistas} mensalistas ·
@@ -2512,6 +2545,9 @@ async function carregarMatriculas(){
       </div>
       <div data-painel="mes" ${matEstado.sub==='mes'?'':'hidden'}>
         <div id="mat-mes"><div class="vazio">Carregando…</div></div>
+      </div>
+      <div data-painel="retencao" ${matEstado.sub==='retencao'?'':'hidden'}>
+        <div id="mat-retencao"><div class="vazio">Carregando…</div></div>
       </div>`;
 
     alvo.querySelector('#sub-mat').addEventListener('click', e=>{
@@ -2611,6 +2647,7 @@ async function carregarMatriculas(){
     if (matEstado.sub === 'lotacao') await carregarLotacao();
     if (matEstado.sub === 'freq') await carregarFrequencia();
     if (matEstado.sub === 'mes') await carregarMes();
+    if (matEstado.sub === 'retencao') await carregarRetencao();
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
@@ -4110,11 +4147,44 @@ async function carregarMes(){
  * adivinhação — a agenda oferece todos os horários que a grade usa? e alguma
  * turma está com mais gente do que cabe?
  */
+/** Turma que estava aberta na Lotação quando alguém foi inativado dali. */
+let lotacaoAberta = null;
+
+/**
+ * Inativa uma matrícula a partir de qualquer lista (Lotação, Retenção).
+ * Mesma rota e mesmo aviso do botão da ficha: sai da grade a partir de hoje,
+ * o histórico fica. Devolve true quando inativou.
+ */
+async function inativarMatricula(id, botao){
+  const nome = botao && botao.closest('[data-nome]') ? botao.closest('[data-nome]').dataset.nome : '';
+  if (!confirm(`Inativar ${nome || 'este aluno'}? Ele sai da grade a partir de hoje e libera a vaga, mas o histórico fica.`)) return false;
+  if (botao) botao.disabled = true;
+  try{
+    await api('/matriculas/'+encodeURIComponent(id), {method:'DELETE'});
+    avisar('Aluno inativado — a vaga está livre.','ok');
+    return true;
+  }catch(e){
+    avisar(e.message,'erro');
+    if (botao) botao.disabled = false;
+    return false;
+  }
+}
+
+/** Link do WhatsApp para um telefone da base (DDD + número; sem DDI vira +55). */
+function linkWhats(tel){
+  let t = String(tel||'').replace(/\D/g,'');
+  if (t.length < 10) return '';
+  if (t.length <= 11) t = '55' + t;
+  return 'https://wa.me/' + t;
+}
+
 async function carregarLotacao(){
   const alvo = document.getElementById('mat-lotacao');
   if (!alvo) return;
   try{
     const r = await api('/matriculas/grade/ocupacao');
+    const pres = (r.presenca && r.presenca.porFicha) || {};
+    const ausentes = s => (s.alunos||[]).filter(a=>{ const p = pres[a.id]; return p && p.nivel !== 'ok'; }).length;
     if (!r.slots.length){
       alvo.innerHTML = '<div class="vazio">Nenhum horário fixo cadastrado.</div>';
       return;
@@ -4138,10 +4208,12 @@ async function carregarLotacao(){
           ${dias.map(d=>{ const s = achar(d,h);
             if (!s) return `<td class="vazia" data-dia="${d}" data-hora="${h}">·</td>`;
             const cheio = s.capacidade && s.total > s.capacidade;
+            const aus = ausentes(s);
             return `<td class="${s.naAgenda?'':'fora'} ${cheio?'cheio':''}"
               data-dia="${d}" data-hora="${h}"
-              title="${s.naAgenda ? `capacidade ${s.capacidade}` : 'fora da agenda'}">${
-              s.total}${s.capacidade?'/'+s.capacidade:''}</td>`;
+              title="${s.naAgenda ? `capacidade ${s.capacidade}` : 'fora da agenda'}${
+                aus ? ` · ${aus} ${aus===1?'não está vindo':'não estão vindo'}` : ''}">${
+              s.total}${s.capacidade?'/'+s.capacidade:''}${aus?'<i class="aus" aria-hidden="true"></i>':''}</td>`;
           }).join('')}
         </tr>`).join('')}</tbody>
       </table>
@@ -4150,12 +4222,21 @@ async function carregarLotacao(){
         <span>toque numa célula para ver quem está na turma</span>
         <span><i class="fora">amarelo</i> — horário não existe na aba Agendar</span>
         <span><i class="cheio">vermelho</i> — mais alunos fixos do que a capacidade</span>
+        <span><i class="aus">●</i> — tem aluno fixo que não está vindo${r.presenca
+          ? ` (${dataCurta(r.presenca.de)} a ${dataCurta(r.presenca.ate)})` : ''}</span>
       </div>
       </div>`;
 
     // A célula abre a lista com os nomes daquela turma. Os alunos já vêm no
     // mesmo `/grade/ocupacao`, então abrir e fechar não custa nova requisição.
     const detalhe = alvo.querySelector('#lot-detalhe');
+    const linhaPres = a=>{
+      const p = pres[a.id];
+      if (!p || !p.combinadas) return p && p.ultimaPresenca
+        ? `<small>última vez ${dataCurta(p.ultimaPresenca)}</small>` : '';
+      return `<small class="${p.nivel}">veio ${p.cumpridas} de ${p.combinadas} · ${
+        p.ultimaPresenca ? `última ${dataCurta(p.ultimaPresenca)}` : 'nunca registrou presença'}</small>`;
+    };
     alvo.querySelector('.lot-tabela').addEventListener('click', e=>{
       const td = e.target.closest('td'); if (!td) return;
       const jaAberta = td.classList.contains('sel');
@@ -4175,14 +4256,189 @@ async function carregarLotacao(){
       detalhe.innerHTML = `
         <b>${NOME_DIA[d]} · ${esc(hora)}</b>
         <p class="ajuda" style="margin:0">${linha}</p>
-        ${alunos.length ? `<div class="lista-nomes">${alunos.map(a=>`
-          <div class="nome-linha" data-mat="${esc(a.id)}">
-            <span>${esc(a.nome)}${a.vinculo==='wellhub'?' <i class="marca-extra">wellhub</i>':''}</span>
-            <button class="leve lot-ficha">Abrir ficha</button>
+        ${alunos.length ? `<div class="lista-nomes">${alunos.slice().sort((x,y)=>{
+            const px = pres[x.id], py = pres[y.id];
+            const rx = px ? (px.nivel==='sumido'?0:px.nivel==='baixa'?1:2) : 3;
+            const ry = py ? (py.nivel==='sumido'?0:py.nivel==='baixa'?1:2) : 3;
+            return rx - ry || x.nome.localeCompare(y.nome,'pt-BR');
+          }).map(a=>`
+          <div class="nome-linha" data-mat="${esc(a.id)}" data-nome="${esc(a.nome)}">
+            <span class="quem"><span>${esc(a.nome)}${a.vinculo==='wellhub'?' <i class="marca-extra">wellhub</i>':''}</span>
+              ${linhaPres(a)}</span>
+            <span class="botoes-linha">
+              <button class="leve lot-ficha">Ficha</button>
+              <button class="leve lot-inativar">Inativar</button>
+            </span>
           </div>`).join('')}</div>` : ''}`;
 
       detalhe.querySelectorAll('.lot-ficha').forEach(b=>{
         b.addEventListener('click', ()=> abrirFichaDe(b.closest('.nome-linha').dataset.mat));
+      });
+      detalhe.querySelectorAll('.lot-inativar').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+          const ok = await inativarMatricula(b.closest('.nome-linha').dataset.mat, b);
+          if (ok){ lotacaoAberta = `${d}|${hora}`; await carregarLotacao(); }
+        });
+      });
+    });
+
+    // Depois de inativar alguém, a mesma turma volta aberta com a lista nova.
+    if (lotacaoAberta){
+      const [d0, h0] = lotacaoAberta.split('|');
+      lotacaoAberta = null;
+      const td = alvo.querySelector(`.lot-tabela td[data-dia="${d0}"][data-hora="${h0}"]`);
+      if (td) td.click();
+    }
+  }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+}
+
+/* ------------------------------ retenção -------------------------------- */
+
+/**
+ * Retenção: duas listas de trabalho.
+ *  - Vagas paradas: aluno de horário fixo que não está vindo segura um lugar
+ *    que um aluno novo poderia ocupar (e, no Wellhub, não gera repasse).
+ *  - Experimentais: quem virou aluno e está vindo, quem segue sem decidir e
+ *    quem ficou pelo caminho — para retomar o contato.
+ * Presença aqui é check-in OU totem: é pergunta de vaga, não de cobrança.
+ */
+async function carregarRetencao(){
+  const alvo = document.getElementById('mat-retencao');
+  if (!alvo) return;
+  const chip = (attr, valor, rotulo, atual) =>
+    `<button class="chip${String(atual)===String(valor)?' sel':''}" data-${attr}="${valor}">${rotulo}</button>`;
+  const quando = (data, dias) => data
+    ? `${dataCurta(data)}${dias===0?' (hoje)':dias===1?' (ontem)':dias!=null?` (há ${dias} dias)`:''}`
+    : 'nunca';
+  const botoes = (a, extra='') => `<div class="acoes-ret">
+      ${linkWhats(a.telefone) ? `<a class="leve" href="${linkWhats(a.telefone)}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
+      <button class="leve ret-ficha">Abrir ficha</button>
+      ${a.ativo ? '<button class="leve ret-inativar">Inativar</button>' : ''}${extra}
+    </div>`;
+
+  try{
+    let corpo = '';
+    if (matEstado.ret === 'vagas'){
+      const r = await api('/matriculas/retencao/vagas?dias='+matEstado.retDias);
+      const lista = r.alunos
+        .filter(a=> matEstado.retSo === 'todos' || a.nivel !== 'ok')
+        .filter(a=> !matEstado.retVin || a.vinculo === matEstado.retVin);
+      const t = r.resumo;
+      corpo = `
+        <div class="ret-barra">
+          <div class="grupo-filtro"><span>Período</span>
+            ${[[14,'2 sem'],[28,'4 sem'],[60,'60 dias']].map(([v,l])=>chip('rdias',v,l,matEstado.retDias)).join('')}</div>
+          <div class="grupo-filtro"><span>Mostrar</span>
+            ${chip('rso','atencao','Não estão vindo',matEstado.retSo)}${chip('rso','todos','Todos',matEstado.retSo)}</div>
+          <div class="grupo-filtro"><span>Vínculo</span>
+            ${chip('rvin','','Ambos',matEstado.retVin)}${chip('rvin','mensalista','Mensalista',matEstado.retVin)}${chip('rvin','wellhub','Wellhub',matEstado.retVin)}</div>
+        </div>
+        <p class="ajuda">Alunos ativos com horário fixo, de ${dataCurta(r.de)} a ${dataCurta(r.ate)}${
+          r.truncadaNoCorte ? ' (a contagem de presença começa em 01/09, quando o totem entrou)' : ''}.
+          Conta como presença o check-in do Wellhub <b>ou</b> a confirmação no totem, só nos dias em que o
+          estúdio abriu. <b>Sumido</b>: não veio em nenhuma aula da grade ou está há ${r.criterio.diasSumido}+
+          dias sem aparecer. <b>Vem pouco</b>: foi a menos de ${r.criterio.taxaBaixa}% das aulas da grade.</p>
+        <div class="freq-cartoes">
+          ${cartaoFreq(t.sumidos, 'sumidos', t.sumidos?'critico':'')}
+          ${cartaoFreq(t.baixa, 'vêm pouco', t.baixa?'atrasado':'')}
+          ${cartaoFreq(t.vagasSemanaAtencao, 'vagas/semana presas')}
+          ${cartaoFreq(t.wellhubAtencao, 'deles, Wellhub', t.wellhubAtencao?'atrasado':'')}
+          ${cartaoFreq(String(t.aulasVaziasPorSemana).replace('.',','), 'aulas vazias/semana')}
+        </div>
+        <p class="ajuda" style="margin-top:10px">${lista.length} ${lista.length===1?'aluno':'alunos'} nesta lista</p>
+        ${lista.length ? lista.map(a=>`
+          <div class="ficha ret-item ${a.nivel}" data-mat="${esc(a.id)}" data-nome="${esc(a.nome)}">
+            <div class="cabeca"><b>${esc(a.nome)}</b><span class="tags">${a.vinculo==='wellhub'?'wellhub':'mensal'}${
+              a.nivel==='sumido'?' · sumido':a.nivel==='baixa'?' · vem pouco':''}${a.experimental?' · experimental':''}</span></div>
+            <p class="ajuda">${esc(a.gradeTexto)} · ${a.vagasPorSemana} ${a.vagasPorSemana===1?'vaga':'vagas'} por semana</p>
+            <p class="ajuda">${a.combinadas
+              ? `Veio a <span class="ret-num">${a.cumpridas} de ${a.combinadas}</span> aulas da grade (${a.taxa}%)`
+              : 'Sem aula da grade no período ainda'}${
+              a.foraDaGrade ? ` · +${a.foraDaGrade} em outro horário` : ''} ·
+              última presença <span class="ret-num">${quando(a.ultimaPresenca, a.diasSemVir)}</span></p>
+            ${a.metaMes != null ? `<p class="ajuda">Check-ins Wellhub no mês:
+              <span class="ret-num">${a.checkinsMes} de ${a.metaMes}</span></p>` : ''}
+            ${botoes(a)}
+          </div>`).join('')
+        : '<div class="vazio">Ninguém com horário fixo deixando de vir neste período.</div>'}`;
+    } else {
+      const r = await api('/matriculas/retencao/experimentais'+(matEstado.expDias?'?dias='+matEstado.expDias:''));
+      const t = r.resumo;
+      const grupos = [
+        ['aberto', 'Em experimental', 'Ainda sem decisão. Há 7+ dias parado pede contato para fechar.'],
+        ['perdido', 'Não viraram aluno', 'Inativados sem fechar plano — a lista para retomar contato.'],
+        ['convertido', 'Viraram aluno', 'Presença nas aulas da grade desde que fecharam.'],
+        ['saiu', 'Viraram aluno e saíram', 'Fecharam plano e depois foram inativados.'],
+      ];
+      const rotuloAlerta = {decidir:'decidir', recente:'recente', retomar:'retomar contato',
+        sumiu:'sumiu', 'vem-pouco':'vem pouco', firme:'vindo bem'};
+      const item = a=>{
+        let linha;
+        if (a.situacao === 'aberto'){
+          linha = `Experimental desde ${dataCurta(a.comecou)||'—'}${a.diasEmExperimental!=null?` (${a.diasEmExperimental} dias)`:''}
+            · ${a.aulasTotal} ${a.aulasTotal===1?'aula':'aulas'}`;
+        } else if (a.situacao === 'perdido'){
+          linha = `Começou ${dataCurta(a.comecou)||'—'} · ${a.aulasTotal} ${a.aulasTotal===1?'aula':'aulas'}${
+            a.inativadoEm?` · inativado ${dataCurta(a.inativadoEm)}`:''}`;
+        } else {
+          linha = `Aluno desde ${dataCurta(a.alunoDesde)}${a.diasAteVirar!=null?` · virou em ${a.diasAteVirar} ${a.diasAteVirar===1?'dia':'dias'}`:''}${
+            a.combinadas ? ` · veio a <span class="ret-num">${a.cumpridas} de ${a.combinadas}</span> aulas da grade (${a.taxa}%)` : ''}${
+            a.situacao==='saiu' && a.inativadoEm ? ` · saiu ${dataCurta(a.inativadoEm)}` : ''}`;
+        }
+        return `<div class="ficha ret-item ${a.alerta}" data-mat="${esc(a.id)}" data-nome="${esc(a.nome)}">
+          <div class="cabeca"><b>${esc(a.nome)}</b><span class="tags">${a.vinculo==='wellhub'?'wellhub':'mensal'} · ${rotuloAlerta[a.alerta]||''}</span></div>
+          <p class="ajuda">${linha}</p>
+          <p class="ajuda">Última presença <span class="ret-num">${quando(a.ultimaPresenca, a.diasSemVir)}</span></p>
+          ${botoes(a)}
+        </div>`;
+      };
+      corpo = `
+        <div class="ret-barra">
+          <div class="grupo-filtro"><span>Começaram</span>
+            ${[[30,'30 dias'],[90,'90 dias'],[0,'Todos']].map(([v,l])=>chip('edias',v,l,matEstado.expDias)).join('')}</div>
+        </div>
+        <p class="ajuda">Quem passou por aula experimental: pela marca na ficha, pela data de "aluno desde"
+          (gravada quando a marca sai) ou pela mensagem de boas-vindas do experimental.</p>
+        <div class="freq-cartoes">
+          ${cartaoFreq(t.abertos, 'em experimental', t.abertos?'atrasado':'')}
+          ${cartaoFreq(t.convertidos + t.sairamDepois, 'viraram aluno', 'em-dia')}
+          ${cartaoFreq(t.perdidos, 'não viraram', t.perdidos?'critico':'')}
+          ${cartaoFreq(t.taxaConversao==null?'—':t.taxaConversao+'%', 'conversão')}
+          ${t.mediaDiasParaVirar!=null ? cartaoFreq(t.mediaDiasParaVirar, 'dias até virar') : ''}
+          ${t.convertidosSumidos ? cartaoFreq(t.convertidosSumidos, 'viraram e sumiram', 'atrasado') : ''}
+        </div>
+        ${r.alunos.length ? grupos.map(([sit, titulo, ajuda])=>{
+          const doGrupo = r.alunos.filter(a=>a.situacao===sit);
+          if (!doGrupo.length) return '';
+          return `<h4 class="grupo-mes">${titulo} (${doGrupo.length})<small>${ajuda}</small></h4>
+            ${doGrupo.map(item).join('')}`;
+        }).join('') : '<div class="vazio">Nenhum experimental neste período.</div>'}`;
+    }
+
+    alvo.innerHTML = `
+      <div class="ret-barra">
+        <div class="grupo-filtro">
+          ${chip('rvis','vagas','Vagas paradas',matEstado.ret)}${chip('rvis','experimentais','Experimentais',matEstado.ret)}
+        </div>
+      </div>${corpo}`;
+
+    alvo.querySelectorAll('button[data-rvis],button[data-rdias],button[data-rso],button[data-rvin],button[data-edias]').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        const ds = b.dataset;
+        if (ds.rvis !== undefined) matEstado.ret = ds.rvis;
+        if (ds.rdias !== undefined) matEstado.retDias = Number(ds.rdias);
+        if (ds.rso !== undefined) matEstado.retSo = ds.rso;
+        if (ds.rvin !== undefined) matEstado.retVin = ds.rvin;
+        if (ds.edias !== undefined) matEstado.expDias = Number(ds.edias);
+        carregarRetencao();
+      });
+    });
+    alvo.querySelectorAll('.ret-ficha').forEach(b=>{
+      b.addEventListener('click', ()=> abrirFichaDe(b.closest('.ret-item').dataset.mat));
+    });
+    alvo.querySelectorAll('.ret-inativar').forEach(b=>{
+      b.addEventListener('click', async ()=>{
+        if (await inativarMatricula(b.closest('.ret-item').dataset.mat, b)) await carregarRetencao();
       });
     });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }

@@ -26,6 +26,7 @@ const alertas = require('./alertas-frequencia');
 const mensagens = require('./mensagens-store');
 const poller = require('./poller-portal');
 const gatilhos = require('./gatilhos-mensagens');
+const retencao = require('./retencao');
 
 module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
   const rotas = express.Router();
@@ -305,6 +306,23 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     const r = await alertas.cobrar(String(req.body.matriculaId || ''), req.body.texto);
     if (!r.ok) return res.status(400).json({ erro: r.motivo, texto: r.texto || null });
     res.json(r);
+  });
+
+  /* ------------------------------ retenção -------------------------------- *
+   * Antes de '/:id' pelo mesmo motivo da frequência. Presença aqui é check-in
+   * OU totem — é pergunta de gestão de vaga, não de cobrança.
+   * ---------------------------------------------------------------------- */
+
+  /** Quem tem horário fixo e não está vindo — vaga ocupada sem uso. */
+  rotas.get('/retencao/vagas', (req, res) => {
+    try { res.json(retencao.ocupacaoReal({ dias: Number(req.query.dias) || undefined })); }
+    catch (e) { res.status(500).json({ erro: e.message }); }
+  });
+
+  /** Experimentais: quem virou aluno, quem segue em aberto, quem se perdeu. */
+  rotas.get('/retencao/experimentais', (req, res) => {
+    try { res.json(retencao.experimentais({ dias: Number(req.query.dias) || 0 })); }
+    catch (e) { res.status(500).json({ erro: e.message }); }
   });
 
   /* ------------------------------ check-ins ------------------------------ */
@@ -786,7 +804,11 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
         capacidade: naAgenda ? (Number(naAgenda.capacidade) || capacidadePadrao) : null,
       };
     });
-    res.json({ slots, foraDaAgenda: slots.filter((s) => !s.naAgenda).length });
+    // Presença de cada aluno nas últimas semanas: a lista da turma marca quem
+    // segura a vaga sem vir. Falhar aqui não pode derrubar o mapa de lotação.
+    let presenca = null;
+    try { presenca = retencao.porFicha(); } catch (e) { console.error('[retencao]', e.message); }
+    res.json({ slots, foraDaAgenda: slots.filter((s) => !s.naAgenda).length, presenca });
   });
 
   /* ------------------------------ exceções ------------------------------- */
