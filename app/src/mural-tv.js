@@ -228,7 +228,16 @@ const ESCOPO = {
   sequencia: 'ano', palavra: 'ano', veteranos: 'ano',
 };
 const doMes = (data) => `Do mês · ${mesDe(data)}`;
-const doAno = (data) => `Do ano · ${String(data).slice(0, 4)}`;
+/**
+ * Rótulo dos rankings anuais. No primeiro ano da contagem (começou em
+ * CONTAR_DESDE, no meio do ano) "Do ano" confunde — ninguém tem um ano inteiro
+ * de aulas —, então ali o rótulo é "De sempre". Da virada seguinte em diante,
+ * "Do ano · <ano>".
+ */
+const doAno = (data) => {
+  const ano = String(data).slice(0, 4);
+  return String(historico.CONTAR_DESDE || '').slice(0, 4) >= ano ? 'De sempre' : `Do ano · ${ano}`;
+};
 /** 1º de janeiro do ano da data: os rankings anuais não olham antes disso. */
 const inicioDoAno = (data) => `${String(data).slice(0, 4)}-01-01`;
 
@@ -557,9 +566,10 @@ function rankingVeteranos(hoje, quantos) {
   }
   const lista = porPessoa((id) => totais.get(id) || null, (a, b) => a + b)
     .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado }));
-  const desde = String(historico.CONTAR_DESDE || '') > inicioDoAno(hoje) ? desdeQuando() : '1º de janeiro';
-  return slide('veteranos', `${doAno(hoje)} · hall da fama`, 'Mais aulas no ano',
-    `Total de aulas desde ${desde} · zera todo 1º de janeiro.`,
+  const primeiroAno = String(historico.CONTAR_DESDE || '') > inicioDoAno(hoje);
+  return slide('veteranos', `${doAno(hoje)} · hall da fama`,
+    primeiroAno ? 'Mais aulas no estúdio' : 'Mais aulas no ano',
+    primeiroAno ? `Total de aulas desde ${desdeQuando()}.` : 'Total de aulas desde 1º de janeiro.',
     linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'aula', 'aulas') })));
 }
 
