@@ -531,8 +531,8 @@ function rankingNovatos(hoje, quantos) {
       return n ? { nomeCompleto: x.nomeCompleto, valor: n } : null;
     })
     .filter(Boolean);
-  return slide('novatos', 'Novatos · desde a chegada', 'Chegou chegando',
-    `Só para quem chegou ao estúdio nos últimos ${NOVATOS_DIAS} dias · treinos desde que chegou. Bem-vindos à casa!`,
+  return slide('novatos', `Novatos · chegaram nos últimos ${NOVATOS_DIAS} dias`, 'Chegou chegando',
+    `Novato é quem chegou ao estúdio nos últimos ${NOVATOS_DIAS} dias (dois meses) · conta os treinos desde a chegada. Bem-vindos à casa!`,
     linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'treino', 'treinos') })));
 }
 
