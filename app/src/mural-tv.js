@@ -209,6 +209,26 @@ const SEMANAS_NA_JANELA = 25;
 const EVOLUCAO_A_PARTIR_DO_DIA = 8;
 const EVOLUCAO_MINIMA = 2;
 
+/**
+ * Novatos: quem chegou ao estúdio há até tantos dias. Quem entra no meio do
+ * caminho nunca alcança os antigos nos rankings de volume; aqui ele só disputa
+ * com quem chegou junto.
+ */
+const NOVATOS_DIAS = 60;
+
+/**
+ * Escopo de cada ranking na TV. "mes" zera todo mês e qualquer um disputa;
+ * "sempre" valoriza quem está há mais tempo. A roda intercala os dois para a
+ * TV não parecer sempre as mesmas pessoas.
+ */
+const ESCOPO = {
+  'mes-anterior': 'mes', mes: 'mes', novatos: 'mes', presenca: 'mes', evolucao: 'mes',
+  madrugadores: 'mes', pontuais: 'mes', sexta: 'mes',
+  sequencia: 'sempre', palavra: 'sempre', veteranos: 'sempre',
+};
+const doMes = (data) => `Do mês · ${mesDe(data)}`;
+const DE_SEMPRE = 'De sempre';
+
 const mesDe = (data) => MESES[Number(String(data).slice(5, 7)) - 1];
 const unidade = (n, um, varios) => (Number(n) === 1 ? um : varios);
 
@@ -288,7 +308,9 @@ function treinosPorPessoa(de, ate) {
 }
 
 function slide(tipo, rotulo, titulo, rodape, itens, extra = {}) {
-  return itens.length ? { tipo: 'ranking', ranking: tipo, rotulo, titulo, rodape, itens, ...extra } : null;
+  return itens.length
+    ? { tipo: 'ranking', ranking: tipo, escopo: ESCOPO[tipo] || 'mes', rotulo, titulo, rodape, itens, ...extra }
+    : null;
 }
 
 /** Linhas de pessoa: nome curto sem repetidos + valor para a tela. */
@@ -310,7 +332,7 @@ function rankingDoMes(hoje, quantos) {
       'Resultado fechado do mês. Bora pra cima neste!',
       linhas(janela(frequencia.inicioDoMes(fimAnterior), fimAnterior), fmt)));
   }
-  saida.push(slide('mes', `Ranking do mês · ${mesDe(hoje)}`, 'Mais frequentes',
+  saida.push(slide('mes', doMes(hoje), 'Mais frequentes',
     'Contando até hoje · cada dia com treino vale 1.',
     linhas(janela(frequencia.inicioDoMes(hoje), hoje), fmt)));
   return saida;
@@ -336,7 +358,7 @@ function rankingSequencia(hoje, quantos) {
     if (!ok(estaSemana)) treinos += porSemana.get(estaSemana) || 0;
     if (n >= 2) lista.push({ nomeCompleto: p.nomeCompleto, valor: n, desempate: treinos });
   }
-  return slide('sequencia', 'Constância', 'Semanas seguidas',
+  return slide('sequencia', DE_SEMPRE, 'Semanas seguidas',
     `Semanas seguidas com pelo menos ${TREINOS_NA_SEMANA} treinos · empate: quem treinou mais na sequência.`,
     linhas(posicionar(lista, quantos), (x) => ({
       valor: x.valor >= SEMANAS_NA_JANELA ? `${x.valor}+` : x.valor,
@@ -367,7 +389,7 @@ function rankingEvolucao(hoje, quantos) {
     .map((x) => ({ ...x, valor: x.agora - x.antes }));
 
   const mesAnterior = mesDe(fimAnterior);
-  return slide('evolucao', 'Evolução', 'Quem mais subiu',
+  return slide('evolucao', doMes(hoje), 'Quem mais subiu',
     `Treinos até o dia ${dia}, comparado com o mesmo período de ${mesAnterior}.`,
     linhas(posicionar(lista, quantos), (x) => ({
       valor: `+${x.valor}`, unidade: unidade(x.valor, 'treino', 'treinos'),
@@ -396,7 +418,7 @@ function rankingMadrugadores(hoje, quantos, limite) {
   }, (x, y) => ({ cedo: uniao(x.cedo, y.cedo), todos: uniao(x.todos, y.todos) }))
     .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado.cedo.size, desempate: x.dado.todos.size }));
   const hora = limite.endsWith(':00') ? `${Number(limite.slice(0, 2))}h` : limite.replace(':', 'h');
-  return slide('madrugadores', `Treino antes das ${hora} · ${mesDe(hoje)}`, 'Madrugadores',
+  return slide('madrugadores', `${doMes(hoje)} · antes das ${hora}`, 'Madrugadores',
     `Conta os treinos antes das ${hora} · empate: quem treinou mais no mês.`,
     linhas(posicionar(lista, quantos), (x) => ({
       // O número grande é o que ordena; o detalhe deixa claro de onde ele vem,
@@ -467,7 +489,7 @@ function rankingPontuais(hoje, quantos) {
       // `posicionar` põe o maior na frente; aqui ganha a menor diferença.
       return { nomeCompleto: x.nomeCompleto, valor: -media, desempate: x.difs.length, media };
     });
-  return slide('pontuais', `Pontualidade · ${mesDe(hoje)}`, 'Mais pontuais',
+  return slide('pontuais', doMes(hoje), 'Mais pontuais',
     `Distância média entre o check-in no totem e a hora da aula (antes ou depois) · mínimo de ${PONTUAIS_MINIMO_CHECKINS} check-ins · empate: quem fez mais check-ins.`,
     linhas(posicionar(lista, quantos), (x) => ({
       ...fmtMinutos(x.media),
@@ -476,6 +498,39 @@ function rankingPontuais(hoje, quantos) {
 }
 
 /** "1º de setembro" — o dia em que a contagem do histórico começa. */
+/* 5b. Chegou chegando: treinos do mês só entre quem chegou há pouco */
+
+/** Dia em que o aluno chegou: o mais antigo entre `desde` e a criação da ficha. */
+function chegadaDe(ficha) {
+  const datas = [ficha.desde, ficha.criadoEm]
+    .map((v) => String(v || '').slice(0, 10))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
+  return datas[0] || null;
+}
+
+function rankingNovatos(hoje, quantos) {
+  const corte = grade.somarDias(hoje, -NOVATOS_DIAS);
+  // A mesma pessoa com duas fichas conta pela chegada mais antiga: quem
+  // trocou de plano não vira novato de novo.
+  const chegada = new Map();
+  for (const f of matriculas.listar()) {
+    const k = chaveNome(String(f.nome || '').trim());
+    const d = chegadaDe(f);
+    if (!k || !d) continue;
+    if (!chegada.has(k) || d < chegada.get(k)) chegada.set(k, d);
+  }
+  const lista = treinosPorPessoa(frequencia.inicioDoMes(hoje), hoje)
+    .filter((x) => {
+      const d = chegada.get(chaveNome(x.nomeCompleto));
+      return d && d >= corte;
+    })
+    .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dias.size }));
+  return slide('novatos', `Novatos · ${mesDe(hoje)}`, 'Chegou chegando',
+    `Só para quem chegou ao estúdio nos últimos ${NOVATOS_DIAS} dias · treinos no mês. Bem-vindos à casa!`,
+    linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'treino', 'treinos') })));
+}
+
 function desdeQuando() {
   const d = String(historico.CONTAR_DESDE || '');
   const dia = Number(d.slice(8, 10));
@@ -491,7 +546,7 @@ function rankingVeteranos(quantos) {
   }
   const lista = porPessoa((id) => totais.get(id) || null, (a, b) => a + b)
     .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado }));
-  return slide('veteranos', 'Hall da fama', 'Mais aulas no estúdio',
+  return slide('veteranos', `${DE_SEMPRE} · hall da fama`, 'Mais aulas no estúdio',
     `Total de aulas desde ${desdeQuando()}.`,
     linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'aula', 'aulas') })));
 }
@@ -614,7 +669,7 @@ function rankingPresenca(hoje) {
   if (lista.length < MINIMO_NO_RANKING) return null;
 
   const mes = mesDe(ate);
-  return slide('presenca', `Compromisso · ${mes}`, fechado ? `Presença em dia em ${mes}` : 'Presença em dia',
+  return slide('presenca', fechado ? `Ranking final · ${mes}` : doMes(ate), fechado ? `Presença em dia em ${mes}` : 'Presença em dia',
     `Foram a pelo menos ${Math.round(PRESENCA_PERCENTUAL_MINIMO * 100)}% das aulas combinadas`
       + (fechado ? ' no mês.' : ' no mês, até ontem.') + ' Não é quem vem mais — é quem cumpre o que marcou. Na ordem, pesa também o número de aulas cumpridas.',
     semRepetidos(lista).map((x) => ({
@@ -667,7 +722,7 @@ function rankingPalavra(hoje, quantos) {
     }
     if (n >= PALAVRA_MINIMO_SEMANAS) lista.push({ nomeCompleto: x.nomeCompleto, valor: n, desempate: aulas });
   }
-  return slide('palavra', 'Palavra cumprida', 'Marcou, veio',
+  return slide('palavra', `${DE_SEMPRE} · palavra cumprida`, 'Marcou, veio',
     'Semanas seguidas sem faltar a nenhuma aula marcada (grade fixa + reservas) · empate: quem cumpriu mais aulas.',
     linhas(posicionar(lista, quantos), (x) => ({
       valor: x.valor >= SEMANAS_NA_JANELA ? `${x.valor}+` : x.valor,
@@ -724,7 +779,7 @@ function rankingSexta(hoje) {
   const mes = mesDe(ate);
   const n = sextas.length;
   const ehSexta = grade.diaDaSemana(hoje) === SEXTA;
-  return slide('sexta', `Sextou no estúdio · ${mes}`, 'Sexta-feira não perdoa',
+  return slide('sexta', fechado ? `Ranking final · ${mes}` : doMes(ate), 'Sexta-feira não perdoa',
     `A sexta é o dia em que mais gente some. Esta turma treinou em todas as ${n} sextas de ${mes}`
       + (fechado ? '.' : ', até agora.')
       + (ehSexta ? ' Hoje é sexta: vai deixar a turma te esperando?' : ' Sexta que vem tem mais.'),
@@ -747,6 +802,7 @@ function diagnostico() {
     rankingMadrugadores: m.rankingMadrugadores, horaMadrugadores: m.horaMadrugadores,
     rankingVeteranos: m.rankingVeteranos, rankingPresenca: m.rankingPresenca,
     rankingPontuais: m.rankingPontuais, rankingPalavra: m.rankingPalavra, rankingSexta: m.rankingSexta,
+    rankingNovatos: m.rankingNovatos,
   } };
   const tenta = (nome, fn) => { try { saida[nome] = fn(); } catch (e) { saida[nome] = { erro: e.message }; } };
 
@@ -795,6 +851,10 @@ function diagnostico() {
     const r = rankingPalavra(hoje, 50);
     return { pessoasComSequenciaDe2Mais: r ? r.itens.length : 0 };
   });
+  tenta('novatos', () => {
+    const r = rankingNovatos(hoje, 50);
+    return { diasDeCasa: NOVATOS_DIAS, novatosComTreinoNoMes: r ? r.itens.length : 0 };
+  });
   tenta('sexta', () => {
     const ate = grade.somarDias(hoje, -1);
     const de = frequencia.inicioDoMes(hoje);
@@ -827,10 +887,12 @@ function rankings(hoje, m) {
     pontuais: topN(m.rankingPontuais, 5),
     veteranos: topN(m.rankingVeteranos, 10),
     palavra: topN(m.rankingPalavra, 10),
+    novatos: topN(m.rankingNovatos, 5),
   };
   const limite = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(m.horaMadrugadores || '')) ? m.horaMadrugadores : '07:00';
 
   if (n.mes) tenta('mes', () => rankingDoMes(hoje, n.mes));
+  if (n.novatos) tenta('novatos', () => rankingNovatos(hoje, n.novatos));
   if (m.rankingPresenca !== false && Number(m.rankingPresenca) !== 0) tenta('presenca', () => rankingPresenca(hoje));
   if (n.palavra) tenta('palavra', () => rankingPalavra(hoje, n.palavra));
   if (n.sequencia) tenta('sequencia', () => rankingSequencia(hoje, n.sequencia));
@@ -871,6 +933,21 @@ function avisosAtivos(hoje) {
 const POR_SLIDE_CONQUISTAS = 10;
 const POR_SLIDE_ANIVERSARIO = 6;
 
+/**
+ * Mês, sempre, mês, sempre… Os do mês vêm em maior número; quando os de
+ * sempre acabam, o resto dos do mês segue na ordem de prioridade.
+ */
+function intercalar(ranks) {
+  const mes = ranks.filter((r) => r.escopo !== 'sempre');
+  const sempre = ranks.filter((r) => r.escopo === 'sempre');
+  const saida = [];
+  while (mes.length || sempre.length) {
+    if (mes.length) saida.push(mes.shift());
+    if (sempre.length) saida.push(sempre.shift());
+  }
+  return saida;
+}
+
 function montar() {
   const c = config.ler();
   const hoje = frequencia.hojeLocal();
@@ -888,7 +965,7 @@ function montar() {
   for (let i = 0; i < conq.length; i += POR_SLIDE_CONQUISTAS) {
     slides.push({ tipo: 'conquistas', itens: conq.slice(i, i + POR_SLIDE_CONQUISTAS) });
   }
-  for (const r of ranks) slides.push(r);
+  for (const r of intercalar(ranks)) slides.push(r);
   for (const a of avisos) slides.push({ tipo: 'aviso', texto: a.texto });
 
   const segundos = Number(m.segundosPorSlide);

@@ -5755,11 +5755,13 @@ async function carregarConfig(){
           <input id="c-mural-seg" type="number" min="5" max="120" value="${Number(mur.segundosPorSlide ?? 12)}"></div>
       </div>
       <div class="campo"><label>Rankings na TV</label>
-        <p class="ajuda">Cada ranking vira uma tela na roda. Empatados dividem a posição; se o
+        <p class="ajuda">Cada ranking vira uma tela na roda. A TV intercala os "do mês" (zeram todo mês,
+          qualquer um disputa) com os "de sempre" (Semanas seguidas, Palavra cumprida, Mais aulas). Empatados dividem a posição; se o
           corte cair no meio de um empate, o grupo empatado sai inteiro. Cada dia com treino vale 1
           (mesma conta das conquistas).</p></div>
       ${[
         ['c-mural-ranking','ranking',10,'Mais frequentes do mês','Nos 5 primeiros dias também mostra os campeões do mês anterior.'],
+        ['c-mural-rk-nov','rankingNovatos',5,'Chegou chegando (novatos)','Treinos do mês só entre quem chegou ao estúdio nos últimos 60 dias. Garante lugar na TV para quem acabou de entrar.'],
         ['c-mural-rk-pre','rankingPresenca',1,'Presença em dia','Quem foi a 90% ou mais das aulas combinadas (grade fixa + reservas). Não depende de volume: quem treina 2x/semana também entra.'],
         ['c-mural-rk-pal','rankingPalavra',10,'Palavra cumprida','Semanas seguidas sem faltar a nenhuma aula marcada (grade fixa + reservas). Conta semanas, não aulas: quem treina 2x/semana disputa igual.'],
         ['c-mural-rk-sex','rankingSexta',1,'Sexta-feira não perdoa','Quem treinou em todas as sextas do mês (o dia em que mais gente falta). Com menos de 2 sextas no mês, mostra o mês anterior.'],
@@ -6502,6 +6504,7 @@ async function salvarConfig(){
       rankingPresenca: n('c-mural-rk-pre'),
       rankingPalavra: n('c-mural-rk-pal'),
       rankingSexta: n('c-mural-rk-sex'),
+      rankingNovatos: n('c-mural-rk-nov'),
       castAppId: v('c-mural-cast'),
       avisos: [...document.querySelectorAll('#lista-avisos-tv .linha-tv')]
         .map(l=>({
