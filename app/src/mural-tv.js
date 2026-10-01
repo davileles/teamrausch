@@ -498,7 +498,7 @@ function rankingPontuais(hoje, quantos) {
 }
 
 /** "1º de setembro" — o dia em que a contagem do histórico começa. */
-/* 5b. Chegou chegando: treinos do mês só entre quem chegou há pouco */
+/* 5b. Chegou chegando: treinos desde a chegada, só entre quem chegou há pouco */
 
 /** Dia em que o aluno chegou: o mais antigo entre `desde` e a criação da ficha. */
 function chegadaDe(ficha) {
@@ -520,14 +520,19 @@ function rankingNovatos(hoje, quantos) {
     if (!k || !d) continue;
     if (!chegada.has(k) || d < chegada.get(k)) chegada.set(k, d);
   }
-  const lista = treinosPorPessoa(frequencia.inicioDoMes(hoje), hoje)
-    .filter((x) => {
+  // Conta desde o dia da chegada de cada um (não só o mês corrente): quem
+  // chegou no fim do mês anterior não "zera" no dia 1 e vê o que já treinou.
+  const lista = treinosPorPessoa(corte, hoje)
+    .map((x) => {
       const d = chegada.get(chaveNome(x.nomeCompleto));
-      return d && d >= corte;
+      if (!d || d < corte) return null;
+      let n = 0;
+      for (const dia of x.dias) if (dia >= d) n++;
+      return n ? { nomeCompleto: x.nomeCompleto, valor: n } : null;
     })
-    .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dias.size }));
-  return slide('novatos', `Novatos · ${mesDe(hoje)}`, 'Chegou chegando',
-    `Só para quem chegou ao estúdio nos últimos ${NOVATOS_DIAS} dias · treinos no mês. Bem-vindos à casa!`,
+    .filter(Boolean);
+  return slide('novatos', 'Novatos · desde a chegada', 'Chegou chegando',
+    `Só para quem chegou ao estúdio nos últimos ${NOVATOS_DIAS} dias · treinos desde que chegou. Bem-vindos à casa!`,
     linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'treino', 'treinos') })));
 }
 
@@ -853,7 +858,7 @@ function diagnostico() {
   });
   tenta('novatos', () => {
     const r = rankingNovatos(hoje, 50);
-    return { diasDeCasa: NOVATOS_DIAS, novatosComTreinoNoMes: r ? r.itens.length : 0 };
+    return { diasDeCasa: NOVATOS_DIAS, novatosComTreino: r ? r.itens.length : 0 };
   });
   tenta('sexta', () => {
     const ate = grade.somarDias(hoje, -1);
