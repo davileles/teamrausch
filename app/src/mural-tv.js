@@ -218,16 +218,19 @@ const NOVATOS_DIAS = 60;
 
 /**
  * Escopo de cada ranking na TV. "mes" zera todo mês e qualquer um disputa;
- * "sempre" valoriza quem está há mais tempo. A roda intercala os dois para a
- * TV não parecer sempre as mesmas pessoas.
+ * "ano" valoriza a constância e zera em 1º de janeiro — quem chegou no meio
+ * do ano não fica para sempre atrás de quem está desde o começo. A roda
+ * intercala os dois para a TV não parecer sempre as mesmas pessoas.
  */
 const ESCOPO = {
   'mes-anterior': 'mes', mes: 'mes', novatos: 'mes', presenca: 'mes', evolucao: 'mes',
   madrugadores: 'mes', pontuais: 'mes', sexta: 'mes',
-  sequencia: 'sempre', palavra: 'sempre', veteranos: 'sempre',
+  sequencia: 'ano', palavra: 'ano', veteranos: 'ano',
 };
 const doMes = (data) => `Do mês · ${mesDe(data)}`;
-const DE_SEMPRE = 'De sempre';
+const doAno = (data) => `Do ano · ${String(data).slice(0, 4)}`;
+/** 1º de janeiro do ano da data: os rankings anuais não olham antes disso. */
+const inicioDoAno = (data) => `${String(data).slice(0, 4)}-01-01`;
 
 const mesDe = (data) => MESES[Number(String(data).slice(5, 7)) - 1];
 const unidade = (n, um, varios) => (Number(n) === 1 ? um : varios);
@@ -341,9 +344,12 @@ function rankingDoMes(hoje, quantos) {
 /* 2. Sequência de semanas com pelo menos 2 treinos */
 function rankingSequencia(hoje, quantos) {
   const estaSemana = segundaDaSemana(hoje);
-  const inicio = grade.somarDias(estaSemana, -7 * (SEMANAS_NA_JANELA - 1));
+  const janela = grade.somarDias(estaSemana, -7 * (SEMANAS_NA_JANELA - 1));
+  // Ranking anual: a sequência não atravessa a virada do ano.
+  const jan1 = inicioDoAno(hoje);
+  const inicio = janela < jan1 ? segundaDaSemana(jan1) : janela;
   const lista = [];
-  for (const p of treinosPorPessoa(inicio, hoje)) {
+  for (const p of treinosPorPessoa(janela < jan1 ? jan1 : janela, hoje)) {
     const porSemana = new Map();
     for (const d of p.dias) {
       const s = segundaDaSemana(d);
@@ -358,7 +364,7 @@ function rankingSequencia(hoje, quantos) {
     if (!ok(estaSemana)) treinos += porSemana.get(estaSemana) || 0;
     if (n >= 2) lista.push({ nomeCompleto: p.nomeCompleto, valor: n, desempate: treinos });
   }
-  return slide('sequencia', DE_SEMPRE, 'Semanas seguidas',
+  return slide('sequencia', doAno(hoje), 'Semanas seguidas',
     `Semanas seguidas com pelo menos ${TREINOS_NA_SEMANA} treinos · empate: quem treinou mais na sequência.`,
     linhas(posicionar(lista, quantos), (x) => ({
       valor: x.valor >= SEMANAS_NA_JANELA ? `${x.valor}+` : x.valor,
@@ -542,17 +548,18 @@ function desdeQuando() {
   return `${dia === 1 ? '1º' : dia} de ${mesDe(d)}`;
 }
 
-/* 6. Veteranos: total de aulas desde o início da contagem */
-function rankingVeteranos(quantos) {
+/* 6. Veteranos: total de aulas no ano (zera em 1º de janeiro) */
+function rankingVeteranos(hoje, quantos) {
   let totais;
-  try { totais = historico.totais(); } catch (e) {
+  try { totais = historico.totaisDoAno(hoje.slice(0, 4)); } catch (e) {
     log('veteranos falhou:', e.message);
     return null;
   }
   const lista = porPessoa((id) => totais.get(id) || null, (a, b) => a + b)
     .map((x) => ({ nomeCompleto: x.nomeCompleto, valor: x.dado }));
-  return slide('veteranos', `${DE_SEMPRE} · hall da fama`, 'Mais aulas no estúdio',
-    `Total de aulas desde ${desdeQuando()}.`,
+  const desde = String(historico.CONTAR_DESDE || '') > inicioDoAno(hoje) ? desdeQuando() : '1º de janeiro';
+  return slide('veteranos', `${doAno(hoje)} · hall da fama`, 'Mais aulas no ano',
+    `Total de aulas desde ${desde} · zera todo 1º de janeiro.`,
     linhas(posicionar(lista, quantos), (x) => ({ valor: x.valor, unidade: unidade(x.valor, 'aula', 'aulas') })));
 }
 
@@ -703,7 +710,10 @@ function rankingPalavra(hoje, quantos) {
   const ontem = grade.somarDias(hoje, -1);
   const estaSemana = segundaDaSemana(hoje);
   const semanaPassada = grade.somarDias(estaSemana, -7);
-  const inicio = grade.somarDias(estaSemana, -7 * (SEMANAS_NA_JANELA - 1));
+  let inicio = grade.somarDias(estaSemana, -7 * (SEMANAS_NA_JANELA - 1));
+  // Ranking anual: nada antes de 1º de janeiro entra na sequência.
+  const jan1 = inicioDoAno(hoje);
+  if (inicio < jan1) inicio = jan1;
   const primeira = segundaDaSemana(historico.CONTAR_DESDE && inicio < historico.CONTAR_DESDE
     ? historico.CONTAR_DESDE : inicio);
 
@@ -727,7 +737,7 @@ function rankingPalavra(hoje, quantos) {
     }
     if (n >= PALAVRA_MINIMO_SEMANAS) lista.push({ nomeCompleto: x.nomeCompleto, valor: n, desempate: aulas });
   }
-  return slide('palavra', `${DE_SEMPRE} · palavra cumprida`, 'Marcou, veio',
+  return slide('palavra', `${doAno(hoje)} · palavra cumprida`, 'Marcou, veio',
     'Semanas seguidas sem faltar a nenhuma aula marcada (grade fixa + reservas) · empate: quem cumpriu mais aulas.',
     linhas(posicionar(lista, quantos), (x) => ({
       valor: x.valor >= SEMANAS_NA_JANELA ? `${x.valor}+` : x.valor,
@@ -905,7 +915,7 @@ function rankings(hoje, m) {
   if (n.madrugadores) tenta('madrugadores', () => rankingMadrugadores(hoje, n.madrugadores, limite));
   if (n.pontuais) tenta('pontuais', () => rankingPontuais(hoje, n.pontuais));
   if (m.rankingSexta !== false && Number(m.rankingSexta) !== 0) tenta('sexta', () => rankingSexta(hoje));
-  if (n.veteranos) tenta('veteranos', () => rankingVeteranos(n.veteranos));
+  if (n.veteranos) tenta('veteranos', () => rankingVeteranos(hoje, n.veteranos));
   return saida;
 }
 
@@ -939,16 +949,16 @@ const POR_SLIDE_CONQUISTAS = 10;
 const POR_SLIDE_ANIVERSARIO = 6;
 
 /**
- * Mês, sempre, mês, sempre… Os do mês vêm em maior número; quando os de
- * sempre acabam, o resto dos do mês segue na ordem de prioridade.
+ * Mês, ano, mês, ano… Os do mês vêm em maior número; quando os do ano
+ * acabam, o resto dos do mês segue na ordem de prioridade.
  */
 function intercalar(ranks) {
-  const mes = ranks.filter((r) => r.escopo !== 'sempre');
-  const sempre = ranks.filter((r) => r.escopo === 'sempre');
+  const mes = ranks.filter((r) => r.escopo !== 'ano');
+  const ano = ranks.filter((r) => r.escopo === 'ano');
   const saida = [];
-  while (mes.length || sempre.length) {
+  while (mes.length || ano.length) {
     if (mes.length) saida.push(mes.shift());
-    if (sempre.length) saida.push(sempre.shift());
+    if (ano.length) saida.push(ano.shift());
   }
   return saida;
 }

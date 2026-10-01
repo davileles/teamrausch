@@ -99,6 +99,14 @@ let dados = { semeadoEm: null, consolidadoAte: null, totais: {}, contarDesde: nu
     dados.contarDesde = bruto.contarDesde || null;
     dados.cortadoEm = bruto.cortadoEm || null;
     dados.picoAnterior = bruto.picoAnterior && typeof bruto.picoAnterior === 'object' ? bruto.picoAnterior : {};
+    if (bruto.totaisPorAno && typeof bruto.totaisPorAno === 'object') {
+      dados.totaisPorAno = bruto.totaisPorAno;
+    } else if (dados.consolidadoAte && dados.contarDesde
+      && dados.contarDesde.slice(0, 4) === dados.consolidadoAte.slice(0, 4)) {
+      // Migração: tudo que já foi consolidado caiu num ano só (corte e
+      // consolidação no mesmo ano), então o acumulado É o acumulado daquele ano.
+      dados.totaisPorAno = { [dados.contarDesde.slice(0, 4)]: { ...dados.totais } };
+    }
   } catch (e) { /* primeira vez */ }
 })();
 
@@ -282,9 +290,17 @@ function consolidar() {
   const de = grade.somarDias(dados.consolidadoAte, 1);
   const mapa = diasComPresenca({ de, ate: corte });
   let somados = 0;
+  if (!dados.totaisPorAno || typeof dados.totaisPorAno !== 'object') dados.totaisPorAno = {};
   for (const [matriculaId, dias] of mapa) {
     dados.totais[matriculaId] = (dados.totais[matriculaId] || 0) + dias.size;
     somados += dias.size;
+    // O mesmo acumulado, separado por ano: os rankings "do ano" da TV zeram
+    // em 1º de janeiro, mas a presença crua não dura um ano inteiro.
+    for (const d of dias) {
+      const ano = d.slice(0, 4);
+      const porAno = dados.totaisPorAno[ano] || (dados.totaisPorAno[ano] = {});
+      porAno[matriculaId] = (porAno[matriculaId] || 0) + 1;
+    }
   }
   dados.consolidadoAte = corte;
   gravar();
@@ -302,6 +318,28 @@ function totais() {
 
   const de = dados.consolidadoAte ? grade.somarDias(dados.consolidadoAte, 1) : undefined;
   for (const [id, dias] of diasComPresenca({ de })) {
+    saida.set(id, (saida.get(id) || 0) + dias.size);
+  }
+  return saida;
+}
+
+/**
+ * Mapa matriculaId → aulas no ano (1º de janeiro a hoje), mesma regra de
+ * `totais` mas zerando a cada virada de ano. Usado pelos rankings anuais da TV.
+ */
+function totaisDoAno(ano) {
+  aplicarCorte();
+  const a = String(ano);
+  const saida = new Map();
+  const base = (dados.totaisPorAno && dados.totaisPorAno[a]) || {};
+  for (const [id, n] of Object.entries(base)) saida.set(id, Number(n) || 0);
+
+  const vivo = dados.consolidadoAte ? grade.somarDias(dados.consolidadoAte, 1) : undefined;
+  const inicioAno = `${a}-01-01`;
+  const de = !vivo || vivo < inicioAno ? inicioAno : vivo;
+  const ate = `${a}-12-31`;
+  if (de > ate) return saida;
+  for (const [id, dias] of diasComPresenca({ de, ate })) {
     saida.set(id, (saida.get(id) || 0) + dias.size);
   }
   return saida;
@@ -394,7 +432,7 @@ function situacao() {
 }
 
 module.exports = {
-  semear, consolidar, total, totais, porTelefone, diasVivosDoTelefone, situacao,
+  semear, consolidar, total, totais, totaisDoAno, porTelefone, diasVivosDoTelefone, situacao,
   totalAntesDoCorte, CONTAR_DESDE,
   // O mural da TV precisa saber em que dia cada aula caiu para dizer se o
   // marco foi batido hoje ou ontem — mesma regra de "o que conta como aula".
