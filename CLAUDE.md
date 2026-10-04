@@ -376,6 +376,8 @@ Cron do GitHub está degradado (atrasa 2–4 h): disparo real vem do Railway; cr
 - Regras de negócio:
   - **Cobrança Wellhub só pelo check-in**, separada da presença do totem. Máximo 12 check-ins/mês por aluno Wellhub; quem passa disso paga à parte.
   - Conquistas contam check-in + dias de totem sem check-in **só depois** de batida a meta de check-ins do mês. Meta: 8 (2x/sem) ou 12 (3x/sem).
+  - **Desde 01/10/2026 (`SO_TOTEM_DESDE` em `historico-aulas.js`) só a confirmação no totem conta como aula feita** no mural, conquistas e Meus dados — check-in do Wellhub deixa de contar (continua sendo a base da cobrança).
+  - Régua de ritmo do Wellhub (`frequencia.js`: `devidoAteAgora`, `proximoMarco`, `metaAcum`, `devidoAteHoje`, `metaProporcional`) é linear em **dias úteis** (seg–sex fora `agenda.datasBloqueadas`): sábado, domingo e feriado não fazem a meta acumulada avançar — vale para o relatório de fechamento diário e o gráfico do mês.
   - Aluno que deixa de ser experimental no meio do mês: meta Wellhub e comunicação de cobrança **proporcionais** ao período restante.
   - Experimental recebe **só** a mensagem de boas-vindas (agradecer, convidar a voltar), sem a conquista "Primeira aula".
   - Ciclos: manhã 5h–14h; tarde até 21h. Avisos ao grupo do operador de conquista/meta saem em **dois resumos diários (14h e 21h)**; check-in individual no funcional e aniversariantes continuam na hora.

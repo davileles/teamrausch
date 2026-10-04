@@ -592,7 +592,8 @@ const PRESENCA_MAXIMO_NA_TV = 30;
  *
  * CUMPRIDO
  *   Qualquer prova de que a pessoa esteve lá naquele dia — check-in do Wellhub
- *   ou confirmação no totem. Aqui não entra a regra do teto do Wellhub: a
+ *   ou confirmação no totem; desde 1º/10/2026 (`historico.SO_TOTEM_DESDE`),
+ *   só a confirmação no totem. Aqui não entra a regra do teto do Wellhub: a
  *   pergunta é se ela veio, não se o dia é cobrável.
  *
  * O QUE NÃO VIRA FALTA

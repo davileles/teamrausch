@@ -42,6 +42,48 @@
  */
 
 const grade = require('./grade');
+const config = require('./config');
+
+/**
+ * DIAS ÚTEIS DO ESTÚDIO: SEGUNDA A SEXTA, FORA AS DATAS BLOQUEADAS
+ *
+ * A régua de ritmo só anda em dia de aula. Sábado, domingo e feriado
+ * (`agenda.datasBloqueadas`, em Configurações) não têm aula: o aluno até pode
+ * fazer check-in, mas cobrar um treino a mais por um dia em que a sala não
+ * abriu seria uma linha reta que não corresponde a nada no calendário. Nesses
+ * dias a régua fica parada no valor do último dia útil.
+ *
+ * Devolve o acumulado de dias úteis do mês: `cum[d]` = úteis do dia 1 ao dia d
+ * (`cum[0]` = 0).
+ */
+function uteisDoMes(data) {
+  let bloqueadas;
+  try { bloqueadas = new Set((config.ler().agenda || {}).datasBloqueadas || []); }
+  catch (_) { bloqueadas = new Set(); }
+  const prefixo = String(data).slice(0, 8);
+  const ultimo = Number(fimDoMes(data).slice(8, 10));
+  const cum = [0];
+  for (let d = 1; d <= ultimo; d++) {
+    const dia = `${prefixo}${String(d).padStart(2, '0')}`;
+    const dow = grade.diaDaSemana(dia);
+    cum[d] = cum[d - 1] + (dow >= 1 && dow <= 5 && !bloqueadas.has(dia) ? 1 : 0);
+  }
+  return cum;
+}
+
+/**
+ * Fração do pacote que já venceu: dias úteis de `d0` até `dia` sobre dias úteis
+ * de `d0` até o fim do mês. Sem dia útil nenhum no período (entrada no último
+ * fim de semana do mês), cai na conta de calendário para não dividir por zero.
+ */
+function fracaoUtil(cum, d0, dia) {
+  const ultimo = cum.length - 1;
+  const ate = Math.min(dia, ultimo);
+  if (ate < d0) return 0;
+  const total = cum[ultimo] - cum[d0 - 1];
+  if (!total) return (ate - d0 + 1) / (ultimo - d0 + 1);
+  return (cum[ate] - cum[d0 - 1]) / total;
+}
 
 const FUSO = process.env.TZ_ESTUDIO || 'America/Sao_Paulo';
 /** Folga depois do horário da aula antes de considerá-la cobrável (minutos). */
@@ -146,8 +188,9 @@ function fimDoMes(data) {
 /**
  * QUANTO O ALUNO JÁ DEVERIA TER FEITO A ESTA ALTURA DO MÊS
  *
- * A régua é linear: a meta do mês repartida pelos dias do mês, acumulada dia a
- * dia. No dia 27 de um mês de 31, quem combinou 12 já deveria ter 10.
+ * A régua é linear em DIAS ÚTEIS: a meta do mês repartida pelos dias de aula
+ * (segunda a sexta, fora `agenda.datasBloqueadas`), acumulada dia a dia. Sábado,
+ * domingo e feriado não andam a régua — repetem o valor da sexta/véspera.
  *
  * POR QUE NÃO A ESCADA SEMANAL
  *   A versão anterior subia em degraus nos dias 7, 14, 21 e no fechamento,
@@ -218,9 +261,13 @@ function inicioDoPacote(matricula, ate) {
 function metaProporcional(metaCheia, inicio, ate) {
   const meta = Number(metaCheia) || 0;
   if (!meta || !inicio || inicio <= inicioDoMes(ate)) return meta;
-  const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
-  const ativos = diasDoMes - Number(String(inicio).slice(8, 10)) + 1;
-  return Math.max(Math.min(Math.floor((meta * ativos) / diasDoMes), meta), 0);
+  // Proporção em dias úteis: entrar num sábado ou numa segunda dá a mesma meta.
+  const cum = uteisDoMes(ate);
+  const ultimo = cum.length - 1;
+  const d0 = Number(String(inicio).slice(8, 10));
+  const fracao = cum[ultimo] ? (cum[ultimo] - cum[d0 - 1]) / cum[ultimo]
+    : (ultimo - d0 + 1) / ultimo;
+  return Math.max(Math.min(Math.floor(meta * fracao), meta), 0);
 }
 
 /**
@@ -250,11 +297,11 @@ function devidoAteAgora(matricula, ate, metaOverride, inicio) {
   const d0 = Number(String(inicio || inicioDoPacote(matricula, ate)).slice(8, 10));
   const dia = Number(String(ate).slice(8, 10));
   if (dia < d0) return 0;
-  const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
-  const diasPacote = diasDoMes - d0 + 1;
-  // Fração arredonda para baixo: check-in é inteiro, e cobrar 11 de quem deve
-  // 10,45 seria exigir hoje o treino de amanhã.
-  return Math.min(Math.floor((meta * (dia - d0 + 1)) / diasPacote), meta);
+  // Só dias úteis andam a régua (ver `uteisDoMes`). Fração arredonda para
+  // baixo: check-in é inteiro, e cobrar 11 de quem deve 10,45 seria exigir
+  // hoje o treino de amanhã. O epsilon evita 11,999… virar 11.
+  const fracao = fracaoUtil(uteisDoMes(ate), d0, dia);
+  return Math.min(Math.floor(meta * fracao + 1e-9), meta);
 }
 
 /**
@@ -285,9 +332,16 @@ function proximoMarco(matricula, ate, metaOverride, inicio) {
   const ini = inicio || inicioDoPacote(matricula, ate);
   const d0 = Number(String(ini).slice(8, 10));
   const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
-  const diasPacote = diasDoMes - d0 + 1;
-  const exigido = Math.min(devidoAteAgora(matricula, ate, meta, ini) + 1, meta);
-  const diaAlvo = Math.min(d0 - 1 + Math.ceil((exigido * diasPacote) / meta), diasDoMes);
+  const devido = devidoAteAgora(matricula, ate, meta, ini);
+  if (devido >= meta) return null;
+  const exigido = devido + 1;
+  // Primeiro dia (útil, por construção) em que a régua alcança `exigido`.
+  const cum = uteisDoMes(ate);
+  const hoje = Number(String(ate).slice(8, 10));
+  let diaAlvo = diasDoMes;
+  for (let d = Math.max(hoje + 1, d0); d <= diasDoMes; d++) {
+    if (Math.floor(meta * fracaoUtil(cum, d0, d) + 1e-9) >= exigido) { diaAlvo = d; break; }
+  }
   return {
     data: `${String(ate).slice(0, 8)}${String(diaAlvo).padStart(2, '0')}`,
     exigido,
@@ -787,13 +841,12 @@ function painel(matriculas, mapaDatas, excecoes, opcoes = {}) {
        */
       devidoAteHoje: (() => {
         const ate = opcoes.ate || hojeLocal();
-        const diasDoMes = Number(fimDoMes(ate).slice(8, 10));
-        const passado = Math.min(Number(String(ate).slice(8, 10)), diasDoMes);
+        const cum = uteisDoMes(ate);
+        const passado = Number(String(ate).slice(8, 10));
         return Math.round(doPacote.reduce((s, a) => {
           // Mês de entrada: a régua dele parte do dia da virada.
           const d0 = Number(String(a.mes.inicioPacote || '01').slice(-2));
-          if (passado < d0) return s;
-          return s + (a.mes.meta * (passado - d0 + 1)) / (diasDoMes - d0 + 1);
+          return s + a.mes.meta * fracaoUtil(cum, d0, passado);
         }, 0));
       })(),
       devendoNoMes: doPacote.filter((a) => a.mes.faltam > 0).length,
@@ -1035,6 +1088,7 @@ function panoramaDoMes({
   }
 
   // Previsto do dia: a grade projetada, contada por pessoa e não por aula.
+  const cumUteis = uteisDoMes(fim);
   for (const linha of dias) {
     const doDia = excecoes.filter((e) => e.data === linha.data);
     const cancelou = (id, hora) => doDia.some((e) =>
@@ -1089,12 +1143,12 @@ function panoramaDoMes({
     //
     //   É a mesma conta que a linha do gráfico desenha — antes eram duas, e a
     //   linha ficava abaixo do que o cartão dizia.
-    const diasDoMes = Number(fim.slice(8, 10));
-    const passado = Math.min(Number(linha.data.slice(8, 10)), diasDoMes);
+    //   Só dias úteis andam a régua: sábado, domingo e feriado repetem o valor
+    //   do último dia útil (ver `uteisDoMes`).
+    const passado = Number(linha.data.slice(8, 10));
     linha.metaAcum = Math.round(comPacote.reduce((s, m) => {
       const d0 = Number(String(inicioPacote.get(m.id) || de).slice(8, 10));
-      if (passado < d0) return s;
-      return s + ((metas.get(m.id) || 0) * (passado - d0 + 1)) / (diasDoMes - d0 + 1);
+      return s + (metas.get(m.id) || 0) * fracaoUtil(cumUteis, d0, passado);
     }, 0));
   }
 

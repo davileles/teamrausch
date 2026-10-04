@@ -40,6 +40,13 @@
  *   Mensalista, ficha dependente de conta compartilhada (o check-in cai no
  *   titular) e telefone sem ficha: a confirmação no totem conta sempre.
  *
+ *   A PARTIR DE 1º DE OUTUBRO DE 2026 (SO_TOTEM_DESDE), SÓ O TOTEM CONTA
+ *   O check-in do Wellhub deixa de valer como aula feita para todo mundo: a
+ *   única prova é a confirmação no totem, e a regra do teto acima deixa de se
+ *   aplicar (totem conta sempre). Vale para o mural da TV, conquistas e Meus
+ *   dados, que leem daqui. Dias anteriores seguem a regra antiga. A cobrança do
+ *   Wellhub (`frequencia.js`) continua só pelo check-in — não muda nada lá.
+ *
  * A SEMEADURA (uma vez só)
  *   O tablet é novo; presença antiga não existe. Se o número começasse do zero,
  *   todo veterano perderia o histórico da tela de uma vez. Então, na primeira
@@ -80,6 +87,15 @@ const JANELA_VIVA_DIAS = Number(process.env.HISTORICO_JANELA_DIAS || 90);
 /** Primeiro dia que conta como aula em qualquer conta daqui (ver acima). */
 const CONTAR_DESDE = /^\d{4}-\d{2}-\d{2}$/.test(String(process.env.HISTORICO_CONTAR_DESDE || ''))
   ? process.env.HISTORICO_CONTAR_DESDE : '2026-09-01';
+
+/** Daqui em diante só a confirmação no totem conta como aula (ver acima). */
+const SO_TOTEM_DESDE = /^\d{4}-\d{2}-\d{2}$/.test(String(process.env.HISTORICO_SO_TOTEM_DESDE || ''))
+  ? process.env.HISTORICO_SO_TOTEM_DESDE : '2026-10-01';
+
+/** O check-in desta data ainda vale como aula? */
+function checkinContaComoAula(data) {
+  return !SO_TOTEM_DESDE || String(data) < SO_TOTEM_DESDE;
+}
 
 /** Início de janela respeitando o corte: nada antes de CONTAR_DESDE. */
 function aPartirDoCorte(de) {
@@ -175,7 +191,7 @@ function diasComPresenca({ de, ate, semCorte = false } = {}) {
   for (const [matriculaId, datas] of checkins.mapaPorMatricula({ de: desdeMes, ate })) {
     checkinsPorFicha.set(matriculaId, new Set(datas));
     for (const d of datas) {
-      if (!de || d >= de) acrescentar(mapa, matriculaId, d);
+      if ((!de || d >= de) && checkinContaComoAula(d)) acrescentar(mapa, matriculaId, d);
     }
   }
 
@@ -190,7 +206,7 @@ function diasComPresenca({ de, ate, semCorte = false } = {}) {
     if (!matriculaId) continue;
     const ficha = fichaDe(matriculaId);
     const regraWellhub = ficha && ficha.vinculo === 'wellhub' && !ficha.contaDe;
-    if (regraWellhub
+    if (regraWellhub && checkinContaComoAula(p.data)
       && !totemContaWellhub(checkinsPorFicha.get(matriculaId) || new Set(), p.data)) continue;
     acrescentar(mapa, matriculaId, p.data);
   }
@@ -377,7 +393,7 @@ function porTelefone(telefone) {
 /**
  * Horário mais cedo em que cada matrícula apareceu em cada dia, juntando o
  * check-in do Wellhub (hora real da catraca) e a confirmação do totem (hora da
- * aula). Serve ao ranking de madrugadores do mural; quem decide se o dia conta
+ * aula; desde SO_TOTEM_DESDE, só o totem). Serve ao ranking de madrugadores do mural; quem decide se o dia conta
  * como aula continua sendo `diasComPresenca`.
  * @returns {Map<string, Map<string, string>>} matriculaId → data → 'HH:MM'
  */
@@ -394,7 +410,9 @@ function horaMaisCedoPorDia({ de, ate } = {}) {
     const dias = mapa.get(id);
     if (!dias.has(data) || h < dias.get(data)) dias.set(data, h);
   };
-  for (const c of checkins.listar({ de, ate, limite: Infinity })) anota(c.matriculaId, c.data, c.hora);
+  for (const c of checkins.listar({ de, ate, limite: Infinity })) {
+    if (checkinContaComoAula(c.data)) anota(c.matriculaId, c.data, c.hora);
+  }
   const daMatricula = indiceDeTelefones();
   for (const p of agendaStore.listarPresencas({ de, ate })) anota(daMatricula(p.telefone), p.data, p.hora);
   return mapa;
@@ -433,7 +451,7 @@ function situacao() {
 
 module.exports = {
   semear, consolidar, total, totais, totaisDoAno, porTelefone, diasVivosDoTelefone, situacao,
-  totalAntesDoCorte, CONTAR_DESDE,
+  totalAntesDoCorte, CONTAR_DESDE, SO_TOTEM_DESDE,
   // O mural da TV precisa saber em que dia cada aula caiu para dizer se o
   // marco foi batido hoje ou ontem — mesma regra de "o que conta como aula".
   diasComPresenca, horaMaisCedoPorDia,
