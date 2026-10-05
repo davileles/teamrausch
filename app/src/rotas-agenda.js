@@ -983,6 +983,71 @@ rotas.get('/admin/dia', exigirLogin, exigirAdmin, (req, res) => {
   res.json(agenda.listaDoDia(data, { presenca: true }));
 });
 
+/**
+ * Confirmar presença pela Lista do dia.
+ *
+ * Para quando o totem não deu conta: manhã inteira sem internet, tablet
+ * desligado, aluno que esqueceu de confirmar. O administrador marca depois,
+ * olhando a lista. Fica registrado como `admin`, com quem confirmou — a
+ * presença conta no mural, nas conquistas e na retenção como a do totem, mas
+ * não entra na pontualidade (não houve toque para medir a chegada).
+ *
+ * Nada aqui mexe no Wellhub: cobrança continua sendo só o check-in.
+ */
+const final8 = (t) => String(t || '').replace(/\D/g, '').slice(-8);
+
+rotas.post('/admin/presenca', exigirLogin, exigirAdmin, (req, res) => {
+  const fuso = config.ler().estudio.fuso;
+  const data = String(req.body.data || '');
+  const hora = String(req.body.hora || '');
+  const digitos = String(req.body.telefone || '').replace(/\D/g, '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !/^\d{2}:\d{2}$/.test(hora)) {
+    return res.status(400).json({ erro: 'Data ou horário inválido.' });
+  }
+  if (digitos.length < 8) return res.status(400).json({ erro: 'Aluno sem telefone na ficha.' });
+  if (data > agenda.hoje(fuso)) {
+    return res.status(400).json({ erro: 'Não dá para confirmar presença em data futura.' });
+  }
+
+  // O mesmo número escrito de outro jeito (com ou sem 55) não pode virar uma
+  // segunda presença no mesmo horário.
+  const jaTem = store.presencasDaData(data)
+    .find((p) => p.hora === hora && final8(p.telefone) === final8(digitos));
+  if (jaTem) return res.json({ ok: true, repetida: true });
+
+  // Telefone como está no cadastro do app, quando existe: é o formato que o
+  // totem grava, e assim as duas origens ficam iguais.
+  const doApp = store.listarAlunos().find((a) => final8(a.telefone) === final8(digitos));
+  const telefone = doApp ? doApp.telefone : digitos;
+  const ficha = matriculas.porTelefone(telefone);
+  const nome = (ficha && ficha.nome) || (doApp && doApp.nome) || String(req.body.nome || '') || null;
+
+  const r = store.registrarPresenca({
+    telefone, nome, data, hora,
+    origem: 'admin',
+    liberadoPor: req.aluno.telefone,
+    // Sem toque para registrar, o instante é o começo da aula.
+    criadoEm: new Date(`${data}T${hora}:00-03:00`).toISOString(),
+  });
+  console.log(`[lista do dia] presença confirmada à mão ${data} ${hora} — ${nome || telefone}`
+    + ` por ${req.aluno.nome || req.aluno.telefone}${r.repetida ? ' (repetida)' : ''}`);
+  if (!r.repetida) require('./gatilhos-mensagens').aulaNova('admin');
+  res.json({ ok: true, repetida: r.repetida });
+});
+
+rotas.post('/admin/presenca/desfazer', exigirLogin, exigirAdmin, (req, res) => {
+  const id = String(req.body.id || '');
+  const alvo = store.listarPresencas().find((p) => p.id === id);
+  if (!alvo) return res.status(404).json({ erro: 'Presença não encontrada.' });
+  if (alvo.origem !== 'admin') {
+    return res.status(409).json({ erro: 'Só dá para desfazer presença confirmada pela lista.' });
+  }
+  store.removerPresenca(id);
+  console.log(`[lista do dia] presença desfeita ${alvo.data} ${alvo.hora} — ${alvo.nome || alvo.telefone}`
+    + ` por ${req.aluno.nome || req.aluno.telefone}`);
+  res.json({ ok: true });
+});
+
 rotas.get('/admin/config', exigirLogin, exigirAdmin, (_req, res) => {
   res.json(config.paraAdmin());
 });

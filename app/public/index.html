@@ -308,6 +308,15 @@
   .fila .pres.lib{color:var(--amarelo);border-color:var(--borda-amarela);background:var(--amarelo-fundo)}
   .fila .pres.outro{color:var(--apagado);border-color:var(--linha-3)}
   .fila .pres.falta{color:var(--fraco-2);border-style:dashed}
+  /* Confirmar à mão: o botão que mais se usa depois de uma manhã sem
+     internet, então tem a cor de ação (vermelho), não a de botão leve. */
+  .fila button.confirmar-pres{border-color:var(--vermelho);color:var(--vermelho)}
+  /* No celular, linha com botão de presença joga marca e botões para baixo do
+     nome — três peças lado a lado espremiam o nome em uma palavra por linha. */
+  @media (max-width:520px){
+    .fila.com-acao{flex-wrap:wrap;gap:10px 12px}
+    .fila.com-acao .quem{flex-basis:100%}
+  }
   .fila .quem .wh{display:block;margin-top:3px;color:var(--vermelho);font-weight:600}
   .fila.wh-alerta{border-left:3px solid var(--vermelho)}
   .fila.avulso{background:var(--fundo-2)}
@@ -1743,6 +1752,7 @@ async function carregarPerfil(){
 
 /* --------------------------- lista do dia ------------------------------- */
 let dataDoDia = null;
+let diaFuturo = false;
 
 /* Marca de presença do totem. Não aparece em aula que ainda não fechou a janela
    do tablet ('aguardando') nem em data futura: ali não há o que acompanhar. */
@@ -1750,7 +1760,9 @@ function marcaPresenca(p){
   if (!p) return '';
   const ch = p.chegada ? ` ${esc(p.chegada)}` : '';
   switch (p.estado){
-    case 'confirmou':     return `<span class="pres ok" title="Confirmou no totem">Veio${ch}</span>`;
+    case 'confirmou':     return p.manual
+      ? `<span class="pres ok" title="Confirmado à mão na Lista do dia">Confirmado</span>`
+      : `<span class="pres ok" title="Confirmou no totem">Veio${ch}</span>`;
     case 'liberado':      return `<span class="pres lib" title="Chegou fora do horário e o professor liberou">Liberado${ch}</span>`;
     case 'outro-horario': return `<span class="pres outro" title="Confirmou em outra aula hoje">Veio às ${esc(p.hora)}</span>`;
     case 'nao-confirmou': return `<span class="pres falta" title="Não confirmou no totem">Não confirmou</span>`;
@@ -1765,18 +1777,31 @@ function origemAluno(a){
   return 'grade fixa';
 }
 
-function filaDoDia(a){
+/* Quem ainda não tem presença no horário pode ser confirmado à mão: o totem
+   ficou sem internet, o aluno esqueceu, o tablet estava desligado. Só em data
+   que já chegou, e só com telefone na ficha (é por ele que a presença casa
+   com o aluno no mural, nas conquistas e na retenção). */
+const PODE_CONFIRMAR = ['nao-confirmou', 'aguardando', 'outro-horario'];
+
+function filaDoDia(a, hora){
   const p = a.presenca || {};
   const extra = [
     origemAluno(a),
     p.estado === 'liberado' && p.liberadoPor ? `liberado por ${esc(p.liberadoPor.split(' ')[0])}` : '',
+    p.manual && p.liberadoPor ? `confirmado por ${esc(p.liberadoPor.split(' ')[0])}` : '',
     p.estado === 'sem-telefone' ? 'sem telefone, não confirma no totem' : '',
   ].filter(Boolean).join(' · ');
-  return `<div class="fila${a.semCheckinWellhub?' wh-alerta':''}${a.origem==='presenca'?' avulso':''}">
+  const confirmar = !diaFuturo && hora && a.telefone && PODE_CONFIRMAR.includes(p.estado)
+    ? `<button class="leve confirmar-pres" data-hora="${esc(hora)}" data-tel="${esc(a.telefone)}"
+        data-nome="${esc(a.nome||'')}">Confirmar</button>` : '';
+  const desfazer = p.manual && p.id
+    ? `<button class="leve desfazer-pres" data-id="${esc(p.id)}">Desfazer</button>` : '';
+  return `<div class="fila${a.semCheckinWellhub?' wh-alerta':''}${a.origem==='presenca'?' avulso':''}${confirmar||desfazer?' com-acao':''}">
     <div class="quem"><b>${esc(a.nome)}</b><small>${extra}${
       a.semCheckinWellhub ? '<span class="wh">Sem check-in do Wellhub neste dia</span>' : ''}</small></div>
     ${marcaPresenca(p)}
-    ${a.id ? `<button class="leve cancelar" data-id="${a.id}">Remover</button>` : ''}
+    ${confirmar}${desfazer}
+    ${a.id && !desfazer ? `<button class="leve cancelar" data-id="${a.id}">Remover</button>` : ''}
   </div>`;
 }
 
@@ -1787,6 +1812,7 @@ async function carregarDia(){
     dataDoDia = r.data;
     const pr = r.presenca || {};
     const futuro = r.data > r.hoje;
+    diaFuturo = futuro;
     const wh = pr.wellhubSemCheckin || [];
 
     const resumo = futuro ? '' : `<div class="resumo-presenca">
@@ -1813,12 +1839,12 @@ async function carregarDia(){
           // presentes" às 13h para a turma das 18h só assusta.
           h.alunos.some(a=>a.presenca && ['confirmou','liberado','nao-confirmou'].includes(a.presenca.estado))
             ? ` · ${h.presentes||0} ${h.presentes===1?'presente':'presentes'}` : ''}</h3>
-        ${h.alunos.length ? h.alunos.map(filaDoDia).join('')
+        ${h.alunos.length ? h.alunos.map(a=>filaDoDia(a, h.hora)).join('')
           : '<div class="vazio">Ninguém neste horário.</div>'}
         </div>`);
     if ((r.foraDaGrade||[]).length){
       blocos.push(`<div class="hora-bloco"><h3>Fora da grade · ${r.foraDaGrade.length}</h3>
-        ${r.foraDaGrade.map(a=>filaDoDia({...a, origem:'presenca'})).join('')}</div>`);
+        ${r.foraDaGrade.map(a=>filaDoDia({...a, origem:'presenca'}, a.hora)).join('')}</div>`);
     }
 
     alvo.innerHTML = `<h2>Lista do dia</h2>
@@ -1829,10 +1855,32 @@ async function carregarDia(){
         : '<div class="vazio">Sem horários nesta data.</div>') +
       (futuro ? '' : `<p class="ajuda" style="margin-top:14px">A presença do totem é só
         acompanhamento: não entra na frequência nem gera cobrança. A cobrança continua
-        sendo pelo check-in do Wellhub.</p>`);
+        sendo pelo check-in do Wellhub. Totem sem internet ou aluno que esqueceu de
+        confirmar: use <b>Confirmar</b> na linha dele; confirmado por engano, <b>Desfazer</b>.</p>`);
     document.getElementById('in-dia').addEventListener('change', e=>{ dataDoDia = e.target.value; carregarDia(); });
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
+
+/* Confirmar / desfazer presença à mão. Um ouvinte só, no contêiner da aba:
+   o conteúdo é redesenhado a cada carga e os botões nascem de novo. */
+document.getElementById('aba-dia').addEventListener('click', async e=>{
+  const conf = e.target.closest('button.confirmar-pres');
+  const desf = e.target.closest('button.desfazer-pres');
+  const b = conf || desf; if (!b) return;
+  b.disabled = true; b.textContent = '…';
+  try{
+    if (conf){
+      await api('/admin/presenca', {method:'POST', body: JSON.stringify({
+        data: dataDoDia, hora: b.dataset.hora, telefone: b.dataset.tel, nome: b.dataset.nome })});
+    } else {
+      await api('/admin/presenca/desfazer', {method:'POST', body: JSON.stringify({ id: b.dataset.id })});
+    }
+    await carregarDia();
+  }catch(err){
+    avisar(err.message, 'erro');
+    b.disabled = false; b.textContent = conf ? 'Confirmar' : 'Desfazer';
+  }
+});
 
 /* ------------------------------ alunos ---------------------------------- */
 /* ---------------------------- matrículas -------------------------------- */

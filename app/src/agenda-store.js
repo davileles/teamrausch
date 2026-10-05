@@ -370,6 +370,19 @@ function registrarPresenca({
   return { ok: true, repetida: false, presenca: registro };
 }
 
+/**
+ * Desfaz uma presença. Só serve para a confirmada à mão pela Lista do dia:
+ * quem marcou errado precisa poder voltar atrás. O toque no totem não se
+ * apaga daqui — ali a pessoa estava na frente do tablet.
+ */
+function removerPresenca(id) {
+  const i = dados.presencas.findIndex((p) => p.id === id);
+  if (i < 0) return null;
+  const [removida] = dados.presencas.splice(i, 1);
+  gravar();
+  return removida;
+}
+
 function presencaDe(telefone, data, hora) {
   return dados.presencas.find((p) =>
     p.telefone === telefone && p.data === data && p.hora === hora) || null;
@@ -405,5 +418,5 @@ module.exports = {
   abrirSessao, sessao, fecharSessao,
   daData, doHorario, doAluno, historicoDoAluno, listarAgendamentos,
   jaTem, contarNoDia, reservar, cancelar, porId,
-  alunosPorFinal, registrarPresenca, presencaDe, presencasDaData, listarPresencas,
+  alunosPorFinal, registrarPresenca, removerPresenca, presencaDe, presencasDaData, listarPresencas,
 };

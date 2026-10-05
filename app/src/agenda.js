@@ -769,7 +769,8 @@ function listaDoDia(data, opcoes = {}) {
     if (aqui) {
       presenca = {
         estado: aqui.liberado ? 'liberado' : 'confirmou',
-        chegada: aqui.chegada, liberadoPor: aqui.liberadoPor,
+        chegada: aqui.manual ? null : aqui.chegada, liberadoPor: aqui.liberadoPor,
+        manual: Boolean(aqui.manual), id: aqui.id,
       };
     } else if (outra) {
       presenca = { estado: 'outro-horario', hora: outra.hora, chegada: outra.chegada };
@@ -831,7 +832,11 @@ function listaDoDia(data, opcoes = {}) {
     .map((p) => ({
       id: null, matriculaId: p.matriculaId, nome: p.nome || 'Sem nome', telefone: p.telefone,
       vinculo: p.vinculo, origem: 'presenca', criadoEm: null, hora: p.hora,
-      presenca: { estado: p.liberado ? 'liberado' : 'confirmou', chegada: p.chegada, liberadoPor: p.liberadoPor },
+      presenca: {
+        estado: p.liberado ? 'liberado' : 'confirmou',
+        chegada: p.manual ? null : p.chegada, liberadoPor: p.liberadoPor,
+        manual: Boolean(p.manual), id: p.id,
+      },
       semCheckinWellhub: Boolean(p.final && pres.semCheckinWellhub.has(p.final)),
     }));
 

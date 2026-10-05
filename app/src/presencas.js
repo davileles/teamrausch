@@ -124,8 +124,12 @@ function doDia(data) {
       final: finalDoTelefone(p.telefone),
       nome: (m && m.nome) || p.nome || null,
       hora: p.hora,
+      id: p.id,
       chegada: horaLocal(p.criadoEm, fuso),
       liberado: p.origem === 'totem-liberado',
+      // Confirmada à mão na Lista do dia (totem sem internet, aluno sem
+      // telefone no tablet…). `liberadoPor` guarda quem confirmou.
+      manual: p.origem === 'admin',
       liberadoPor: p.liberadoPor ? (nomeDoAdmin(p.liberadoPor) || null) : null,
       matriculaId: m ? m.id : null,
       contaId: m ? (m.contaDe || m.id) : null,
@@ -194,6 +198,7 @@ function daMatricula(matriculaId, { de, ate } = {}) {
       hora: p.hora,
       chegada: horaLocal(p.criadoEm, fuso),
       liberado: p.origem === 'totem-liberado',
+      manual: p.origem === 'admin',
       liberadoPor: p.liberadoPor ? (nomeDoAdmin(p.liberadoPor) || null) : null,
     });
   }
