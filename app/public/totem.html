@@ -137,6 +137,13 @@
     background:transparent;border:1px solid var(--linha);color:var(--apagado);border-radius:2px;
     cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;opacity:.55}
   .btn-tv[hidden]{display:none}
+  /* Aviso discreto de rede: só aparece sem internet ou com presença na fila. */
+  .offline-aviso{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);
+    font:600 11px 'Work Sans',sans-serif;letter-spacing:.14em;text-transform:uppercase;
+    padding:8px 14px;border:1px solid var(--linha-2);background:var(--superficie);
+    color:var(--apagado);white-space:nowrap}
+  .offline-aviso[hidden]{display:none}
+  .offline-aviso.sem-rede{border-color:var(--amarelo);color:var(--amarelo)}
   .btn-tv:hover{opacity:1}
   .btn-tv.ligada{opacity:1;background:var(--liberado);border-color:var(--liberado);color:#fff}
 
@@ -253,6 +260,8 @@
 
   </div>
 
+  <div class="offline-aviso" id="offline-aviso" role="status" hidden></div>
+
   <div class="resposta" id="resposta"><h2 id="r-titulo"></h2><div class="acao" id="r-acao"></div><p id="r-texto"></p></div>
 
 <script>
@@ -267,7 +276,17 @@
    rota /acesso continua de pé para a catraca, que não passa por aqui.
 
    As rotas usadas aqui são abertas, sem token de dispositivo: o tablet é só um
-   atalho no navegador, sem nada para configurar.                          */
+   atalho no navegador, sem nada para configurar.
+
+   SEM INTERNET
+   A página fica guardada no tablet (`/sw-totem.js`) e, de tempos em tempos,
+   baixa um pacote com quem pode passar por aqui e a agenda dos próximos dias
+   (`/totem-api/pacote`). Se a rede falha, a busca e a conferência do horário
+   são feitas com esse pacote e a presença entra numa fila no próprio tablet,
+   com o instante do toque. Quando a conexão volta, a fila vai para
+   `/totem-api/sincronizar`, que confere tudo com as regras de sempre. A
+   liberação do professor fora do horário também entra na fila: os dígitos
+   dele só são conferidos no servidor.                                      */
 
 let tela = 'menu';
 let final = '';    // 4 dígitos da presença
@@ -278,12 +297,215 @@ let ocioso = null;
 const visorFinal = document.getElementById('visor-final');
 const visorProf = document.getElementById('visor-prof');
 
+/* --------------------------- sem internet ------------------------------ */
+
+const LS_PACOTE = 'totem-pacote-v1';
+const LS_FILA = 'totem-fila-v1';
+const PRAZO_REDE_MS = 7000;
+let semRede = false;        // a última tentativa não chegou ao servidor
+let sincronizando = false;
+let liberacao = null;       // {chave, nome, data, hora}: liberação que pode ir para a fila
+let opcoesNomes = [];       // homônimos na tela "Quem é você?"
+
+function lerLocal(k, padrao){
+  try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : padrao; }catch(e){ return padrao; }
+}
+function gravarLocal(k, v){
+  try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; }
+}
+function primeiroNome(n){ return n ? String(n).split(' ')[0] : ''; }
+
+function erroDeRede(){ const e = new Error('Sem internet.'); e.semRede = true; return e; }
+
+/* Wi-Fi conectado e sem saída para a internet não recusa: fica pendurado. O
+   prazo é o que separa "o servidor disse não" de "não cheguei ao servidor". */
+async function buscarRede(url, opcoes, prazo){
+  const ctrl = new AbortController();
+  const t = setTimeout(()=>ctrl.abort(), prazo || PRAZO_REDE_MS);
+  try{
+    const r = await fetch(url, Object.assign({}, opcoes || {}, {signal: ctrl.signal, cache:'no-store'}));
+    // 52x é o Cloudflare dizendo que o servidor está fora: para quem está na
+    // frente do tablet, é o mesmo que estar sem internet.
+    if (r.status === 502 || r.status === 503 || r.status === 504 || (r.status >= 520 && r.status <= 527)) throw erroDeRede();
+    return r;
+  }catch(e){
+    if (e && e.semRede) throw e;
+    throw erroDeRede();
+  }finally{ clearTimeout(t); }
+}
+
 async function chamar(caminho, corpo){
-  const r = await fetch('/totem-api'+caminho,
+  const r = await buscarRede('/totem-api'+caminho,
     {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corpo)});
-  const dados = await r.json().catch(()=>({}));
+  const dados = await r.json().catch(()=>null);
+  // Resposta que não é JSON é página de roteador ou de erro de proxy: não chegou aqui.
+  if (dados === null) throw erroDeRede();
   if (!r.ok) throw new Error(dados.erro || 'Não consegui completar.');
+  marcarRede(true);
   return dados;
+}
+
+function marcarRede(ok){
+  if (semRede === !ok) return;
+  semRede = !ok;
+  pintarAviso();
+  if (ok) sincronizar();
+}
+
+function pintarAviso(){
+  const el = document.getElementById('offline-aviso'); if (!el) return;
+  const n = lerLocal(LS_FILA, []).length;
+  if (!semRede && !n){ el.hidden = true; return; }
+  el.hidden = false;
+  const qtd = n ? ' · ' + n + (n === 1 ? ' presença guardada' : ' presenças guardadas') : '';
+  el.textContent = semRede ? 'Sem internet' + qtd : (sincronizando ? 'Enviando' + qtd : 'Na fila' + qtd);
+  el.classList.toggle('sem-rede', semRede);
+}
+
+async function baixarPacote(){
+  try{
+    const r = await buscarRede('/totem-api/pacote', {}, 15000);
+    if (!r.ok) return;
+    const p = await r.json().catch(()=>null);
+    if (p && Array.isArray(p.alunos)){ p.baixadoEm = Date.now(); gravarLocal(LS_PACOTE, p); }
+    marcarRede(true);
+  }catch(e){ if (e.semRede) marcarRede(false); }
+}
+
+async function sondar(){
+  try{
+    const r = await buscarRede('/totem-api/ping', {}, 5000);
+    if (r.ok) marcarRede(true);
+  }catch(e){ if (e.semRede) marcarRede(false); }
+}
+
+/* Data e minuto do dia no fuso do estúdio, não no do tablet. */
+function agoraLocal(fuso){
+  const partes = new Intl.DateTimeFormat('en-CA', {timeZone: fuso || 'America/Sao_Paulo',
+    year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false})
+    .formatToParts(new Date());
+  const v = t => (partes.find(x=>x.type===t) || {}).value;
+  return {data: v('year')+'-'+v('month')+'-'+v('day'), min: (Number(v('hour')) % 24) * 60 + Number(v('minute'))};
+}
+function emMin(h){ return Number(String(h).slice(0,2)) * 60 + Number(String(h).slice(3,5)); }
+
+/* Mesma regra de `horaDaChegada` no servidor: a aula que já começou ganha da
+   que vai começar; sem aula no dia, a hora cheia do relógio. */
+function horaChegadaLocal(horas, min){
+  const slots = (horas || []).map(h=>({hora:h, faltam: emMin(h) - min}));
+  const comecadas = slots.filter(s=>s.faltam <= 0).sort((a,b)=>b.faltam - a.faltam);
+  if (comecadas.length) return comecadas[0].hora;
+  const proximas = slots.filter(s=>s.faltam > 0).sort((a,b)=>a.faltam - b.faltam);
+  if (proximas.length) return proximas[0].hora;
+  return String(Math.floor(min / 60)).padStart(2,'0') + ':00';
+}
+
+/* Mesma janela do servidor, com a agenda guardada no pacote. */
+function decidirOffline(pacote, chave){
+  const agora = agoraLocal(pacote.fuso);
+  const dia = (pacote.dias || {})[agora.data];
+  const j = pacote.janela || {antes:20, depois:20};
+  // Pacote velho demais para ter o dia de hoje: guarda sem conferir e o
+  // servidor decide na sincronização.
+  if (!dia) return {data: agora.data, hora: null, conferido: false};
+  const meus = (dia.por || {})[chave] || [];
+  const dentro = meus.map(h=>({hora:h, faltam: emMin(h) - agora.min}))
+    .filter(h=>h.faltam <= j.antes && h.faltam >= -j.depois)
+    .sort((a,b)=>Math.abs(a.faltam) - Math.abs(b.faltam));
+  if (dentro.length) return {data: agora.data, hora: dentro[0].hora, conferido: true};
+  return {data: agora.data, hora: null, conferido: true, meus, chegada: horaChegadaLocal(dia.horas, agora.min)};
+}
+
+function enfileirar(item){
+  const fila = lerLocal(LS_FILA, []);
+  item.id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  item.em = new Date().toISOString();
+  fila.push(item);
+  const ok = gravarLocal(LS_FILA, fila);
+  pintarAviso();
+  return ok;
+}
+function jaNaFila(chave, data, hora){
+  return lerLocal(LS_FILA, []).some(i=>i.chave === chave && i.data === data && i.hora === hora);
+}
+
+async function sincronizar(){
+  if (sincronizando) return;
+  const fila = lerLocal(LS_FILA, []);
+  if (!fila.length) return;
+  sincronizando = true; pintarAviso();
+  try{
+    const lote = fila.slice(0, 100);
+    const r = await buscarRede('/totem-api/sincronizar', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({itens: lote})}, 20000);
+    const dados = await r.json().catch(()=>null);
+    if (!r.ok || !dados || !Array.isArray(dados.resultados)) return;
+    // "depois" fica para a próxima rodada; o resto (gravado, repetido ou
+    // recusado) sai da fila. Relê a fila: pode ter entrado gente durante o envio.
+    const resolvidos = new Set(dados.resultados.filter(x=>x && x.status !== 'depois').map(x=>x.id));
+    const resto = lerLocal(LS_FILA, []).filter(i=>!resolvidos.has(i.id));
+    gravarLocal(LS_FILA, resto);
+    sincronizando = false;
+    marcarRede(true);
+    if (resto.length && resolvidos.size) setTimeout(sincronizar, 1000);
+  }catch(e){ if (e.semRede) marcarRede(false); }
+  finally{ sincronizando = false; pintarAviso(); }
+}
+
+function buscarOffline(digitados){
+  const p = lerLocal(LS_PACOTE, null);
+  if (!p) return responder(false, 'Sem internet',
+    'Este tablet ainda não tem a lista de alunos guardada. Avise a recepção para anotar sua presença.', 7);
+  const achados = p.alunos.filter(a=>a.f === digitados).map(a=>({chave:a.c, nome:a.n}));
+  if (!achados.length) return responder(false, 'Não encontrei',
+    'Nenhum cadastro termina em ' + digitados + '. Se você se cadastrou hoje, avise a recepção: estamos sem internet.');
+  if (achados.length === 1) return confirmarOffline(achados[0]);
+  mostrarNomes(achados);
+}
+
+function confirmarOffline(aluno){
+  const p = lerLocal(LS_PACOTE, null);
+  if (!p || !aluno || !aluno.chave) return responder(false, 'Sem internet',
+    'Não consegui guardar sua presença neste tablet. Avise a recepção.', 7);
+  const d = decidirOffline(p, aluno.chave);
+  const quem = primeiroNome(aluno.nome);
+
+  if (d.hora || !d.conferido){
+    if (d.hora && jaNaFila(aluno.chave, d.data, d.hora)){
+      return responder(true, 'Check-in confirmado',
+        (quem ? quem + ' · ' : '') + 'aula das ' + d.hora + ' — você já tinha confirmado.');
+    }
+    if (!enfileirar({tipo:'confirmar', chave: aluno.chave, data: d.data, hora: d.hora})){
+      return responder(false, 'Ops', 'Não consegui guardar sua presença neste tablet. Avise a recepção.', 7);
+    }
+    return responder(true, 'Presença guardada',
+      (quem ? quem + ' · ' : '') + (d.hora ? 'aula das ' + d.hora + ' · ' : '')
+      + 'estamos sem internet: ela entra no sistema quando a conexão voltar.', 4);
+  }
+
+  // Fora do horário: a liberação do professor também vai para a fila.
+  liberacao = {chave: aluno.chave, nome: aluno.nome, data: d.data, hora: d.chegada};
+  bilheteLib = null;
+  prof = ''; pintarProf();
+  document.getElementById('lib-motivo').textContent = 'Ele libera seu acesso à aula das ' + d.chegada + '.';
+  const extra = d.meus.length ? ' Hoje você tem aula às ' + d.meus.join(' e ') + '.' : '';
+  responder(false, 'Fora do horário',
+    (quem ? quem + ', você' : 'Você') + ' está fora do horário.' + extra, 4, 'liberar', 'Chame o professor');
+}
+
+function liberarOffline(){
+  const l = liberacao;
+  const digitos = prof;
+  prof = ''; pintarProf();
+  if (!l) return;
+  if (!enfileirar({tipo:'liberar', chave: l.chave, data: l.data, hora: l.hora, final: digitos})){
+    return responder(false, 'Ops', 'Não consegui guardar a liberação neste tablet. Anote à mão.', 7);
+  }
+  liberacao = null; bilheteLib = null;
+  const quem = primeiroNome(l.nome);
+  responder(true, 'Liberação guardada',
+    (quem ? quem + ' · ' : '') + 'aula das ' + l.hora
+    + ' · estamos sem internet: o sistema confere o professor quando a conexão voltar.', 5);
 }
 
 /* -------------------------- navegação ---------------------------------- */
@@ -296,7 +518,7 @@ function ir(destino){
   if (destino !== 'presenca' && destino !== 'nomes'){ final = ''; pintarFinal(); }
   // Os dígitos do professor não sobrevivem à saída da tela: é o telefone de
   // quem manda no sistema, meio digitado, num tablet em cima do balcão.
-  if (destino !== 'liberar'){ prof = ''; bilheteLib = null; pintarProf(); }
+  if (destino !== 'liberar'){ prof = ''; bilheteLib = null; liberacao = null; pintarProf(); }
   reiniciarOcio();
 }
 
@@ -343,32 +565,42 @@ function pintarFinal(){ visorFinal.textContent = '•'.repeat(final.length); }
 async function buscarFinal(){
   if (final.length !== 4) return;
   const digitados = final;
+  // Já se sabe que a rede caiu: responde na hora com o pacote, sem esperar prazo.
+  if (semRede) return buscarOffline(digitados);
   try{
     const r = await chamar('/buscar', {final: digitados});
     if (!r.alunos.length){
       return responder(false, 'Não encontrei',
         'Nenhum cadastro termina em ' + digitados + '. Confira o número ou crie seu cadastro.');
     }
-    if (r.alunos.length === 1) return confirmar(r.alunos[0].bilhete);
+    if (r.alunos.length === 1) return confirmar(r.alunos[0]);
     mostrarNomes(r.alunos);
-  }catch(e){ responder(false, 'Ops', e.message); }
+  }catch(e){
+    if (e.semRede){ marcarRede(false); return buscarOffline(digitados); }
+    responder(false, 'Ops', e.message);
+  }
 }
 
 function mostrarNomes(alunos){
+  opcoesNomes = alunos;
   document.getElementById('lista-nomes').innerHTML =
-    alunos.map(a=>`<button data-bilhete="${a.bilhete}">${a.nome
+    alunos.map((a, i)=>`<button data-i="${i}">${String(a.nome || 'Sem nome')
       .replace(/[<>&"]/g, ch=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[ch]))}</button>`).join('');
   ir('nomes');
 }
 
 document.getElementById('lista-nomes').addEventListener('click', e=>{
-  const b = e.target.closest('button[data-bilhete]'); if (!b) return;
-  confirmar(b.dataset.bilhete);
+  const b = e.target.closest('button[data-i]'); if (!b) return;
+  const aluno = opcoesNomes[Number(b.dataset.i)];
+  if (aluno) confirmar(aluno);
 });
 
-async function confirmar(bilhete){
+/* `aluno` = {bilhete, chave, nome} vindo da busca online, ou {chave, nome}
+   vindo do pacote guardado (sem bilhete: aí só existe o caminho offline). */
+async function confirmar(aluno){
+  if (!aluno.bilhete || semRede) return confirmarOffline(aluno);
   try{
-    const r = await chamar('/confirmar', {bilhete});
+    const r = await chamar('/confirmar', {bilhete: aluno.bilhete});
     if (r.ok){
       const quem = r.nome ? r.nome.split(' ')[0] : '';
       return responder(true, 'Check-in confirmado',
@@ -380,6 +612,9 @@ async function confirmar(bilhete){
       : '';
     if (r.podeLiberar){
       bilheteLib = r.bilhete;
+      // Se a rede cair até o professor digitar, a liberação vai para a fila.
+      liberacao = {chave: aluno.chave, nome: r.nome || aluno.nome,
+        data: agoraLocal((lerLocal(LS_PACOTE, null) || {}).fuso).data, hora: r.horaSugerida};
       prof = ''; pintarProf();
       // O aluno não precisa saber como o professor libera — só que é com ele
       // que se resolve. Explicar os quatro dígitos aqui seria ensinar, a quem
@@ -391,7 +626,10 @@ async function confirmar(bilhete){
         quem + ' está fora do horário.' + extra, 4, 'liberar', 'Chame o professor');
     }
     responder(false, 'Fora do horário', r.motivo + extra + ' Fale com o estúdio.');
-  }catch(e){ responder(false, 'Ops', e.message); }
+  }catch(e){
+    if (e.semRede){ marcarRede(false); return confirmarOffline(aluno); }
+    responder(false, 'Ops', e.message);
+  }
 }
 
 /* ------------- fora do horário: liberação do professor ------------------ */
@@ -399,7 +637,9 @@ async function confirmar(bilhete){
 function pintarProf(){ if (visorProf) visorProf.textContent = '•'.repeat(prof.length); }
 
 async function liberar(){
-  if (prof.length !== 4 || !bilheteLib) return;
+  if (prof.length !== 4) return;
+  if (!bilheteLib){ if (liberacao) liberarOffline(); return; }
+  if (semRede && liberacao) return liberarOffline();
   try{
     const r = await chamar('/liberar', {bilhete: bilheteLib, final: prof});
     if (r.ok){
@@ -416,6 +656,7 @@ async function liberar(){
     document.getElementById('lib-motivo').textContent = r.motivo;
     reiniciarOcio();
   }catch(e){
+    if (e.semRede && liberacao){ marcarRede(false); return liberarOffline(); }
     prof = ''; pintarProf();
     responder(false, 'Ops', e.message);
   }
@@ -452,12 +693,20 @@ document.getElementById('teclas-final').addEventListener('click', e=>{
    - Aula experimental: quem está visitando. Pede telefone, nome e aniversário,
      sem grade da semana; a ficha nasce marcada como experimental.
    - Cadastrar horários: quem já é aluno. Fluxo completo, com a grade. */
-document.getElementById('btn-horarios').addEventListener('click', ()=>{
-  location.href = '/?totem=1';
-});
-document.getElementById('btn-experimental').addEventListener('click', ()=>{
-  location.href = '/?totem=1&experimental=1';
-});
+/* O cadastro mora no app e precisa de internet: sair do totem sem rede
+   deixaria o tablet numa página de erro do navegador. Confere antes. */
+async function abrirCadastro(destino){
+  try{
+    const r = await buscarRede('/totem-api/ping', {}, 4000);
+    if (!r.ok) throw erroDeRede();
+    location.href = destino;
+  }catch(e){
+    marcarRede(false);
+    responder(false, 'Sem internet', 'O cadastro precisa de internet. Fale com a recepção.', 6);
+  }
+}
+document.getElementById('btn-horarios').addEventListener('click', ()=>abrirCadastro('/?totem=1'));
+document.getElementById('btn-experimental').addEventListener('click', ()=>abrirCadastro('/?totem=1&experimental=1'));
 
 {
   const cad = new URLSearchParams(location.search).get('cadastro');
@@ -479,6 +728,25 @@ document.addEventListener('keydown', e=>{
     if (final.length === 4) buscarFinal();
   }
 });
+
+/* ------------------------ sem internet: rotina ------------------------- */
+
+if ('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw-totem.js', {scope: '/totem.html'})
+    .catch(e=>console.warn('service worker do totem', e));
+}
+// Pede ao navegador para não apagar a fila e o pacote quando faltar espaço.
+try{ if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{}); }catch(e){}
+
+setInterval(()=>{
+  if (lerLocal(LS_FILA, []).length) sincronizar();
+  else if (semRede) sondar();
+}, 30000);
+setInterval(baixarPacote, 10 * 60000);
+window.addEventListener('online', ()=>{ sondar(); sincronizar(); });
+pintarAviso();
+baixarPacote();
+sincronizar();
 </script>
 <script>
 /* ── ligar a TV ─────────────────────────────────────────────────────────

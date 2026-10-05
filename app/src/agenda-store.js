@@ -340,6 +340,7 @@ function porId(id) {
  */
 function registrarPresenca({
   telefone, nome, data, hora, agendamentoId = null, origem = 'totem', liberadoPor = null,
+  criadoEm = null, offline = false,
 }) {
   const jaTem = presencaDe(telefone, data, hora);
   if (jaTem) return { ok: true, repetida: true, presenca: jaTem };
@@ -355,8 +356,15 @@ function registrarPresenca({
     agendamentoId,
     origem,
     liberadoPor,
-    criadoEm: new Date().toISOString(),
+    // Presença confirmada sem internet chega depois, pela fila do tablet: o
+    // instante gravado é o do toque, não o da sincronização — é dele que a
+    // pontualidade do mural tira a diferença para a hora da aula.
+    criadoEm: criadoEm || new Date().toISOString(),
   };
+  if (offline) {
+    registro.offline = true;
+    registro.sincronizadoEm = new Date().toISOString();
+  }
   dados.presencas.push(registro);
   gravar();
   return { ok: true, repetida: false, presenca: registro };

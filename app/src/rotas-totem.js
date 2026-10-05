@@ -32,6 +32,8 @@
 
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const config = require('./config');
 const agenda = require('./agenda');
@@ -152,11 +154,17 @@ function horariosDeHoje(telefone, data) {
   return meus.sort((a, b) => a.hora.localeCompare(b.hora));
 }
 
-/** O horário de hoje que está acontecendo agora, dentro da janela. */
-function horarioDeAgora(meus, data, fuso) {
+/**
+ * O horário de hoje que está acontecendo agora, dentro da janela.
+ *
+ * `atraso` (minutos) olha para trás no tempo: a presença guardada sem internet
+ * é conferida contra o instante do toque, não contra a hora em que a fila do
+ * tablet finalmente chegou aqui.
+ */
+function horarioDeAgora(meus, data, fuso, atraso = 0) {
   const { antes, depois } = janela();
   const dentro = meus
-    .map((h) => ({ ...h, faltam: agenda.minutosAte(data, h.hora, fuso) }))
+    .map((h) => ({ ...h, faltam: agenda.minutosAte(data, h.hora, fuso) + atraso }))
     .filter((h) => h.faltam <= antes && h.faltam >= -depois)
     // Duas aulas na janela ao mesmo tempo é raro; a mais próxima do agora ganha.
     .sort((a, b) => Math.abs(a.faltam) - Math.abs(b.faltam));
@@ -177,9 +185,9 @@ function horarioDeAgora(meus, data, fuso) {
  * aula no dia — feriado, domingo — sobra a hora cheia do relógio, que é o
  * melhor palpite possível e ainda deixa o registro conferível.
  */
-function horaDaChegada(data, fuso) {
+function horaDaChegada(data, fuso, atraso = 0) {
   const slots = (agenda.listaDoDia(data).horarios || [])
-    .map((h) => ({ hora: h.hora, faltam: agenda.minutosAte(data, h.hora, fuso) }));
+    .map((h) => ({ hora: h.hora, faltam: agenda.minutosAte(data, h.hora, fuso) + atraso }));
 
   const comecadas = slots.filter((s) => s.faltam <= 0);
   if (comecadas.length) {
@@ -192,7 +200,7 @@ function horaDaChegada(data, fuso) {
 
   const agoraHora = new Intl.DateTimeFormat('pt-BR', {
     timeZone: fuso, hour: '2-digit', minute: '2-digit', hour12: false,
-  }).format(new Date());
+  }).format(new Date(Date.now() - atraso * 60000));
   return `${agoraHora.slice(0, 2)}:00`;
 }
 
@@ -244,6 +252,9 @@ rotas.post('/buscar', comFreio(20), (req, res) => {
   res.json({
     alunos: achados.map((a) => ({
       bilhete: emitirBilhete(a.telefone),
+      // A chave vai junto para o tablet não perder a pessoa se a internet cair
+      // entre a busca e a confirmação: ela é o que entra na fila offline.
+      chave: chaveDe(a.telefone),
       nome: a.nome || 'Sem nome',
     })),
   });
@@ -383,6 +394,277 @@ rotas.post('/liberar', comFreio(8), (req, res) => {
     professor: professor ? professor.split(' ')[0] : null,
     repetida: r.repetida,
   });
+});
+
+/* ------------------------------ modo offline ----------------------------- */
+/*
+ * QUANDO A INTERNET DO ESTÚDIO CAI
+ *   O tablet continua confirmando presença: guarda a página (service worker
+ *   `sw-totem.js`), baixa de tempos em tempos um pacote com quem pode passar
+ *   por ele e a agenda dos próximos dias, e enfileira cada toque no próprio
+ *   aparelho. Quando a conexão volta, a fila chega aqui e cada item é conferido
+ *   com as MESMAS regras das rotas acima, no instante do toque.
+ *
+ * CHAVE NO LUGAR DO TELEFONE
+ *   O pacote não leva telefone. Leva os 4 últimos dígitos (que já são a busca
+ *   do tablet), o primeiro nome com a inicial do sobrenome e uma chave opaca —
+ *   HMAC do telefone com um segredo que só este servidor tem. A fila devolve a
+ *   chave e só aqui ela vira telefone de novo.
+ *
+ * O QUE O TABLET NÃO SABE OFFLINE
+ *   Os dígitos do professor. A liberação fora do horário é guardada como
+ *   pedido e conferida aqui na sincronização; dígito que não é de professor
+ *   não vira presença (fica no log). Publicar a lista de finais dos
+ *   administradores para o tablet conferir sozinho seria entregar a senha da
+ *   liberação a quem abrir o pacote.
+ *
+ * NADA DISTO TOCA O WELLHUB
+ *   Como as rotas de cima, isto só grava presença do totem. Check-in e
+ *   cobrança do Wellhub seguem pelo portal, separados.
+ */
+
+const DIR_DADOS = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const ARQ_SEGREDO = path.join(DIR_DADOS, 'totem-segredo.txt');
+const DIAS_NO_PACOTE = 7;
+const MAX_ITENS_FILA = 300;
+const IDADE_MAXIMA_ITEM_DIAS = 10;
+
+let segredoMemoria = null;
+
+/**
+ * Segredo das chaves. Fica no volume: trocar a cada deploy invalidaria as
+ * chaves que estão na fila de um tablet que ficou o dia todo sem internet.
+ */
+function segredo() {
+  if (segredoMemoria) return segredoMemoria;
+  if (process.env.TOTEM_SEGREDO) {
+    segredoMemoria = process.env.TOTEM_SEGREDO;
+    return segredoMemoria;
+  }
+  try {
+    const lido = fs.readFileSync(ARQ_SEGREDO, 'utf8').trim();
+    if (lido.length >= 32) { segredoMemoria = lido; return segredoMemoria; }
+  } catch (e) { /* ainda não existe */ }
+  segredoMemoria = crypto.randomBytes(32).toString('hex');
+  try {
+    fs.mkdirSync(DIR_DADOS, { recursive: true });
+    fs.writeFileSync(ARQ_SEGREDO, segredoMemoria, { mode: 0o600 });
+  } catch (e) {
+    console.log('[totem] não consegui gravar o segredo do modo offline:', e.message);
+  }
+  return segredoMemoria;
+}
+
+function chaveDe(telefone) {
+  return crypto.createHmac('sha256', segredo())
+    .update(String(telefone || '').replace(/\D/g, ''))
+    .digest('hex').slice(0, 24);
+}
+
+/** "Maria Souza Lima" → "Maria L." — o bastante para escolher entre homônimos. */
+function nomeCurto(nome) {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return 'Sem nome';
+  if (partes.length === 1) return partes[0];
+  return `${partes[0]} ${partes[partes.length - 1].charAt(0).toUpperCase()}.`;
+}
+
+function somarDias(data, n) {
+  const d = new Date(`${data}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Data local do estúdio em que um instante caiu. */
+function dataLocal(ms, fuso) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: fuso, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(ms));
+}
+
+/** Para o tablet saber, sem esperar timeout de busca, se há caminho até aqui. */
+rotas.get('/ping', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ ok: true, agora: new Date().toISOString() });
+});
+
+/**
+ * O que o tablet precisa para atender sem internet: alunos (final, nome curto,
+ * chave), a janela de confirmação e, para cada um dos próximos dias, os
+ * horários da grade e as chaves esperadas em cada um.
+ */
+rotas.get('/pacote', comFreio(6), (req, res) => {
+  const c = config.ler();
+  const fuso = c.estudio.fuso;
+  const inicio = agenda.hoje(fuso);
+
+  const chaves = new Map();
+  const alunos = [];
+  for (const a of store.listarAlunos()) {
+    if (a.bloqueado) continue;
+    const digitos = String(a.telefone || '').replace(/\D/g, '');
+    if (digitos.length < 8) continue;
+    const chave = chaveDe(a.telefone);
+    chaves.set(digitos.slice(-8), chave);
+    alunos.push({ c: chave, f: digitos.slice(-4), n: nomeCurto(a.nome) });
+  }
+
+  const dias = {};
+  for (let i = 0; i < DIAS_NO_PACOTE; i++) {
+    const data = somarDias(inicio, i);
+    try {
+      const lista = agenda.listaDoDia(data);
+      const horas = [];
+      const por = {};
+      for (const h of lista.horarios || []) {
+        horas.push(h.hora);
+        for (const al of h.alunos || []) {
+          const d = String(al.telefone || '').replace(/\D/g, '');
+          const chave = d.length >= 8 ? chaves.get(d.slice(-8)) : null;
+          if (!chave) continue;
+          (por[chave] = por[chave] || []).push(h.hora);
+        }
+      }
+      dias[data] = { horas, por };
+    } catch (e) {
+      // Um dia que não monta não derruba o pacote: o tablet manda a presença
+      // sem conferir a janela e a sincronização decide.
+    }
+  }
+
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    geradoEm: new Date().toISOString(),
+    fuso,
+    janela: janela(),
+    alunos,
+    dias,
+  });
+});
+
+/**
+ * Freio próprio para dígito de professor vindo da fila: sem ele, a fila seria
+ * um jeito de testar os dez mil finais em lote, fora do freio de /liberar.
+ */
+const falhasLiberacao = new Map();
+function liberacaoTravada(ip) {
+  const agora = Date.now();
+  const recentes = (falhasLiberacao.get(ip) || []).filter((t) => t > agora - 10 * 60000);
+  falhasLiberacao.set(ip, recentes);
+  return recentes.length >= 8;
+}
+function anotarFalhaLiberacao(ip) {
+  const lista = falhasLiberacao.get(ip) || [];
+  lista.push(Date.now());
+  falhasLiberacao.set(ip, lista);
+}
+
+/**
+ * A fila do tablet chegando. Cada item volta com um destino:
+ *   ok / repetida — gravado (ou já estava); o tablet apaga.
+ *   recusado      — não vira presença; o tablet apaga e o motivo fica no log.
+ *   depois        — não deu para decidir agora; o tablet tenta de novo.
+ */
+rotas.post('/sincronizar', comFreio(20), (req, res) => {
+  const itens = Array.isArray(req.body.itens) ? req.body.itens.slice(0, MAX_ITENS_FILA) : [];
+  const c = config.ler();
+  const fuso = c.estudio.fuso;
+  const ip = req.ip || 'desconhecido';
+
+  const porChave = new Map();
+  for (const a of store.listarAlunos()) porChave.set(chaveDe(a.telefone), a.telefone);
+
+  const resultados = [];
+  let novas = 0;
+  const recusa = (item, motivo, extra = {}) => {
+    console.log(`[totem] fila offline: item ${item.id || '?'} recusado — ${motivo}`
+      + (extra.nome ? ` (${extra.nome})` : ''));
+    return { id: item.id, status: 'recusado', motivo, ...extra };
+  };
+
+  for (const item of itens) {
+    try {
+      if (!item || typeof item !== 'object' || !item.id) continue;
+      const tipo = item.tipo === 'liberar' ? 'liberar' : 'confirmar';
+
+      const em = Date.parse(item.em);
+      if (!Number.isFinite(em)) { resultados.push(recusa(item, 'Horário do toque ilegível.')); continue; }
+      if (em > Date.now() + 10 * 60000) { resultados.push(recusa(item, 'Horário do toque no futuro (relógio do tablet errado).')); continue; }
+      if (em < Date.now() - IDADE_MAXIMA_ITEM_DIAS * 86400000) {
+        resultados.push(recusa(item, `Toque com mais de ${IDADE_MAXIMA_ITEM_DIAS} dias.`)); continue;
+      }
+
+      const telefone = porChave.get(String(item.chave || ''));
+      if (!telefone) { resultados.push(recusa(item, 'Cadastro não encontrado.')); continue; }
+      const aluno = store.aluno(telefone);
+      if (!aluno) { resultados.push(recusa(item, 'Cadastro não encontrado.')); continue; }
+      if (aluno.bloqueado) { resultados.push(recusa(item, 'Acesso suspenso.', { nome: aluno.nome })); continue; }
+
+      const atraso = (Date.now() - em) / 60000;
+      const data = dataLocal(em, fuso);
+      const meus = horariosDeHoje(telefone, data);
+      const horaInformada = /^\d{2}:\d{2}$/.test(String(item.hora || '')) ? String(item.hora) : null;
+
+      let registro;
+      if (tipo === 'confirmar') {
+        let alvo = horarioDeAgora(meus, data, fuso, atraso);
+        if (!alvo && horaInformada) {
+          // O tablet conferiu com a agenda que tinha guardada. Se a grade mudou
+          // desde então, vale a hora que ele mostrou para a pessoa — desde que
+          // ela ainda caia na janela do instante do toque.
+          const { antes, depois } = janela();
+          const faltam = agenda.minutosAte(data, horaInformada, fuso) + atraso;
+          if (faltam <= antes && faltam >= -depois) alvo = { hora: horaInformada, agendamentoId: null };
+        }
+        if (!alvo) { resultados.push(recusa(item, 'Fora do horário agendado.', { nome: aluno.nome })); continue; }
+        registro = store.registrarPresenca({
+          telefone, nome: aluno.nome, data, hora: alvo.hora,
+          agendamentoId: alvo.agendamentoId || null,
+          origem: 'totem', criadoEm: new Date(em).toISOString(), offline: true,
+        });
+      } else {
+        if (liberacaoTravada(ip)) {
+          resultados.push({ id: item.id, status: 'depois', motivo: 'Muitas liberações recusadas; tento mais tarde.' });
+          continue;
+        }
+        const admin = adminPorFinal(item.final);
+        if (!admin) {
+          anotarFalhaLiberacao(ip);
+          resultados.push(recusa(item, 'Dígitos do professor não conferem.', { nome: aluno.nome }));
+          continue;
+        }
+        if (mesmoTelefone(admin, telefone)) {
+          resultados.push(recusa(item, 'Professor liberando a própria presença.', { nome: aluno.nome }));
+          continue;
+        }
+        const hora = horaInformada || horaDaChegada(data, fuso, atraso);
+        const meu = meus.find((h) => h.hora === hora);
+        registro = store.registrarPresenca({
+          telefone, nome: aluno.nome, data, hora,
+          agendamentoId: meu ? meu.agendamentoId : null,
+          origem: 'totem-liberado', liberadoPor: admin,
+          criadoEm: new Date(em).toISOString(), offline: true,
+        });
+      }
+
+      if (!registro.repetida) novas++;
+      console.log(`[totem] fila offline: presença ${tipo === 'liberar' ? 'LIBERADA ' : ''}`
+        + `${registro.presenca.data} ${registro.presenca.hora} — ${aluno.nome || telefone}`
+        + `${registro.repetida ? ' (repetida)' : ''}`);
+      resultados.push({
+        id: item.id,
+        status: registro.repetida ? 'repetida' : 'ok',
+        nome: aluno.nome || null,
+        hora: registro.presenca.hora,
+      });
+    } catch (e) {
+      console.log('[totem] fila offline: erro ao processar item', item && item.id, '—', e.message);
+      resultados.push({ id: item && item.id, status: 'depois', motivo: 'Erro no servidor.' });
+    }
+  }
+
+  if (novas) gatilhos.aulaNova('totem');
+  res.json({ resultados, novas });
 });
 
 module.exports = { rotas };
