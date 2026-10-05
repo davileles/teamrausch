@@ -1,7 +1,8 @@
 /* sw-totem.js — davileles/teamrausch
  *
  * Service worker do tablet da entrada (`/totem.html`). Guarda a página, o logo
- * e as fontes para o totem abrir mesmo com a internet do estúdio fora do ar.
+ * e as fontes (`/fonts/*`, servidas pelo próprio app) para o totem abrir igual
+ * mesmo com a internet do estúdio fora do ar.
  *
  * ESCOPO SÓ DO TOTEM
  *   Registrado com `scope: '/totem.html'`: o app do aluno (`/`), a recepção e
@@ -18,8 +19,14 @@
  *   nenhum — espera poucos segundos e abre a cópia guardada.
  */
 
-const VERSAO = 'totem-v1';
-const ESSENCIAIS = ['/totem.html', '/logo.png', '/favicon.png'];
+const VERSAO = 'totem-v2';
+// As fontes moram no app (não no Google Fonts) e entram já na instalação:
+// sem elas, a cópia guardada abria com a fonte padrão do sistema.
+const ESSENCIAIS = [
+  '/totem.html', '/logo.png', '/favicon.png',
+  '/fonts/anton-latin.woff2', '/fonts/anton-latin-ext.woff2',
+  '/fonts/work-sans-latin.woff2', '/fonts/work-sans-latin-ext.woff2',
+];
 const ESPERA_REDE_MS = 4000;
 
 self.addEventListener('install', (ev) => {
@@ -93,13 +100,9 @@ self.addEventListener('fetch', (ev) => {
       ev.respondWith(paginaDoTotem(req));
       return;
     }
-    if (url.pathname === '/logo.png' || url.pathname === '/favicon.png') {
+    if (url.pathname === '/logo.png' || url.pathname === '/favicon.png'
+      || url.pathname.startsWith('/fonts/')) {
       ev.respondWith(guardadoPrimeiro(req));
     }
-    return;
-  }
-
-  if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
-    ev.respondWith(guardadoPrimeiro(req));
   }
 });
