@@ -182,6 +182,14 @@
   .faixa-troca span{display:block;font:500 13px/1.5 'Work Sans',sans-serif;color:var(--amarelo-2)}
   .faixa-troca button{margin-top:10px}
   .slot.destino{border-color:var(--amarelo)}
+  /* Semana cheia: a explicação do dia, dita uma vez em vez de em cada horário. */
+  .dia .nota-dia{grid-column:1 / -1;background:var(--superficie);border:1px solid var(--linha-2);
+    border-left:4px solid var(--amarelo);padding:11px 14px;
+    font:500 13px/1.5 'Work Sans',sans-serif;color:var(--fraco)}
+  /* Modal "qual aula sai?": uma opção por linha. */
+  .modal .corpo.troca-lista{white-space:normal}
+  .modal .corpo.troca-lista p{margin:0 0 14px}
+  .modal .corpo.troca-lista .leve{display:block;width:100%;margin-top:8px;text-align:center}
   /* O seu horário é o único em amarelo */
   .slot.meu{border-color:var(--amarelo);background:var(--amarelo-fundo)}
   .slot.meu .hora{color:var(--amarelo)}
@@ -1434,10 +1442,15 @@ let diaAberto = '';
 // Enquanto estiver preenchido, a agenda inteira vira uma escolha de destino.
 let trocando = null;
 
+// Última agenda recebida. O modal "qual aula sai?" lê daqui as aulas que a
+// pessoa pode ceder, sem ir ao servidor de novo só para montar a pergunta.
+let agendaAtual = null;
+
 async function carregarAgenda(){
   const alvo = document.getElementById('aba-agendar');
   try{
     const r = await api('/agenda');
+    agendaAtual = r;
 
     // Como funciona: regras vindas da configuração + o texto livre do estúdio.
     const guia = (r.regras && r.regras.length) || r.recado
@@ -1462,7 +1475,9 @@ async function carregarAgenda(){
       const restam = m.respeitarFrequencia && m.diasRestantesNaSemana !== null
         ? (m.diasRestantesNaSemana > 0
             ? ` · ainda dá para marcar ${m.diasRestantesNaSemana} ${m.diasRestantesNaSemana===1?'dia':'dias'} nesta semana`
-            : ' · sua semana já está completa')
+            : (r.dias.some(d=>d.semanaCheia && d.semanaCheia.trocaPor.length)
+                ? ' · sua semana já está completa: para vir em outro dia, troque uma das suas aulas'
+                : ' · sua semana já está completa'))
         : '';
       return `<div class="minha-matricula">
         <b>Sua matrícula · ${esc(freq)}</b>
@@ -1475,27 +1490,48 @@ async function carregarAgenda(){
         return `<div class="dia" data-d="${d.data}"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>
           <div class="vazio">${d.bloqueada ? 'O estúdio não abre neste dia.' : 'Sem horários neste dia.'}</div></div>`;
       }
-      return `<div class="dia" data-d="${d.data}"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>${
+      // Semana cheia: os dias da grade não fecham os outros dias. A pessoa vem
+      // neste dia cedendo uma das aulas da semana (`trocaPor`).
+      const cheia = d.semanaCheia || null;
+      const cede = cheia ? cheia.trocaPor : [];
+      // Em modo troca: a aula que está saindo é uma das que abrem lugar aqui?
+      const origemCede = Boolean(trocando) &&
+        cede.some(x=>x.data === trocando.data && x.hora === trocando.hora);
+      const nota = !trocando && cheia && cheia.aviso
+        ? `<div class="nota-dia">${esc(cheia.aviso)}</div>` : '';
+      return `<div class="dia" data-d="${d.data}"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>${nota}${
         d.horarios.map(h=>{
           const livre = h.situacao === 'aberto';
           const ehOrigem = trocando && trocando.data === d.data && trocando.hora === h.hora;
+          // Tem vaga, mas marcar aqui passaria da frequência da semana.
+          const semanaCheia = Boolean(h.exigeTroca || (livre && h.custaCredito));
+          // Destino de troca: horário livre ou de semana cheia — neste último,
+          // só quando a aula que sai é da mesma semana e abre o lugar.
+          const destino = Boolean(trocando) && !ehOrigem &&
+            (semanaCheia ? origemCede : livre);
 
           // Em modo troca a agenda tem uma pergunta só: para onde? Todo horário
-          // livre vira destino, e a aula que está saindo oferece desistir.
+          // com vaga vira destino, e a aula que está saindo oferece desistir.
           const direita = trocando
             ? (ehOrigem
                 ? `<button class="leve troca-cancelar">Desistir</button>`
-                : livre
+                : destino
                   ? `<button class="leve troca-para" data-data="${d.data}" data-hora="${h.hora}">Trocar para cá</button>`
-                  : `<span class="selo ${h.situacao==='meu'?'meu':h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`)
+                  : semanaCheia
+                    ? `<span class="selo">Semana cheia</span>`
+                    : `<span class="selo ${h.situacao==='meu'?'meu':h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`)
             // Aula da matrícula não tem agendamento para cancelar: desmarcar
             // manda data e hora, e o servidor grava a exceção do dia.
             : livre
               ? `<button class="leve reservar" data-data="${d.data}" data-hora="${h.hora}">Reservar</button>`
               : h.situacao === 'meu'
                 ? acoesDoMeuSlot(d.data, h)
-                : `<span class="selo ${h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`;
-          return `<div class="slot ${h.situacao==='meu'?'meu':''} ${trocando&&livre&&!ehOrigem?'destino':''} ${livre||h.situacao==='meu'?'':'indisponivel'}">
+                // Semana cheia com aula para ceder: o horário aceita a pessoa,
+                // desde que ela diga qual aula sai no lugar.
+                : h.exigeTroca
+                  ? `<button class="leve troca-escolher" data-data="${d.data}" data-hora="${h.hora}">Trocar para cá</button>`
+                  : `<span class="selo ${h.situacao==='lotado'?'cheio':''}">${SELO[h.situacao]||''}</span>`;
+          return `<div class="slot ${h.situacao==='meu'?'meu':''} ${destino?'destino':''} ${livre||h.situacao==='meu'||(h.exigeTroca&&(!trocando||destino))?'':'indisponivel'}">
             <div class="hora">${h.hora}</div>
             <div class="vagas">${marcas(h.ocupadas,h.capacidade)}
               <div class="conta">${h.vagas>0?`${h.vagas} de ${h.capacidade} livres`:`${h.capacidade} lugares ocupados`}</div>
@@ -1548,6 +1584,60 @@ async function carregarAgenda(){
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
 
+/**
+ * "Qual aula sai?" — a pessoa tocou num horário de um dia fora da grade dela,
+ * numa semana que já tem todos os dias da matrícula. O dia novo não entra por
+ * cima: entra no lugar de uma das aulas da semana, e é ela quem escolhe qual.
+ * A troca vai num pedido só; se o destino não der, nada muda.
+ */
+function escolherAulaQueSai(data, hora){
+  if (document.querySelector('.fundo-modal')) return;
+  // "na quinta", "no sábado": o nome do dia como se fala.
+  const noDia = (n)=> (/^(s[áa]bado|domingo)/i.test(n||'') ? 'no ' : 'na ') + String(n||'').toLowerCase();
+  const d = agendaAtual && agendaAtual.dias.find(x=>x.data === data);
+  const cheia = d && d.semanaCheia;
+  if (!cheia || !cheia.trocaPor.length) return;
+
+  const fundo = document.createElement('div');
+  fundo.className = 'fundo-modal';
+  fundo.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="troca-titulo">
+      <div class="topo" id="troca-titulo">Trocar para cá</div>
+      <div class="corpo troca-lista">
+        <p>Sua matrícula é de ${cheia.frequencia}x por semana e esta semana já está completa.
+          Para vir ${esc(noDia(d.dia))} (${esc(d.porExtenso)}) às <b>${esc(hora)}</b>,
+          escolha qual aula sai no lugar:</p>
+        ${cheia.trocaPor.map((x,k)=>
+          `<button class="leve troca-opcao" data-k="${k}">${esc(x.dia)} · ${esc(x.porExtenso)} · ${esc(x.hora)}</button>`).join('')}
+      </div>
+      <div class="pe"><button class="leve" id="troca-desistir" style="width:100%">Desistir</button></div>
+    </div>`;
+
+  const fechar = ()=>{ fundo.remove(); document.removeEventListener('keydown', tecla); };
+  function tecla(e){ if (e.key === 'Escape') fechar(); }
+  document.addEventListener('keydown', tecla);
+  fundo.addEventListener('click', async e=>{
+    if (e.target === fundo || e.target.closest('#troca-desistir')) return fechar();
+    const op = e.target.closest('button.troca-opcao');
+    if (!op) return;
+    const de = cheia.trocaPor[Number(op.dataset.k)];
+    fundo.querySelectorAll('button').forEach(b=>{ b.disabled = true; });
+    op.textContent = '…';
+    try{
+      await api('/agenda/trocar', {method:'POST', body:JSON.stringify({
+        de: { data: de.data, hora: de.hora },
+        para: { data, hora },
+      })});
+      diaAberto = data;
+      avisar(`Aula de ${String(de.dia||'').toLowerCase()} trocada para ${String(d.dia||'').toLowerCase()} às ${hora}.`, 'ok');
+    }catch(err){ avisar(err.message, 'erro'); }
+    fechar();
+    redesenhar();
+  });
+
+  document.body.appendChild(fundo);
+}
+
 document.body.addEventListener('click', async e=>{
   const res = e.target.closest('button.reservar');
   const can = e.target.closest('button.cancelar');
@@ -1555,6 +1645,9 @@ document.body.addEventListener('click', async e=>{
   const ini = e.target.closest('button.troca-iniciar');
   const par = e.target.closest('button.troca-para');
   const sai = e.target.closest('button.troca-cancelar');
+
+  const escolher = e.target.closest('button.troca-escolher');
+  if (escolher){ escolherAulaQueSai(escolher.dataset.data, escolher.dataset.hora); return; }
 
   const daqui = e.target.closest('button.troca-daqui');
   if (ini || daqui){

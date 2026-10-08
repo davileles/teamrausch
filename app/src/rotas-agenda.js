@@ -840,6 +840,12 @@ function regrasEmTexto(matricula) {
 
   if (frequencia > 0 && a.respeitarFrequencia !== false) {
     linhas.push(`Sua matrícula é de ${frequencia}x por semana: esse é o total de dias que dá para marcar.`);
+    // Os dias da grade são o combinado de rotina, não uma cerca: dá para vir
+    // em outro dia, cedendo uma das aulas da mesma semana.
+    if (a.permitirCancelar) {
+      linhas.push('Quer vir num dia que não é o seu? Toque em "Trocar para cá" no horário ' +
+        'desejado e escolha qual aula da semana sai no lugar.');
+    }
   }
 
   const limite = Number(a.limitePorDia) || 0;

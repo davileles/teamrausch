@@ -157,8 +157,11 @@ function lotacao(data, hora, naGrade) {
  * Devolve também se o próprio dia já tem aula: marcar um segundo horário num
  * dia que já conta não gasta uma nova ida da semana — quem cuida disso é o
  * `limitePorDia`.
+ *
+ * `ignorar` ({ data, hora }) é a aula que está saindo numa troca: a semana é
+ * contada como se ela já não existisse, que é como vai ficar depois da troca.
  */
-function semanaDaMatricula(matricula, telefone, data) {
+function semanaDaMatricula(matricula, telefone, data, ignorar) {
   const inicio = domingoDa(data);
   const datas = [];
   let noDia = 0;
@@ -168,6 +171,7 @@ function semanaDaMatricula(matricula, telefone, data) {
     if (telefone) {
       for (const a of store.daData(d)) if (a.telefone === telefone) horas.add(a.hora);
     }
+    if (ignorar && ignorar.data === d) horas.delete(ignorar.hora);
     if (!horas.size) continue;
     if (d === data) noDia = horas.size; else datas.push(d);
   }
@@ -276,6 +280,9 @@ function montarDia(data, telefone, minhaMatricula, saldoCreditos) {
   const estouro = estouraFrequencia(minha, telefone, data);
   const saldo = !estouro ? 0
     : (saldoCreditos === undefined ? creditosDe(minha).saldo : saldoCreditos);
+  // Semana cheia não fecha o dia: a pessoa vem, desde que ceda uma das aulas
+  // que já tem na semana. `trocaPor` é a lista do que ela pode ceder.
+  const trocaPor = estouro && !bloqueada ? aulasParaTrocar(minha, telefone, data) : [];
 
   const horarios = modelo.map((slot) => {
     const capacidade = slot.capacidade;
@@ -291,6 +298,7 @@ function montarDia(data, telefone, minhaMatricula, saldoCreditos) {
       faltam >= Number(c.agenda.minutosParaCancelar || 0);
 
     let situacao = 'aberto';
+    let exigeTroca = false;
     if (bloqueada) situacao = 'bloqueado';
     else if (meuFixo || meu) situacao = 'meu';
     else if (fechou) situacao = 'fechado';
@@ -298,10 +306,10 @@ function montarDia(data, telefone, minhaMatricula, saldoCreditos) {
     // está nele continua, quem não está não entra.
     else if (slot.foraDaAgenda) situacao = 'fechado';
     else if (ocupadas >= capacidade) situacao = 'lotado';
-    // Semana cheia e sem crédito: o horário existe e tem vaga, mas não é para
-    // esta pessoa. Deixar aberto só para recusar no clique é o beco sem saída
-    // que a tela deveria evitar.
-    else if (estouro && !saldo) situacao = 'fechado';
+    // Semana cheia e sem crédito: reservar por cima não dá, mas trocar dá. O
+    // horário sai como fechado para reserva (`exigeTroca` diz à tela que ele
+    // aceita uma troca); sem aula para ceder, fica fechado de verdade.
+    else if (estouro && !saldo) { situacao = 'fechado'; exigeTroca = trocaPor.length > 0; }
 
     // Quando a aula é sua mas não dá para mexer nela, a tela precisa dizer por
     // quê. Um selo mudo vira um beco sem saída: a pessoa acha que o app está
@@ -313,9 +321,7 @@ function montarDia(data, telefone, minhaMatricula, saldoCreditos) {
         ? 'O estúdio não abriu cancelamento e troca pelo app.'
         : `Trocar ou desmarcar só até ${emTextoDeTempo(minimo)} antes.`;
     } else if (estouro && !saldo && !bloqueada && !fechou && !slot.foraDaAgenda) {
-      motivoTravado = `Sua matrícula é de ${estouro.frequencia}x por semana e você já ` +
-        `tem ${estouro.dias} ${estouro.dias === 1 ? 'dia' : 'dias'} nesta semana. ` +
-        'Para encaixar mais uma, fale com o estúdio.';
+      motivoTravado = textoSemanaCheia(estouro, trocaPor.length > 0);
     }
 
     return {
@@ -343,16 +349,39 @@ function montarDia(data, telefone, minhaMatricula, saldoCreditos) {
       // Marcar aqui gasta um crédito de reposição. A tela precisa avisar antes
       // do clique: crédito é escasso e a pessoa escolhe onde gastar.
       custaCredito: Boolean(estouro) && situacao === 'aberto',
+      // Tem vaga, mas a semana da pessoa está cheia: ela entra aqui trocando
+      // uma das aulas de `semanaCheia.trocaPor` por este horário.
+      exigeTroca,
     };
   });
 
   return {
     data,
     rotulo: rotulo(data, fuso),
+    dia: NOME_DO_DIA[diaDaSemana(data)],
     porExtenso: porExtenso(data),
     bloqueada,
+    // Só vem preenchido quando marcar mais um dia estoura a frequência da
+    // matrícula. `aviso` é a explicação do dia inteiro, dita uma vez só em vez
+    // de repetida em cada horário.
+    semanaCheia: estouro && !bloqueada ? {
+      frequencia: estouro.frequencia,
+      dias: estouro.dias,
+      temCredito: saldo > 0,
+      trocaPor,
+      aviso: saldo > 0 ? null : textoSemanaCheia(estouro, trocaPor.length > 0),
+    } : null,
     horarios,
   };
+}
+
+/** A explicação de por que o dia não aceita reserva direta — e a saída. */
+function textoSemanaCheia(estouro, daParaTrocar) {
+  const base = `Sua matrícula é de ${estouro.frequencia}x por semana e você já tem ` +
+    `${estouro.dias} ${estouro.dias === 1 ? 'dia' : 'dias'} nesta semana.`;
+  return daParaTrocar
+    ? `${base} Para vir neste dia, troque uma das suas aulas da semana por ele.`
+    : `${base} Para encaixar mais uma, fale com o estúdio.`;
 }
 
 function montarDias(telefone) {
@@ -396,12 +425,12 @@ function minhaMatricula(telefone, data) {
  * normalmente e não gasta nada — gastar crédito numa aula que ele já tinha
  * direito seria cobrar duas vezes pela mesma coisa.
  */
-function estouraFrequencia(matricula, telefone, data) {
+function estouraFrequencia(matricula, telefone, data, ignorar) {
   const c = config.ler();
   if (!matricula || c.agenda.respeitarFrequencia === false) return null;
   const frequencia = grade.diasPorSemana(matricula);
   if (!frequencia) return null;
-  const semana = semanaDaMatricula(matricula, telefone, data);
+  const semana = semanaDaMatricula(matricula, telefone, data, ignorar);
   if (semana.noDia) return null;
 
   // A aula perdida que virou crédito continua ocupando o lugar dela na semana
@@ -419,6 +448,46 @@ function estouraFrequencia(matricula, telefone, data) {
   const dias = semana.dias + reservados.size;
   if (dias < frequencia) return null;
   return { frequencia, dias };
+}
+
+/**
+ * Aulas da semana que a pessoa pode ceder para vir neste dia.
+ *
+ * A grade da matrícula é o combinado de rotina, não uma cerca: quem treina
+ * segunda, quarta e sexta pode vir na quinta. O que a matrícula fixa é o total
+ * de idas na semana — então o dia novo entra no lugar de um dos dias dela, e
+ * não em cima deles. Esta lista é a resposta para "qual aula sai?".
+ *
+ * Só entram aulas da MESMA semana (levar a aula para outra semana é reposição,
+ * e reposição é crédito concedido pelo estúdio), que ainda dá tempo de largar
+ * e cuja saída de fato abre lugar na semana.
+ */
+function aulasParaTrocar(matricula, telefone, data) {
+  const c = config.ler();
+  if (!matricula || !c.agenda.permitirCancelar) return [];
+  const fuso = c.estudio.fuso;
+  const minimo = Number(c.agenda.minutosParaCancelar || 0);
+  const inicio = domingoDa(data);
+  const lista = [];
+  for (let i = 0; i < 7; i++) {
+    const d = somarDias(inicio, i);
+    if (d === data) continue;
+    const horas = new Set(fixosDaMatricula(matricula, d).map((x) => x.hora));
+    if (telefone) {
+      for (const a of store.daData(d)) if (a.telefone === telefone) horas.add(a.hora);
+    }
+    for (const hora of [...horas].sort()) {
+      if (minutosAte(d, hora, fuso) < minimo) continue;
+      if (estouraFrequencia(matricula, telefone, data, { data: d, hora })) continue;
+      lista.push({
+        data: d,
+        hora,
+        dia: NOME_DO_DIA[diaDaSemana(d)],
+        porExtenso: porExtenso(d),
+      });
+    }
+  }
+  return lista;
 }
 
 /**
@@ -483,9 +552,8 @@ function reservar(aluno, data, hora) {
     if (!credito) {
       return {
         ok: false,
-        motivo: `Sua matrícula é de ${estouro.frequencia}x por semana e você já tem ` +
-          `${estouro.dias} ${estouro.dias === 1 ? 'dia' : 'dias'} de aula nesta semana. ` +
-          'Para encaixar mais uma, fale com o estúdio.',
+        motivo: textoSemanaCheia(
+          estouro, aulasParaTrocar(minha, aluno.telefone, data).length > 0),
       };
     }
   }
@@ -585,8 +653,11 @@ function desmarcarFixa(aluno, data, hora) {
  * mesmo passo síncrono; se o destino não der, nada é mexido e a aula original
  * continua de pé.
  *
- * A frequência da matrícula não é checada de propósito: trocar não acrescenta
- * uma ida na semana, no máximo tira uma.
+ * A grade da matrícula não limita o destino: quem treina segunda, quarta e
+ * sexta troca a sexta pela quinta sem pedir a ninguém. O que se confere é o
+ * total de idas da semana de destino, já sem a aula que está saindo — dentro
+ * da mesma semana a troca nunca acrescenta uma ida; levada para outra semana
+ * que já está cheia, acrescentaria, e isso é reposição (crédito do estúdio).
  */
 function trocar(aluno, de, para) {
   const c = config.ler();
@@ -648,6 +719,16 @@ function trocar(aluno, de, para) {
           : `Você já tem ${limite} horários nesse dia.`,
       };
     }
+  }
+
+  // Frequência da semana de destino, contada sem a aula que sai.
+  const estouro = estouraFrequencia(minha, aluno.telefone, para.data, de);
+  if (estouro) {
+    return {
+      ok: false,
+      motivo: `Sua matrícula é de ${estouro.frequencia}x por semana e a semana desse dia ` +
+        'já está completa. Troque por uma aula da mesma semana ou fale com o estúdio.',
+    };
   }
 
   // A vaga que ele está largando conta a favor dele quando a troca é no mesmo
