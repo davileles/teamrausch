@@ -203,7 +203,6 @@ const PADRAO = {
     rankingVeteranos: 10,       // total de aulas desde sempre
     rankingPresenca: 1,         // presença em dia: 90%+ das aulas combinadas (0 desliga)
     rankingPalavra: 10,         // palavra cumprida: semanas seguidas sem faltar a aula marcada
-    rankingSexta: 1,            // sexta-feira não perdoa: treinou em todas as sextas do mês (0 desliga)
     rankingNovatos: 5,          // chegou chegando: treinos desde a chegada, só entre quem chegou há até 60 dias
     castAppId: '',
   },

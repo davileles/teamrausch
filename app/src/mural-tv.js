@@ -5,8 +5,8 @@
  *
  * O que a TV do estúdio mostra: aniversariantes do dia, conquistas batidas
  * hoje e ontem, os rankings (frequência do mês, sequência de semanas,
- * evolução, madrugadores, pontuais, presença em dia, palavra cumprida, sexta-feira
- * não perdoa e veteranos) e os avisos que
+ * evolução, madrugadores, pontuais, presença em dia, palavra cumprida
+ * e veteranos) e os avisos que
  * estiverem valendo.
  *
  * NADA É GRAVADO AQUI
@@ -224,7 +224,7 @@ const NOVATOS_DIAS = 60;
  */
 const ESCOPO = {
   'mes-anterior': 'mes', mes: 'mes', novatos: 'mes', presenca: 'mes', evolucao: 'mes',
-  madrugadores: 'mes', pontuais: 'mes', sexta: 'mes',
+  madrugadores: 'mes', pontuais: 'mes',
   sequencia: 'ano', palavra: 'ano', veteranos: 'ano',
 };
 const doMes = (data) => `Do mês · ${mesDe(data)}`;
@@ -757,63 +757,6 @@ function rankingPalavra(hoje, quantos) {
     })));
 }
 
-/* 9. Sexta-feira não perdoa: quem treinou em todas as sextas do mês */
-
-const SEXTA = 5;
-/** Menos sextas que isso e "todas" é sorte; mostra o mês anterior fechado. */
-const SEXTA_MINIMO = 2;
-const SEXTA_MAXIMO_NA_TV = 30;
-
-function sextasComEstudio(de, ate) {
-  const { abertos, horas } = diasDoEstudio(de, ate);
-  const sextas = [];
-  for (let d = de; d <= ate; d = grade.somarDias(d, 1)) {
-    if (grade.diaDaSemana(d) === SEXTA && abertos.has(d)) sextas.push(d);
-  }
-  return { sextas, horas };
-}
-
-function rankingSexta(hoje) {
-  // A sexta de hoje ainda não acabou: só entram as que já passaram.
-  let ate = grade.somarDias(hoje, -1);
-  let de = frequencia.inicioDoMes(hoje);
-  if (historico.CONTAR_DESDE && de < historico.CONTAR_DESDE) de = historico.CONTAR_DESDE;
-  let r = ate >= de ? sextasComEstudio(de, ate) : { sextas: [], horas: new Map() };
-  let fechado = false;
-  if (r.sextas.length < SEXTA_MINIMO) {
-    ate = grade.somarDias(frequencia.inicioDoMes(hoje), -1);
-    de = frequencia.inicioDoMes(ate);
-    if (historico.CONTAR_DESDE && de < historico.CONTAR_DESDE) de = historico.CONTAR_DESDE;
-    if (ate < de) return null;
-    r = sextasComEstudio(de, ate);
-    fechado = true;
-    if (r.sextas.length < SEXTA_MINIMO) return null;
-  }
-  const { sextas, horas } = r;
-  const lista = porPessoa((id) => {
-    const veio = horas.get(id);
-    if (!veio) return null;
-    const s = new Set(sextas.filter((d) => veio.has(d)));
-    return s.size ? s : null;
-  }, uniao)
-    .filter((x) => x.dado.size === sextas.length)
-    .map((x) => ({ nomeCompleto: x.nomeCompleto }))
-    .sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto, 'pt-BR'))
-    .slice(0, SEXTA_MAXIMO_NA_TV);
-  if (lista.length < MINIMO_NO_RANKING) return null;
-
-  const mes = mesDe(ate);
-  const n = sextas.length;
-  const ehSexta = grade.diaDaSemana(hoje) === SEXTA;
-  return slide('sexta', fechado ? `Ranking final · ${mes}` : doMes(ate), 'Sexta-feira não perdoa',
-    `A sexta é o dia em que mais gente some. Esta turma treinou em todas as ${n} sextas de ${mes}`
-      + (fechado ? '.' : ', até agora.')
-      + (ehSexta ? ' Hoje é sexta: vai deixar a turma te esperando?' : ' Sexta que vem tem mais.'),
-    semRepetidos(lista).map((x) => ({
-      nome: x.nome, completo: true, valor: `${n}/${n}`, unidade: 'sextas',
-    })), { semPosicao: true });
-}
-
 /* ------------------------------ diagnóstico ------------------------------- */
 
 /**
@@ -827,7 +770,7 @@ function diagnostico() {
     ranking: m.ranking, rankingSequencia: m.rankingSequencia, rankingEvolucao: m.rankingEvolucao,
     rankingMadrugadores: m.rankingMadrugadores, horaMadrugadores: m.horaMadrugadores,
     rankingVeteranos: m.rankingVeteranos, rankingPresenca: m.rankingPresenca,
-    rankingPontuais: m.rankingPontuais, rankingPalavra: m.rankingPalavra, rankingSexta: m.rankingSexta,
+    rankingPontuais: m.rankingPontuais, rankingPalavra: m.rankingPalavra,
     rankingNovatos: m.rankingNovatos,
   } };
   const tenta = (nome, fn) => { try { saida[nome] = fn(); } catch (e) { saida[nome] = { erro: e.message }; } };
@@ -881,13 +824,6 @@ function diagnostico() {
     const r = rankingNovatos(hoje, 50);
     return { diasDeCasa: NOVATOS_DIAS, novatosComTreino: r ? r.itens.length : 0 };
   });
-  tenta('sexta', () => {
-    const ate = grade.somarDias(hoje, -1);
-    const de = frequencia.inicioDoMes(hoje);
-    const sextas = ate >= de ? sextasComEstudio(de, ate).sextas.length : 0;
-    const r = rankingSexta(hoje);
-    return { sextasNoMesAteOntem: sextas, pessoasEmTodas: r ? r.itens.length : 0 };
-  });
   return saida;
 }
 
@@ -925,7 +861,6 @@ function rankings(hoje, m) {
   if (n.evolucao) tenta('evolucao', () => rankingEvolucao(hoje, n.evolucao));
   if (n.madrugadores) tenta('madrugadores', () => rankingMadrugadores(hoje, n.madrugadores, limite));
   if (n.pontuais) tenta('pontuais', () => rankingPontuais(hoje, n.pontuais));
-  if (m.rankingSexta !== false && Number(m.rankingSexta) !== 0) tenta('sexta', () => rankingSexta(hoje));
   if (n.veteranos) tenta('veteranos', () => rankingVeteranos(hoje, n.veteranos));
   return saida;
 }

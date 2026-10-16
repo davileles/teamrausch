@@ -1367,7 +1367,7 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
       mu[k] = r;
     }
     if (mu.rankingPresenca !== undefined) mu.rankingPresenca = Number(mu.rankingPresenca) ? 1 : 0;
-    if (mu.rankingSexta !== undefined) mu.rankingSexta = Number(mu.rankingSexta) ? 1 : 0;
+    delete mu.rankingSexta;
     if (mu.horaMadrugadores !== undefined) {
       const h = String(mu.horaMadrugadores || '').trim();
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(h)) {

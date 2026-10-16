@@ -5905,7 +5905,6 @@ async function carregarConfig(){
         ['c-mural-rk-nov','rankingNovatos',5,'Chegou chegando (novatos)','Treinos contados desde a chegada, só entre quem chegou ao estúdio nos últimos 60 dias. Garante lugar na TV para quem acabou de entrar.'],
         ['c-mural-rk-pre','rankingPresenca',1,'Presença em dia','Quem foi a 90% ou mais das aulas combinadas (grade fixa + reservas). Não depende de volume: quem treina 2x/semana também entra.'],
         ['c-mural-rk-pal','rankingPalavra',10,'Palavra cumprida','Semanas seguidas sem faltar a nenhuma aula marcada (grade fixa + reservas). Conta semanas, não aulas: quem treina 2x/semana disputa igual.'],
-        ['c-mural-rk-sex','rankingSexta',1,'Sexta-feira não perdoa','Quem treinou em todas as sextas do mês (o dia em que mais gente falta). Com menos de 2 sextas no mês, mostra o mês anterior.'],
         ['c-mural-rk-seq','rankingSequencia',10,'Semanas seguidas','Semanas seguidas com pelo menos 2 treinos.'],
         ['c-mural-rk-evo','rankingEvolucao',5,'Quem mais subiu','Treinos do mês contra o mesmo período do mês anterior. Aparece a partir do dia 8.'],
         ['c-mural-rk-mad','rankingMadrugadores',5,'Madrugadores','Dias do mês com treino antes do horário ao lado.'],
@@ -5915,7 +5914,7 @@ async function carregarConfig(){
       <div class="dupla">
         <div class="campo"><label for="${id}">${rot}</label>
           <select id="${id}">
-            ${((k==='rankingPresenca'||k==='rankingSexta') ? [['0','Desligado'],['1','Ligado']] : [['0','Desligado'],['5','Top 5'],['10','Top 10']]).map(([val,r])=>
+            ${(k==='rankingPresenca' ? [['0','Desligado'],['1','Ligado']] : [['0','Desligado'],['5','Top 5'],['10','Top 10']]).map(([val,r])=>
               `<option value="${val}"${String(mur[k] ?? pad)===val?' selected':''}>${r}</option>`).join('')}
           </select>
           <p class="ajuda">${aj}</p></div>
@@ -6644,7 +6643,6 @@ async function salvarConfig(){
       rankingVeteranos: n('c-mural-rk-vet'),
       rankingPresenca: n('c-mural-rk-pre'),
       rankingPalavra: n('c-mural-rk-pal'),
-      rankingSexta: n('c-mural-rk-sex'),
       rankingNovatos: n('c-mural-rk-nov'),
       castAppId: v('c-mural-cast'),
       avisos: [...document.querySelectorAll('#lista-avisos-tv .linha-tv')]
