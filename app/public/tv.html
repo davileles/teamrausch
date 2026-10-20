@@ -212,14 +212,46 @@
   var ITENS_POR_SLIDE = 8;    // conquistas: mesma régua dos rankings (duas colunas de 4)
   var ESCALA_MIN = 0.55, ESCALA_MAX = 1.35;
 
+  /* Diário da TV: cada evento do receptor vai para /tv-api/log (e para o log
+     do Railway). Serve para descobrir por que a transmissão cai — se o
+     Chromecast fecha o app, se o tablet desconecta, se a página recarrega. */
+  var INICIO = Date.now();
+  function registrar(evento, extra){
+    if (!NO_CHROMECAST) return;
+    try {
+      var corpo = JSON.stringify({ evento: evento, extra: extra == null ? null : extra,
+        segundos: Math.round((Date.now() - INICIO) / 1000) });
+      fetch('/tv-api/log', { method: 'POST', headers: { 'Content-Type': 'text/plain' },
+        body: corpo, keepalive: true, cache: 'no-store' }).catch(function(){});
+    } catch (e) {}
+  }
+
   if (NO_CHROMECAST) {
+    registrar('abriu', { ua: navigator.userAgent });
+    window.addEventListener('error', function(e){ registrar('erro', String(e && e.message || e)); });
+    window.addEventListener('pagehide', function(){ registrar('pagina-fechando'); });
+    document.addEventListener('visibilitychange', function(){ registrar('visibilidade', document.visibilityState); });
+    setInterval(function(){ registrar('vivo'); }, 5 * 60 * 1000);
+
     var s = document.createElement('script');
     s.src = 'https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js';
+    s.onerror = function(){ registrar('sdk-cast-nao-carregou'); };
     s.onload = function(){
       try {
         var ctx = cast.framework.CastReceiverContext.getInstance();
+        var T = cast.framework.system.EventType;
+        ctx.addEventListener(T.READY, function(){ registrar('pronto'); });
+        ctx.addEventListener(T.SENDER_CONNECTED, function(e){
+          registrar('tablet-conectou', { remetentes: ctx.getSenders().length }); });
+        ctx.addEventListener(T.SENDER_DISCONNECTED, function(e){
+          registrar('tablet-desconectou', { motivo: e && e.reason, remetentes: ctx.getSenders().length }); });
+        ctx.addEventListener(T.SHUTDOWN, function(){ registrar('chromecast-encerrou-app'); });
+        if (T.STANDBY_CHANGED) ctx.addEventListener(T.STANDBY_CHANGED, function(e){
+          registrar('tv-standby', e && e.isStandby); });
+        if (T.VISIBILITY_CHANGED) ctx.addEventListener(T.VISIBILITY_CHANGED, function(e){
+          registrar('tv-trocou-entrada', e && e.isVisible); });
         ctx.start({ disableIdleTimeout: true, skipPlayersLoad: true, statusText: 'Mural do estúdio' });
-      } catch (e) { console.error('cast', e); }
+      } catch (e) { console.error('cast', e); registrar('erro-start', String(e && e.message || e)); }
     };
     document.head.appendChild(s);
   }
@@ -522,7 +554,7 @@
     if (!novo || typeof novo !== 'object') return;
     // Deploy novo: recarrega a página para o desenho acompanhar o feed.
     if (novo.versao) {
-      if (versaoCarregada && novo.versao !== versaoCarregada) { location.reload(); return; }
+      if (versaoCarregada && novo.versao !== versaoCarregada) { registrar('recarregou-versao-nova'); location.reload(); return; }
       versaoCarregada = novo.versao;
     }
     var mudou = assinatura(novo) !== assinatura(feed);
@@ -583,6 +615,7 @@
       .catch(function(e){
         // Sem rede, a TV continua com o último conteúdo que tinha.
         console.error('feed', e);
+        registrar('feed-falhou', String(e && e.message || e));
         if (indice < 0) { paginas = paginar([]); mostrar(0); }
       });
   }
@@ -599,7 +632,7 @@
   window.addEventListener('resize', reajustar);
   setTimeout(reajustar, 1500);
 
-  setTimeout(function(){ location.reload(); }, RECARREGAR_A_CADA);
+  setTimeout(function(){ registrar('recarregou-6h'); location.reload(); }, RECARREGAR_A_CADA);
 })();
 </script>
 </body>
