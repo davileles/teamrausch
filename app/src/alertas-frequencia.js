@@ -250,9 +250,15 @@ async function cobrar(matriculaId, textoLivre) {
   const dias = janelaDias();
   const ate = frequencia.hojeLocal();
   const de = frequencia.inicioDoMes(ate);
+  // Conta compartilhada: cobra a fatia do aluno (datas e meta), como a aba
+  // Frequência e a ficha. Sem isso o titular era cobrado pela conta inteira
+  // contra a própria meta cheia e o dependente aparecia sempre zerado.
+  const fatia = frequencia
+    .dividirContas(matriculas.listar(), presencas.mapaPorMatricula()).get(m.id);
   const situacao = frequencia.avaliar(
-    m, presencas.datasDaMatricula(m.id), matriculas.excecoes({ de, ate, matriculaId: m.id }),
-    { dias, ate });
+    m, fatia ? fatia.datas : presencas.datasDaMatricula(m.id),
+    matriculas.excecoes({ de, ate, matriculaId: m.id }),
+    fatia ? { dias, ate, metaMes: fatia.meta, conta: fatia.conta } : { dias, ate });
 
   const texto = String(textoLivre || modeloCobranca())
     .replace(/\{\{nome\}\}/g, String(m.nome).split(' ')[0])

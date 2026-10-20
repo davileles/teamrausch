@@ -151,6 +151,9 @@ function ocupacaoReal({ dias = JANELA_PADRAO, hoje } = {}) {
   const excecoes = matriculas.excecoes({ de, ate });
   const inicioMes = frequencia.inicioDoMes(hoje);
   const checkinsMes = checkins.mapaPorMatricula({ de: inicioMes, ate: hoje });
+  // Conta compartilhada: titular e dependente mostram a fatia de cada um, com a
+  // meta da fatia — o mesmo número da aba Frequência.
+  const contas = frequencia.dividirContas(todas, checkinsMes);
 
   const alunos = [];
   for (const m of todas) {
@@ -182,10 +185,13 @@ function ocupacaoReal({ dias = JANELA_PADRAO, hoje } = {}) {
       diasSemVir: semVir,
       nivel,
     };
-    if (item.vinculo === 'wellhub' && !m.contaDe) {
+    const fatia = contas.get(m.id);
+    if (item.vinculo === 'wellhub' && (fatia || !m.contaDe)) {
       const inicioPacote = frequencia.inicioDoPacote(m, hoje);
-      item.checkinsMes = (checkinsMes.get(m.id) || []).filter((d) => d >= inicioPacote).length;
-      item.metaMes = frequencia.metaProporcional(frequencia.metaDoMes(m), inicioPacote, hoje);
+      const datas = fatia ? fatia.datas : (checkinsMes.get(m.id) || []);
+      const meta = fatia ? fatia.meta : frequencia.metaDoMes(m);
+      item.checkinsMes = datas.filter((d) => d >= inicioPacote).length;
+      item.metaMes = frequencia.metaProporcional(meta, inicioPacote, hoje);
     }
     alunos.push(item);
   }
