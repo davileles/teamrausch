@@ -250,6 +250,12 @@
           registrar('tv-standby', e && e.isStandby); });
         if (T.VISIBILITY_CHANGED) ctx.addEventListener(T.VISIBILITY_CHANGED, function(e){
           registrar('tv-trocou-entrada', e && e.isVisible); });
+        // O CAF fecha o app quando o último tablet sai "a pedido" (closed_by_peer:
+        // página do tablet recarregou, navegou ou dormiu). Com este handler o
+        // mural continua no ar; "Parar transmissão" no tablet segue funcionando.
+        if (typeof ctx.setLastSenderDisconnectedHandler === 'function') {
+          ctx.setLastSenderDisconnectedHandler(function(){ registrar('ultimo-tablet-saiu-mural-segue'); });
+        }
         ctx.start({ disableIdleTimeout: true, skipPlayersLoad: true, statusText: 'Mural do estúdio' });
       } catch (e) { console.error('cast', e); registrar('erro-start', String(e && e.message || e)); }
     };
