@@ -477,7 +477,23 @@ function repartirConta(participantes, datasDaConta = []) {
   const metaConta = Math.min(somaSemanal, TETO_SEMANAL) * SEMANAS_NO_MES;
 
   const cotas = repartir(pesos, metaConta);
-  const fatias = intercalar([...new Set(datasDaConta)], cotas);
+
+  // AS COTAS SÃO DO MÊS, ENTÃO A DIVISÃO TAMBÉM É MÊS A MÊS
+  //   O histórico inteiro chega aqui (o "último em" do relatório precisa dele).
+  //   Intercalar tudo de uma vez enchia as cotas com as datas mais antigas e
+  //   parava: da metade do segundo mês em diante, nenhum check-in da conta ia
+  //   para ninguém, e titular e dependente apareciam zerados no relatório
+  //   mesmo treinando. Cada mês recomeça com as cotas cheias, como o pacote.
+  const porMes = new Map();
+  for (const d of [...new Set(datasDaConta)].sort()) {
+    const mes = String(d).slice(0, 7);
+    if (!porMes.has(mes)) porMes.set(mes, []);
+    porMes.get(mes).push(d);
+  }
+  const fatias = participantes.map(() => []);
+  for (const datasDoMes of porMes.values()) {
+    intercalar(datasDoMes, cotas).forEach((lista, i) => fatias[i].push(...lista));
+  }
 
   const mapa = new Map();
   participantes.forEach((m, i) => {
