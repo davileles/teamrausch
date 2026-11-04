@@ -4944,7 +4944,7 @@ const MSG_MODOS = [['manual','Manual — você dispara pela tela'],
   ['programado','Programado — uma data e hora'],
   ['recorrente','Recorrente — repete sempre']];
 const MSG_GATILHOS = [['aniversario','No aniversário do aluno'],
-  ['progressao','Nos marcos do mês (1º dia útil, 25%, 50% e 75%)'],
+  ['progressao','Nos marcos do mês (25%, 50% e 75% dos dias úteis)'],
   ['dia_da_semana','Toda semana, num dia fixo'],
   ['dia_do_mes','Todo mês, num dia fixo'],
   ['diario','Todo dia']];
@@ -5044,7 +5044,7 @@ function msgResumoModelo(m){
   }
   const quando = m.gatilho === 'aniversario' ? 'no aniversário'
     : m.gatilho === 'diario' ? 'todo dia'
-    : m.gatilho === 'progressao' ? 'nos marcos do mês (1º dia útil, 25%, 50% e 75% dos úteis)'
+    : m.gatilho === 'progressao' ? 'nos marcos do mês (25%, 50% e 75% dos dias úteis)'
     : m.gatilho === 'dia_do_mes' ? `todo dia ${m.diaDoMes} do mês`
     : `toda ${msgRotulo(MSG_DIAS, m.diaDaSemana).toLowerCase()}`;
   // O intervalo é o que evita a mesma pessoa receber todo dia; mostrar no
@@ -5104,9 +5104,10 @@ function msgPainelModelos(){
           <select id="mm-dia-semana">${MSG_DIAS.map(([v,r])=>
             `<option value="${v}"${String(m.diaDaSemana||1)===v?' selected':''}>${r}</option>`).join('')}</select></div>
         <p class="ajuda" id="mm-ajuda-progressao" ${gatilho==='progressao'?'':'hidden'}>
-          Sai 4 vezes no mês: no 1º dia útil e quando o mês chega a 25%, 50% e 75% dos dias
-          úteis (seg–sex, fora feriados). Use com o público <b>Progressão do mês</b> e o
-          marcador <b>{{progresso}}</b>, que muda a frase conforme a situação de cada aluno.</p>
+          Sai 3 vezes no mês: quando o mês chega a 25%, 50% e 75% dos dias úteis (seg–sex,
+          fora feriados). Use com o público <b>Progressão do mês</b> e o marcador
+          <b>{{progresso}}</b>: quem está em dia recebe um agradecimento; quem está atrás do
+          ritmo recebe um aviso do quanto falta para recuperar.</p>
       </div>
 
       <div class="dupla">

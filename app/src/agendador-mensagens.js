@@ -128,7 +128,7 @@ function avaliar(modelo, hoje, hhmm) {
     return { disparar: true, marca: hoje };
   }
   if (modelo.gatilho === 'progressao') {
-    // Régua de comunicação do mês: 1º dia útil e 25/50/75% dos dias úteis.
+    // Régua de comunicação do mês: 25/50/75% dos dias úteis.
     if (!frequencia.marcosDeProgressao(hoje).includes(hoje)) return { disparar: false, marca: null };
     return { disparar: true, marca: hoje };
   }

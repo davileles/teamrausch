@@ -310,34 +310,29 @@ function dataCurta(iso) {
 const plural = (n, um, varios) => (Number(n) === 1 ? um : varios);
 
 /**
- * Frase do {{progresso}}: muda conforme a situação do aluno no mês. Os números
- * são os mesmos da aba Frequência (pacote, ritmo e dias corridos que faltam —
- * o check-in vale qualquer dia, inclusive fim de semana).
+ * Frase do {{progresso}}. Dois tipos só: quem está em dia (ou já fechou o
+ * pacote) recebe um agradecimento; quem está atrás do ritmo (atrasado ou
+ * crítico) recebe um aviso curto do quanto falta, para tentar recuperar.
+ * Os dias que restam são corridos: o check-in vale qualquer dia.
  */
 function frasePorSituacao(aluno) {
   const faltam = Number(aluno.faltamNoMes || 0);
   const dias = Number(aluno.diasRestantes || 0);
   const devido = Number(aluno.devidoAteHoje || 0);
-  const faltaTxt = `${plural(faltam, 'Falta', 'Faltam')} ${faltam} `
-    + `${plural(faltam, 'treino', 'treinos')} para fechar o mês e `
-    + `${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')}`;
-  const esqueceu = 'Veio e esqueceu o check-in? Dá para fazer em outro horário, até no fim de semana.';
 
-  switch (aluno.situacao) {
-    case 'quitado':
-      return 'Pacote do mês fechado — parabéns pela constância! 💪';
-    case 'em-dia':
-      if (!faltam) return 'Pacote do mês fechado — parabéns pela constância! 💪';
-      return `Você está em dia com o ritmo do mês. ${faltaTxt}. Bora manter! 💪`;
-    case 'atrasado':
-      return `Pelo ritmo, até hoje seriam ${devido} ${plural(devido, 'treino', 'treinos')}. `
-        + `${faltaTxt} — dá para recuperar tranquilo. ${esqueceu}`;
-    case 'critico':
-      return `${faltaTxt}. Vamos montar juntos um jeito de fechar o mês? Responde aqui `
-        + `que a gente ajusta os horários com você. ${esqueceu}`;
-    default:
-      return '';
+  if (aluno.situacao === 'atrasado' || aluno.situacao === 'critico') {
+    return `Pelo ritmo do mês, até hoje seriam ${devido} ${plural(devido, 'treino', 'treinos')}. `
+      + `${plural(faltam, 'Falta', 'Faltam')} ${faltam} ${plural(faltam, 'treino', 'treinos')} `
+      + `para fechar o mês e ${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')} — `
+      + 'ainda dá para recuperar! Veio e esqueceu o check-in? Dá para fazer em outro horário, '
+      + 'até no fim de semana.';
   }
+  if (aluno.situacao === 'em-dia' || aluno.situacao === 'quitado') {
+    return faltam
+      ? 'Você está dentro do ritmo do mês — obrigado pela constância! Bora manter! 💪'
+      : 'Pacote do mês fechado — obrigado pela constância! 💪';
+  }
+  return '';
 }
 
 function preencher(texto, aluno, extras = {}) {
@@ -400,7 +395,7 @@ const MARCADORES = [
   { chave: 'diasSemTreinar', descricao: 'Há quantos dias não aparece', exemplo: '9' },
   { chave: 'ultimoTreino', descricao: 'Data do último treino — "18/08"', exemplo: '18/08' },
   { chave: 'treinosAteHoje', descricao: 'Quantos treinos o ritmo do mês pedia até hoje', exemplo: '5' },
-  { chave: 'progresso', descricao: 'Frase automática conforme a situação (em dia, atrasado, crítico, pacote fechado)', exemplo: 'Você está em dia com o ritmo do mês. Faltam 7 treinos para fechar o mês e restam 27 dias. Bora manter! 💪' },
+  { chave: 'progresso', descricao: 'Frase automática: agradecimento para quem está em dia, aviso de atraso para quem está atrás do ritmo', exemplo: 'Você está dentro do ritmo do mês — obrigado pela constância! Bora manter! 💪' },
   { chave: 'diasAteFimDoMes', descricao: 'Quantos dias ainda restam no mês', exemplo: '11' },
   { chave: 'plano', descricao: 'Wellhub ou mensalista', exemplo: 'Wellhub' },
 ];

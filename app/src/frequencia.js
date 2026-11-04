@@ -305,14 +305,15 @@ function devidoAteAgora(matricula, ate, metaOverride, inicio) {
 }
 
 /**
- * Marcos da régua de comunicação "Progressão do mês": o 1º dia útil e os dias
- * úteis em que o mês chega a 25%, 50% e 75% dos dias úteis. Devolve as datas
+ * Marcos da régua de comunicação "Progressão do mês": os dias úteis em que o
+ * mês chega a 25%, 50% e 75% dos dias úteis (o 1º dia útil fica de fora: ainda
+ * não há progresso nenhum para mostrar). Devolve as datas
  * 'AAAA-MM-DD', sem repetição e em ordem.
  *
  * POR QUE EM DIAS ÚTEIS
  *   É a mesma régua do ritmo (`uteisDoMes`): o marco nunca cai em sábado,
  *   domingo ou feriado, e a mensagem sai num dia em que o aluno pode vir.
- *   Novembro/2026 tem 19 úteis → 03, 09, 16 e 23/11.
+ *   Novembro/2026 tem 19 úteis → 09, 16 e 23/11.
  *
  * O check-in, esse sim, vale qualquer dia (o portal aceita fim de semana):
  * por isso `diasRestantes` continua contando dias corridos.
@@ -323,7 +324,7 @@ function marcosDeProgressao(data) {
   const total = cum[ultimo];
   if (!total) return [];
   const prefixo = String(data).slice(0, 8);
-  const alvos = [1, ...[0.25, 0.5, 0.75].map((f) => Math.max(1, Math.round(total * f)))];
+  const alvos = [0.25, 0.5, 0.75].map((f) => Math.max(1, Math.round(total * f)));
   const datas = new Set();
   for (const alvo of alvos) {
     for (let d = 1; d <= ultimo; d++) {
