@@ -43,6 +43,7 @@
 
 const grade = require('./grade');
 const config = require('./config');
+const feriados = require('./feriados');
 
 /**
  * DIAS ÚTEIS DO ESTÚDIO: SEGUNDA A SEXTA, FORA AS DATAS BLOQUEADAS
@@ -57,16 +58,15 @@ const config = require('./config');
  * (`cum[0]` = 0).
  */
 function uteisDoMes(data) {
-  let bloqueadas;
-  try { bloqueadas = new Set((config.ler().agenda || {}).datasBloqueadas || []); }
-  catch (_) { bloqueadas = new Set(); }
+  // Feriado nacional/de BH entra junto com as datas bloqueadas (`feriados.js`).
+  const naoConta = feriados.verificador();
   const prefixo = String(data).slice(0, 8);
   const ultimo = Number(fimDoMes(data).slice(8, 10));
   const cum = [0];
   for (let d = 1; d <= ultimo; d++) {
     const dia = `${prefixo}${String(d).padStart(2, '0')}`;
     const dow = grade.diaDaSemana(dia);
-    cum[d] = cum[d - 1] + (dow >= 1 && dow <= 5 && !bloqueadas.has(dia) ? 1 : 0);
+    cum[d] = cum[d - 1] + (dow >= 1 && dow <= 5 && !naoConta(dia) ? 1 : 0);
   }
   return cum;
 }
@@ -362,6 +362,9 @@ function aulasPrevistas(matricula, excecoes, { de, ate }) {
   const limiteHoje = agoraEmMinutos() - TOLERANCIA_MIN;
   const minhas = (excecoes || []).filter((e) => e.matriculaId === matricula.id);
   const out = [];
+  // Feriado e data bloqueada não têm aula fixa prevista: não viram falta.
+  // Aula extra marcada de propósito para o dia continua valendo.
+  const naoConta = feriados.verificador();
 
   let data = de;
   while (data <= ate) {
@@ -373,6 +376,7 @@ function aulasPrevistas(matricula, excecoes, { de, ate }) {
 
     for (const slot of grade.gradeVigente(matricula, data)) {
       if (slot.dia !== dow) continue;
+      if (naoConta(data)) continue;
       if (cancelou(slot.hora)) continue;
       if (!passou(slot.hora)) continue;
       out.push({ data, hora: slot.hora, origem: 'fixo' });
@@ -1105,7 +1109,10 @@ function panoramaDoMes({
 
   // Previsto do dia: a grade projetada, contada por pessoa e não por aula.
   const cumUteis = uteisDoMes(fim);
+  const naoConta = feriados.verificador();
   for (const linha of dias) {
+    // Feriado / data bloqueada: ninguém é esperado pela grade fixa.
+    const fechado = naoConta(linha.data);
     const doDia = excecoes.filter((e) => e.data === linha.data);
     const cancelou = (id, hora) => doDia.some((e) =>
       e.tipo === 'cancelou' && e.matriculaId === id && (!e.hora || e.hora === hora));
@@ -1113,7 +1120,7 @@ function panoramaDoMes({
     const pessoas = new Set();
     for (const m of naGrade) {
       for (const s of gradeParaVolume(m, linha.data, estreia.get(m.id))) {
-        if (s.dia !== linha.diaDaSemana || cancelou(m.id, s.hora)) continue;
+        if (fechado || s.dia !== linha.diaDaSemana || cancelou(m.id, s.hora)) continue;
         pessoas.add(m.id);
         break;
       }
@@ -1129,7 +1136,7 @@ function panoramaDoMes({
     const todos = new Set();
     for (const m of naAgenda) {
       for (const s of gradeParaVolume(m, linha.data, estreia.get(m.id))) {
-        if (s.dia !== linha.diaDaSemana || cancelou(m.id, s.hora)) continue;
+        if (fechado || s.dia !== linha.diaDaSemana || cancelou(m.id, s.hora)) continue;
         todos.add(m.id);
         break;
       }

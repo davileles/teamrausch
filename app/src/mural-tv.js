@@ -32,6 +32,7 @@
  */
 
 const config = require('./config');
+const feriados = require('./feriados');
 const frequencia = require('./frequencia');
 const grade = require('./grade');
 const historico = require('./historico-aulas');
@@ -614,6 +615,8 @@ function diasDoEstudio(de, ate) {
   for (const dias of horas.values()) for (const d of dias.keys()) abertos.add(d);
   for (const p of agendaStore.listarPresencas({ de, ate })) abertos.add(p.data);
   for (const d of bloqueadas) abertos.delete(d);
+  // Feriado nacional/de BH também não vira falta de ninguém (`feriados.js`).
+  for (const d of [...abertos]) if (feriados.ehFeriado(d)) abertos.delete(d);
   return { abertos, horas };
 }
 

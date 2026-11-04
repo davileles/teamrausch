@@ -32,6 +32,7 @@
  */
 
 const config = require('./config');
+const feriados = require('./feriados');
 const grade = require('./grade');
 const frequencia = require('./frequencia');
 const historico = require('./historico-aulas');
@@ -98,12 +99,12 @@ function presencasPorFicha(fichas, { de, ate } = {}) {
   return mapa;
 }
 
-/** Dias em que o estúdio funcionou: alguém registrou presença e a data não está bloqueada. */
+/** Dias em que o estúdio funcionou: alguém registrou presença e a data não é feriado nem está bloqueada. */
 function diasAbertos(presencas, { de, ate }) {
-  const bloqueadas = new Set((config.ler().agenda || {}).datasBloqueadas || []);
+  const naoConta = feriados.verificador();
   const abertos = new Set();
   for (const datas of presencas.values()) {
-    for (const d of datas) if (d >= de && d <= ate && !bloqueadas.has(d)) abertos.add(d);
+    for (const d of datas) if (d >= de && d <= ate && !naoConta(d)) abertos.add(d);
   }
   return abertos;
 }
