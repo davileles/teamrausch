@@ -4936,16 +4936,20 @@ const MSG_PAUSA_MAX = 18000;
 const MSG_PUBLICOS = [['atrasados','Atrasados (Wellhub)'],['criticos','Críticos (Wellhub)'],
   ['devedores','Devendo treino (atrasados + críticos)'],
   ['mensalista','Mensalistas'],['sem_app','Nunca entraram no app'],
+  ['progressao','Progressão do mês (todos os Wellhub)'],
   ['ausentes','Sumidos'],['todos','Todos os ativos'],['wellhub','Wellhub']];
 /** Públicos que só existem para aluno Wellhub, contados pelo check-in. */
-const MSG_PUBLICOS_WELLHUB = ['atrasados','criticos','devedores','ausentes'];
+const MSG_PUBLICOS_WELLHUB = ['atrasados','criticos','devedores','ausentes','progressao'];
 const MSG_MODOS = [['manual','Manual — você dispara pela tela'],
   ['programado','Programado — uma data e hora'],
   ['recorrente','Recorrente — repete sempre']];
 const MSG_GATILHOS = [['aniversario','No aniversário do aluno'],
+  ['progressao','Nos marcos do mês (1º dia útil, 25%, 50% e 75%)'],
   ['dia_da_semana','Toda semana, num dia fixo'],
   ['dia_do_mes','Todo mês, num dia fixo'],
   ['diario','Todo dia']];
+const MSG_TEXTO_PROGRESSAO = 'Oi, {{nome}}! Atualização do seu mês no TeamRausch: '
+  + '{{treinosNoMes}} de {{metaDoMes}} treinos feitos. {{progresso}}';
 const MSG_DIAS = [['0','Domingo'],['1','Segunda'],['2','Terça'],['3','Quarta'],
   ['4','Quinta'],['5','Sexta'],['6','Sábado']];
 
@@ -5040,6 +5044,7 @@ function msgResumoModelo(m){
   }
   const quando = m.gatilho === 'aniversario' ? 'no aniversário'
     : m.gatilho === 'diario' ? 'todo dia'
+    : m.gatilho === 'progressao' ? 'nos marcos do mês (1º dia útil, 25%, 50% e 75% dos úteis)'
     : m.gatilho === 'dia_do_mes' ? `todo dia ${m.diaDoMes} do mês`
     : `toda ${msgRotulo(MSG_DIAS, m.diaDaSemana).toLowerCase()}`;
   // O intervalo é o que evita a mesma pessoa receber todo dia; mostrar no
@@ -5098,6 +5103,10 @@ function msgPainelModelos(){
           <label for="mm-dia-semana">Dia da semana</label>
           <select id="mm-dia-semana">${MSG_DIAS.map(([v,r])=>
             `<option value="${v}"${String(m.diaDaSemana||1)===v?' selected':''}>${r}</option>`).join('')}</select></div>
+        <p class="ajuda" id="mm-ajuda-progressao" ${gatilho==='progressao'?'':'hidden'}>
+          Sai 4 vezes no mês: no 1º dia útil e quando o mês chega a 25%, 50% e 75% dos dias
+          úteis (seg–sex, fora feriados). Use com o público <b>Progressão do mês</b> e o
+          marcador <b>{{progresso}}</b>, que muda a frase conforme a situação de cada aluno.</p>
       </div>
 
       <div class="dupla">
@@ -5168,6 +5177,18 @@ function msgAtualizarForm(){
   const ds = document.getElementById('mm-campo-dia-semana');
   if (dm) dm.hidden = gatilho !== 'dia_do_mes';
   if (ds) ds.hidden = gatilho !== 'dia_da_semana';
+  const ap = document.getElementById('mm-ajuda-progressao');
+  if (ap) ap.hidden = gatilho !== 'progressao';
+  // Régua de progressão: já deixa público e texto prontos, sem sobrescrever o
+  // que você tiver escrito.
+  if (modo === 'recorrente' && gatilho === 'progressao') {
+    const pub = document.getElementById('mm-publico');
+    if (pub && pub.value === 'todos') pub.value = 'progressao';
+    const ta = document.getElementById('mm-texto');
+    if (ta && !ta.value.trim()) ta.value = MSG_TEXTO_PROGRESSAO;
+    const nm = document.getElementById('mm-nome');
+    if (nm && !nm.value.trim()) nm.value = 'Progressão do mês';
+  }
 }
 
 /**

@@ -36,9 +36,9 @@ const MODOS = ['manual', 'programado', 'recorrente'];
  *  cada grupo poder receber um tom diferente. `devedores` continua existindo
  *  porque há modelos salvos apontando para ele. */
 const PUBLICOS = ['todos', 'wellhub', 'mensalista', 'devedores', 'criticos', 'atrasados',
-  'ausentes', 'sem_app'];
+  'ausentes', 'sem_app', 'progressao'];
 /** Só para modo `recorrente`. */
-const GATILHOS = ['aniversario', 'dia_do_mes', 'dia_da_semana', 'diario'];
+const GATILHOS = ['aniversario', 'dia_do_mes', 'dia_da_semana', 'diario', 'progressao'];
 
 let dados = { modelos: [], historico: [] };
 

@@ -127,6 +127,11 @@ function avaliar(modelo, hoje, hhmm) {
     if (grade.diaDaSemana(hoje) !== Number(modelo.diaDaSemana)) return { disparar: false, marca: null };
     return { disparar: true, marca: hoje };
   }
+  if (modelo.gatilho === 'progressao') {
+    // Régua de comunicação do mês: 1º dia útil e 25/50/75% dos dias úteis.
+    if (!frequencia.marcosDeProgressao(hoje).includes(hoje)) return { disparar: false, marca: null };
+    return { disparar: true, marca: hoje };
+  }
   if (modelo.gatilho === 'aniversario') {
     // Roda todo dia; quem filtra é a lista de destinatários. Se ninguém faz
     // aniversário hoje, o lote sai vazio e a marca do dia é gravada mesmo
