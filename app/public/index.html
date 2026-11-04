@@ -1488,7 +1488,7 @@ async function carregarAgenda(){
     const dias = r.dias.map(d=>{
       if (d.bloqueada || !d.horarios.length){
         return `<div class="dia" data-d="${d.data}"><div class="titulo"><b>${d.rotulo}</b><span>${d.porExtenso}</span></div>
-          <div class="vazio">${d.bloqueada ? 'O estúdio não abre neste dia.' : 'Sem horários neste dia.'}</div></div>`;
+          <div class="vazio">${d.bloqueada ? (d.feriado ? `Feriado (${esc(d.feriado)}): o estúdio não abre.` : 'O estúdio não abre neste dia.') : 'Sem horários neste dia.'}</div></div>`;
       }
       // Semana cheia: os dias da grade não fecham os outros dias. A pessoa vem
       // neste dia cedendo uma das aulas da semana (`trocaPor`).

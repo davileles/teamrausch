@@ -1,6 +1,7 @@
 'use strict';
 
 const config = require('./config');
+const feriados = require('./feriados');
 const store = require('./agenda-store');
 const matriculas = require('./matriculas-store');
 const grade = require('./grade');
@@ -82,8 +83,9 @@ function fixosDoDia(data) {
   const c = config.ler();
   // Dia em que o estúdio não abre não tem aula fixa. Sem esta linha o feriado
   // bloqueava a agenda para quem quisesse marcar e ainda assim listava treze
-  // alunos na Grade do dia, com a sala fechada.
-  if ((c.agenda.datasBloqueadas || []).includes(data)) return mapa;
+  // alunos na Grade do dia, com a sala fechada. Feriado nacional/de BH fecha
+  // sozinho (`feriados.js`), sem precisar cadastrar.
+  if (feriados.naoConta(data)) return mapa;
   if (c.agenda.contarMatriculasNaLotacao === false) return mapa;
   const excecoes = matriculas.excecoes({ de: data, ate: data });
   for (const item of grade.agendaDoDia(matriculas.listar(), data, excecoes)) {
@@ -233,7 +235,8 @@ function janelaDe(matricula) {
 function montarDia(data, telefone, minhaMatricula, saldoCreditos) {
   const c = config.ler();
   const fuso = c.estudio.fuso;
-  const bloqueada = (c.agenda.datasBloqueadas || []).includes(data);
+  const bloqueada = feriados.naoConta(data);
+  const feriado = feriados.feriado(data);
   const padrao = Number(c.agenda.capacidadePadrao) || 0;
   const modelo = (c.agenda.horarios[diaDaSemana(data)] || []).map((s) => ({
     hora: s.hora,
@@ -361,6 +364,7 @@ function montarDia(data, telefone, minhaMatricula, saldoCreditos) {
     dia: NOME_DO_DIA[diaDaSemana(data)],
     porExtenso: porExtenso(data),
     bloqueada,
+    feriado,
     // Só vem preenchido quando marcar mais um dia estoura a frequência da
     // matrícula. `aviso` é a explicação do dia inteiro, dita uma vez só em vez
     // de repetida em cada horário.
@@ -509,8 +513,9 @@ function reservar(aluno, data, hora) {
   if (!datasAbertas(janelaDe(minha)).includes(data)) {
     return { ok: false, motivo: 'Esse dia não está aberto para agendamento.' };
   }
-  if ((c.agenda.datasBloqueadas || []).includes(data)) {
-    return { ok: false, motivo: 'O estúdio não abre nesse dia.' };
+  if (feriados.naoConta(data)) {
+    const f = feriados.feriado(data);
+    return { ok: false, motivo: f ? `O estúdio não abre nesse dia (feriado: ${f}).` : 'O estúdio não abre nesse dia.' };
   }
 
   const slot = (c.agenda.horarios[diaDaSemana(data)] || []).find((s) => s.hora === hora);
@@ -689,8 +694,9 @@ function trocar(aluno, de, para) {
   if (!datasAbertas(janelaDe(minha)).includes(para.data)) {
     return { ok: false, motivo: 'Esse dia não está aberto para agendamento.' };
   }
-  if ((c.agenda.datasBloqueadas || []).includes(para.data)) {
-    return { ok: false, motivo: 'O estúdio não abre nesse dia.' };
+  if (feriados.naoConta(para.data)) {
+    const f = feriados.feriado(para.data);
+    return { ok: false, motivo: f ? `O estúdio não abre nesse dia (feriado: ${f}).` : 'O estúdio não abre nesse dia.' };
   }
   const slot = (c.agenda.horarios[diaDaSemana(para.data)] || [])
     .find((s) => s.hora === para.hora);

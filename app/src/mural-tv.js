@@ -870,6 +870,53 @@ function rankings(hoje, m) {
 
 /* --------------------------------- avisos -------------------------------- */
 
+const DIAS_CHAVE = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+const DIA_NOME = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+const MES_NOME = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho',
+  'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+/** Quantos dias antes o aviso de feriado entra no mural (o dia inclusive). */
+const AVISO_FERIADO_DIAS = 7;
+
+function temAulaNaGrade(data, c) {
+  const chave = DIAS_CHAVE[grade.diaDaSemana(data)];
+  return (((c.agenda || {}).horarios || {})[chave] || []).length > 0;
+}
+
+function quandoPorExtenso(data, hoje) {
+  const [, m, d] = data.split('-').map(Number);
+  const nome = `${DIA_NOME[grade.diaDaSemana(data)]}, ${d} de ${MES_NOME[m - 1]}`;
+  if (data === hoje) return `Hoje, ${nome}`;
+  if (data === grade.somarDias(hoje, 1)) return `Amanhã, ${nome}`;
+  return nome.charAt(0).toUpperCase() + nome.slice(1);
+}
+
+/**
+ * Feriados dos próximos dias que caem em dia de aula viram aviso na TV:
+ * o estúdio não abre e as aulas voltam no próximo dia aberto.
+ */
+function avisosDeFeriado(hoje, c) {
+  const naoConta = feriados.verificador();
+  const saida = [];
+  const ate = grade.somarDias(hoje, AVISO_FERIADO_DIAS);
+  for (const { data, nome } of feriados.entre(hoje, ate)) {
+    if (!temAulaNaGrade(data, c)) continue;          // feriado no domingo: nada a avisar
+    let volta = grade.somarDias(data, 1);
+    for (let i = 0; i < 14 && (naoConta(volta) || !temAulaNaGrade(volta, c)); i++) {
+      volta = grade.somarDias(volta, 1);
+    }
+    const nomeLimpo = nome.replace(/\s*\(BH\)$/, '');
+    const [, mv, dv] = volta.split('-').map(Number);
+    const voltaTxt = volta === grade.somarDias(hoje, 1) ? 'amanhã'
+      : `${DIA_NOME[grade.diaDaSemana(volta)]}, ${dv} de ${MES_NOME[mv - 1]}`;
+    saida.push({
+      rotulo: 'Feriado',
+      titulo: nomeLimpo,
+      texto: `${quandoPorExtenso(data, hoje)}, o estúdio não abre.\nAs aulas voltam ${voltaTxt}.`,
+    });
+  }
+  return saida;
+}
+
 function avisosAtivos(hoje) {
   const c = config.ler();
   const lista = [];
@@ -879,6 +926,9 @@ function avisosAtivos(hoje) {
   const destaque = String((c.estudio || {}).alerta || '').trim();
   const destaqueAte = String((c.estudio || {}).alertaAte || '').trim();
   if (destaque && (!destaqueAte || hoje <= destaqueAte)) lista.push({ texto: destaque });
+
+  // Feriado (nacional ou de BH) chegando: aviso automático, sem cadastrar.
+  for (const a of avisosDeFeriado(hoje, c)) lista.push(a);
 
   for (const a of (cfg().avisos || [])) {
     const texto = String(a.texto || '').trim();
@@ -930,7 +980,10 @@ function montar() {
     slides.push({ tipo: 'conquistas', itens: conq.slice(i, i + POR_SLIDE_CONQUISTAS) });
   }
   for (const r of intercalar(ranks)) slides.push(r);
-  for (const a of avisos) slides.push({ tipo: 'aviso', texto: a.texto });
+  for (const a of avisos) {
+    slides.push({ tipo: 'aviso', texto: a.texto, ...(a.titulo ? { titulo: a.titulo } : {}),
+      ...(a.rotulo ? { rotulo: a.rotulo } : {}) });
+  }
 
   const segundos = Number(m.segundosPorSlide);
   return {
