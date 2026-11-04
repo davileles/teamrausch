@@ -319,9 +319,11 @@ function frasePorSituacao(aluno) {
   const faltam = Number(aluno.faltamNoMes || 0);
   const dias = Number(aluno.diasRestantes || 0);
   const devido = Number(aluno.devidoAteHoje || 0);
+  const atraso = Number(aluno.atrasoNoRitmo || 0);
 
   if (aluno.situacao === 'atrasado' || aluno.situacao === 'critico') {
-    return `Pelo ritmo do mês, até hoje seriam ${devido} ${plural(devido, 'treino', 'treinos')}. `
+    return `Pelo ritmo do mês, até hoje seriam ${devido} ${plural(devido, 'treino', 'treinos')}`
+      + (atraso ? ` — você está ${atraso} ${plural(atraso, 'treino', 'treinos')} atrás. ` : '. ')
       + `${plural(faltam, 'Falta', 'Faltam')} ${faltam} ${plural(faltam, 'treino', 'treinos')} `
       + `para fechar o mês e ${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')} — `
       + 'ainda dá para recuperar! Veio e esqueceu o check-in? Dá para fazer em outro horário, '
