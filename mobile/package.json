@@ -6,7 +6,7 @@
   "scripts": {
     "montar": "node montar.mjs",
     "sync": "node montar.mjs && cap sync",
-    "icones": "node icones.mjs && capacitor-assets generate --iconBackgroundColor '#0E0F11' --iconBackgroundColorDark '#0E0F11' --splashBackgroundColor '#0E0F11' --splashBackgroundColorDark '#0E0F11'"
+    "icones": "node icones.mjs && capacitor-assets generate --iconBackgroundColor '#D6DAE0' --iconBackgroundColorDark '#D6DAE0' --splashBackgroundColor '#0E0F11' --splashBackgroundColorDark '#0E0F11'"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
