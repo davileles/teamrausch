@@ -57,11 +57,16 @@
 #tr-offline.on { transform: none; }
 
 /* ── Barra de abas com cara de app ─────────────────────────────────────────
-   Ícone em cima, rótulo menor embaixo, fundo translúcido. Os ícones são
-   desenhos de traço próprios (máscara SVG), na cor do texto da aba. */
+   Ícone em cima, rótulo menor embaixo, fundo sólido. Os ícones são
+   desenhos de traço próprios (máscara SVG), na cor do texto da aba.
+   NÃO usar backdrop-filter aqui: no WebView (iPhone principalmente) a barra
+   fixa com desfoque perde o conteúdo durante a rolagem — os ícones e rótulos
+   somem e sobra só o fundo (branco no tema claro). Fundo sólido + camada
+   própria (translateZ) mantém a barra desenhada enquanto a página rola. */
 .app-nativo nav#abas {
-  background: color-mix(in srgb, var(--preto-2) 86%, transparent);
-  -webkit-backdrop-filter: saturate(160%) blur(14px); backdrop-filter: saturate(160%) blur(14px);
+  background: var(--preto-2);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  -webkit-transform: translateZ(0); transform: translateZ(0);
 }
 .app-nativo nav#abas button {
   display: flex; flex-direction: column; align-items: center; gap: 4px;
