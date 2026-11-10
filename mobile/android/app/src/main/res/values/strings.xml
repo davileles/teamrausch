@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Team Rausch</string>
+    <string name="title_activity_main">Team Rausch</string>
+    <string name="package_name">br.com.teamrausch.app</string>
+    <string name="custom_url_scheme">br.com.teamrausch.app</string>
+</resources>

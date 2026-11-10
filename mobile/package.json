@@ -1,0 +1,28 @@
+{
+  "name": "teamrausch-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App nativo (Android/iOS) do Team Rausch Studio. Capacitor sobre o app/public/index.html do sistema do estúdio.",
+  "scripts": {
+    "montar": "node montar.mjs",
+    "sync": "node montar.mjs && cap sync",
+    "icones": "node icones.mjs && capacitor-assets generate --iconBackgroundColor '#0E0F11' --iconBackgroundColorDark '#0E0F11' --splashBackgroundColor '#0E0F11' --splashBackgroundColorDark '#0E0F11'"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.6.0",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/share": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.0",
+    "sharp": "^0.35.5"
+  }
+}

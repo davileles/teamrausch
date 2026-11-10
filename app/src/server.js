@@ -29,6 +29,25 @@ const TOKEN_PAINEL = process.env.PANEL_TOKEN || '';
 const TOKEN_CATRACA = process.env.DEVICE_TOKEN || '';
 const ACEITAR_SEM_ASSINATURA = String(process.env.ACEITAR_SEM_ASSINATURA || 'false') === 'true';
 
+// App Android/iOS (pasta mobile/): as telas rodam empacotadas dentro do app,
+// na origem capacitor://localhost (iPhone) ou https://localhost (Android), e
+// chamam /agenda-api aqui. Só essas origens são liberadas, e só nessa rota. A
+// sessão vai no cabeçalho Authorization (sem cookie), então não há credencial
+// de navegador em jogo.
+const ORIGENS_APP = new Set(['capacitor://localhost', 'https://localhost', 'http://localhost', 'ionic://localhost']);
+app.use('/agenda-api', (req, res, next) => {
+  const origem = req.headers.origin;
+  if (origem && ORIGENS_APP.has(origem)) {
+    res.setHeader('Access-Control-Allow-Origin', origem);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Anexo-Nome, X-Anexo-Tipo');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use(express.json({
   limit: '256kb',
   verify: (req, _res, buf) => { req.corpoBruto = buf; },

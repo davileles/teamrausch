@@ -1,0 +1,57 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   nativo.css — ajustes do sistema quando ele roda dentro do app (Android/iOS).
+   Só vale com a classe .app-nativo no <html> (posta pelo nativo.js), então
+   não muda nada no site app.teamrausch.com.br.
+
+   O index.html já respeita a área segura (env(safe-area-inset-*)). Aqui só
+   entra o que falta: a tela de entrada e as janelas, e o valor que o
+   Capacitor injeta no Android antigo (--safe-area-inset-*), onde env() vem 0.
+   ════════════════════════════════════════════════════════════════════════════ */
+:root.app-nativo {
+  --tr-sat: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --tr-sab: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* Cabeçalho preto cresce para baixo do relógio/entalhe; abas acima da barra de gestos. */
+.app-nativo header { padding-top: var(--tr-sat) !important; }
+.app-nativo nav#abas { padding-bottom: var(--tr-sab) !important; }
+.app-nativo .env { padding-bottom: calc(104px + var(--tr-sab)) !important; }
+.app-nativo .aviso { bottom: calc(84px + var(--tr-sab)) !important; }
+.app-nativo #btn-salvar { bottom: calc(62px + var(--tr-sab)) !important; }
+
+/* Tela de entrada: nada embaixo do relógio nem da barra de gestos. */
+.app-nativo .entrada {
+  padding-top: calc(44px + var(--tr-sat));
+  padding-bottom: calc(44px + var(--tr-sab));
+}
+@media (max-height: 480px) and (orientation: landscape) {
+  .app-nativo .entrada {
+    padding-top: calc(22px + var(--tr-sat));
+    padding-bottom: calc(22px + var(--tr-sab));
+  }
+}
+
+/* Janelas */
+.app-nativo .fundo-modal {
+  padding-top: calc(22px + var(--tr-sat));
+  padding-bottom: calc(22px + var(--tr-sab));
+}
+
+/* Coisas de navegador que não fazem sentido no app. */
+.app-nativo * { -webkit-touch-callout: none; }
+.app-nativo input, .app-nativo textarea, .app-nativo [contenteditable] { -webkit-touch-callout: default; }
+
+/* Aviso de sem internet. */
+#tr-offline {
+  position: fixed; left: 12px; right: 12px; z-index: 100000;
+  top: calc(10px + var(--tr-sat, 0px));
+  background: #E01F26; color: #fff; border-radius: 4px;
+  padding: 10px 14px; text-align: center;
+  font: 600 13px/1.35 'Work Sans', system-ui, sans-serif;
+  box-shadow: 0 6px 18px rgba(0,0,0,.35);
+  transform: translateY(-160%); transition: transform .25s ease;
+  pointer-events: none;
+}
+#tr-offline.on { transform: none; }

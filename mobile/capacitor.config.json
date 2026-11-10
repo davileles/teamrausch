@@ -1,0 +1,26 @@
+{
+  "appId": "br.com.teamrausch.app",
+  "appName": "Team Rausch",
+  "webDir": "www",
+  "backgroundColor": "#0E0F11",
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "never",
+    "scheme": "Team Rausch",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "launchAutoHide": true,
+      "backgroundColor": "#0E0F11",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "DARK"
+    }
+  }
+}
