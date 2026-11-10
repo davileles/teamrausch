@@ -393,12 +393,14 @@ function definirAtivo(m, valor) {
 }
 
 function listar() {
+  aplicarTrocasVencidas();
   return dados.matriculas
     .slice()
     .sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
 }
 
 function porId(id) {
+  aplicarTrocasVencidas();
   return dados.matriculas.find((m) => m.id === id) || null;
 }
 
@@ -423,7 +425,97 @@ function mesmoTelefone(a, b) {
 function porTelefone(telefone) {
   const t = soDigitos(telefone);
   if (t.length < 8) return null;
+  aplicarTrocasVencidas();
   return dados.matriculas.find((m) => m.ativo && mesmoTelefone(m.telefone, t)) || null;
+}
+
+/* ----------------------- troca de horário fixo ---------------------------- */
+
+/**
+ * O próprio aluno troca o horário fixo pelo app ("Meus horários").
+ *
+ * A troca não vale na hora: fica guardada em `trocaDeGrade` com a data em que
+ * começa (a próxima segunda) e só vira a grade da ficha quando essa data
+ * chega. Assim a semana em curso segue como estava — a lotação de hoje, as
+ * listas de presença e a régua da semana não mudam no meio do caminho.
+ *
+ * Enquanto isso, `grade.gradeVigente` já projeta a grade nova para as datas a
+ * partir do início: a agenda da semana que vem mostra o aluno no horário novo
+ * e a lotação daquela semana já conta com ele lá.
+ *
+ *   trocaDeGrade = { grade: [{dia, hora}], aPartirDe: 'YYYY-MM-DD',
+ *                    pedidaEm: ISO, gradeAntes: [{dia, hora}] }
+ */
+function agendarTrocaDeGrade(id, gradeNova, aPartirDe) {
+  const m = dados.matriculas.find((x) => x.id === id);
+  if (!m) return { ok: false, motivo: 'Matrícula não encontrada.' };
+  const g = limparGrade(gradeNova);
+  if (!g.ok) return { ok: false, motivo: g.motivo };
+  if (!g.grade.length) return { ok: false, motivo: 'Escolha pelo menos um dia e horário.' };
+  if (mesmaGrade(m.grade || [], g.grade)) {
+    // Voltar para a grade que já vale é desistir da troca agendada.
+    if (m.trocaDeGrade) {
+      delete m.trocaDeGrade;
+      m.atualizadoEm = new Date().toISOString();
+      gravar();
+      return { ok: true, matricula: m, desfeita: true };
+    }
+    return { ok: false, motivo: 'Esse já é o seu horário fixo.' };
+  }
+  m.trocaDeGrade = {
+    grade: g.grade,
+    aPartirDe,
+    pedidaEm: new Date().toISOString(),
+    gradeAntes: (m.grade || []).map((s) => ({ dia: s.dia, hora: s.hora })),
+  };
+  m.atualizadoEm = new Date().toISOString();
+  gravar();
+  return { ok: true, matricula: m };
+}
+
+function cancelarTrocaDeGrade(id) {
+  const m = dados.matriculas.find((x) => x.id === id);
+  if (!m || !m.trocaDeGrade) return { ok: false, motivo: 'Não há troca de horário agendada.' };
+  delete m.trocaDeGrade;
+  m.atualizadoEm = new Date().toISOString();
+  gravar();
+  return { ok: true, matricula: m };
+}
+
+/**
+ * Leva para a ficha as trocas cuja data já chegou. Chamada nas leituras
+ * (porId, porTelefone, listar) e de hora em hora: barata, e quem lê a ficha
+ * na segunda de manhã já recebe a grade nova sem depender de um relógio.
+ */
+function aplicarTrocasVencidas() {
+  const hoje = hojeNoEstudio();
+  let mudou = false;
+  for (const m of dados.matriculas) {
+    const t = m.trocaDeGrade;
+    if (!t || !t.aPartirDe || t.aPartirDe > hoje) continue;
+    const ate = grade.somarDias(t.aPartirDe, -1);
+    const desde = m.vigenteDe || (m.criadoEm ? m.criadoEm.slice(0, 10) : ate);
+    if ((m.grade || []).length && desde <= ate) {
+      m.gradeAnterior = [
+        { grade: m.grade, vigenteDe: desde, vigenteAte: ate },
+        ...(m.gradeAnterior || []),
+      ].slice(0, 12);
+    }
+    m.grade = t.grade;
+    m.vigenteDe = t.aPartirDe;
+    // Foi o próprio aluno quem escolheu: a grade nova nasce confirmada.
+    m.gradeConfirmadaEm = t.pedidaEm || new Date().toISOString();
+    m.historicoTrocasDeGrade = [
+      { de: t.gradeAntes || [], para: t.grade, aPartirDe: t.aPartirDe, pedidaEm: t.pedidaEm },
+      ...(m.historicoTrocasDeGrade || []),
+    ].slice(0, 12);
+    delete m.trocaDeGrade;
+    m.atualizadoEm = new Date().toISOString();
+    mudou = true;
+    console.log(`[matriculas] troca de horário fixo aplicada: ${m.nome} (#${m.id}) a partir de ${t.aPartirDe}`);
+  }
+  if (mudou) gravar();
+  return mudou;
 }
 
 /**
@@ -860,6 +952,9 @@ function atualizar(id, campos = {}) {
       }
       m.grade = g.grade;
       m.vigenteDe = hojeISO();
+      // A ficha do estúdio manda: horário remontado à mão desfaz a troca que o
+      // aluno tinha agendado, senão ela sobrescreveria a decisão na segunda.
+      delete m.trocaDeGrade;
     }
   }
 
@@ -1726,6 +1821,7 @@ semear()
   .then(() => marcarGradesConfirmadas())
   .catch((erro) => console.error('[matriculas] falha ao preparar a base:', erro.message));
 setInterval(() => limparAntigas(), 24 * 3600000).unref();
+setInterval(() => aplicarTrocasVencidas(), 3600000).unref();
 
 module.exports = {
   listar, porId, porTelefone, porGympassId, definirGympassId, definirTitular,
@@ -1738,5 +1834,6 @@ module.exports = {
   horaCheia,
   complementarTelefones, complementarWellhubIds, complementarInicios,
   marcarGradesConfirmadas,
+  agendarTrocaDeGrade, cancelarTrocaDeGrade, aplicarTrocasVencidas,
   VINCULOS, CICLOS,
 };

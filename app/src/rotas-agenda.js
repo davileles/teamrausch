@@ -1052,6 +1052,153 @@ rotas.post('/agenda/trocar', exigirLogin, (req, res) => {
   res.json({ ok: true });
 });
 
+/* ----------------------- trocar horário fixo ----------------------------- */
+
+/**
+ * O aluno muda a rotina de vez (ex.: seg/qua/sex → ter/qui), pelo app.
+ *
+ * Vale na hora, sem aprovação, mas só a partir da PRÓXIMA SEGUNDA: a semana em
+ * curso segue como estava. Quem ainda não tem horário fixo passa a ter já.
+ * O estúdio recebe um e-mail com o antes e o depois — inclusive quando muda a
+ * quantidade de dias, que mexe na meta do Wellhub e no combinado do mensalista.
+ */
+function proximaSegunda(hoje) {
+  const dow = grade.diaDaSemana(hoje);
+  return grade.somarDias(hoje, ((8 - dow) % 7) || 7);
+}
+
+function capacidadeDoHorario(dia, hora) {
+  const c = config.ler();
+  const padrao = Number(c.agenda.capacidadePadrao) || 0;
+  const slot = (c.agenda.horarios[config.DIAS[dia]] || []).find((s) => String(s.hora) === hora);
+  return slot ? (Number(slot.capacidade) || padrao) : padrao;
+}
+
+/**
+ * Horário novo só entra se a turma ainda tem lugar para mais um aluno fixo.
+ * Conta quem estará na turma na data em que a troca começa (a grade que vale
+ * naquela data, já com as outras trocas agendadas), sem contar o próprio aluno.
+ * Horário que o aluno já tinha não é conferido: o lugar já é dele.
+ */
+function horariosSemVaga(m, gradeNova, aPartirDe) {
+  if (config.ler().agenda.contarMatriculasNaLotacao === false) return [];
+  const jaTinha = new Set((m.grade || []).map((s) => `${s.dia}|${s.hora}`));
+  const outros = matriculas.listar().filter((x) => x.ativo && x.id !== m.id);
+  const cheios = [];
+  for (const s of gradeNova) {
+    if (jaTinha.has(`${s.dia}|${s.hora}`)) continue;
+    const capacidade = capacidadeDoHorario(s.dia, s.hora);
+    if (!capacidade) continue;
+    const fixos = outros.filter((x) => grade.gradeVigente(x, aPartirDe)
+      .some((g) => g.dia === s.dia && g.hora === s.hora)).length;
+    if (fixos >= capacidade) cheios.push(s);
+  }
+  return cheios;
+}
+
+function textoDaGrade(g) {
+  return (g || []).length ? grade.gradeEmTexto({ grade: g }) : 'sem horário fixo';
+}
+
+function dataCurtaBR(iso) {
+  const [a, mes, d] = String(iso).split('-');
+  return `${d}/${mes}/${a}`;
+}
+
+function avisarTrocaDeGrade(m, antes, depois, aPartirDe) {
+  const nAntes = new Set((antes || []).map((s) => s.dia)).size;
+  const nDepois = new Set((depois || []).map((s) => s.dia)).size;
+  const linhas = [
+    `${m.nome} trocou o horário fixo pelo app.`,
+    '',
+    `Antes: ${textoDaGrade(antes)}`,
+    `Agora: ${textoDaGrade(depois)}`,
+    `Vale a partir de: ${dataCurtaBR(aPartirDe)}`,
+  ];
+  if (nAntes !== nDepois && nAntes) {
+    linhas.push('', `Atenção: a quantidade de dias mudou de ${nAntes}x para ${nDepois}x por semana.`);
+    if (m.vinculo === 'wellhub') {
+      const meta = (n) => Math.min(n, 3) * 4;
+      linhas.push(`Meta de check-ins do Wellhub: ${meta(nAntes)} → ${meta(nDepois)} por mês.`);
+    } else if (m.vinculo === 'mensalista') {
+      linhas.push('Mensalista: confira se o plano e o valor da mensalidade continuam certos.');
+    }
+  }
+  linhas.push('', `Matrícula: ${m.nome} (#${m.id})${m.vinculo ? ` · ${m.vinculo}` : ''}`);
+  Promise.resolve()
+    .then(() => poller.enviarEmail(`🔁 Troca de horário fixo: ${m.nome}`, linhas.join('\n')))
+    .catch((e) => console.warn(`[grade] aviso de troca de horário não saiu: ${e.message}`));
+}
+
+function estadoDaGrade(m, hoje) {
+  const t = m && m.trocaDeGrade;
+  return {
+    temMatricula: Boolean(m),
+    atual: m ? (m.grade || []) : [],
+    atualEmTexto: m ? textoDaGrade(m.grade) : '',
+    troca: t ? {
+      grade: t.grade,
+      emTexto: textoDaGrade(t.grade),
+      aPartirDe: t.aPartirDe,
+      aPartirDeTexto: dataCurtaBR(t.aPartirDe),
+    } : null,
+    proximaSegunda: proximaSegunda(hoje),
+    proximaSegundaTexto: dataCurtaBR(proximaSegunda(hoje)),
+    horarios: horariosDaSemana(),
+  };
+}
+
+rotas.get('/agenda/grade', exigirLogin, (req, res) => {
+  const hoje = agenda.hoje(config.ler().estudio.fuso);
+  res.json(estadoDaGrade(matriculas.porTelefone(req.aluno.telefone), hoje));
+});
+
+rotas.post('/agenda/grade', exigirLogin, (req, res) => {
+  const hoje = agenda.hoje(config.ler().estudio.fuso);
+  const m = matriculas.porTelefone(req.aluno.telefone);
+  if (!m) return res.status(409).json({ erro: 'Não encontramos sua matrícula. Fale com o estúdio.' });
+
+  const v = validarGrade((req.body || {}).grade);
+  if (!v.ok) return res.status(400).json({ erro: v.motivo });
+
+  const antes = (m.grade || []).map((s) => ({ dia: s.dia, hora: s.hora }));
+
+  // Sem horário fixo ainda: não há semana para preservar, passa a valer já.
+  if (!antes.length) {
+    const r = matriculas.atualizar(m.id, { grade: v.grade, gradeConfirmada: true });
+    if (!r.ok) return res.status(409).json({ erro: r.motivo });
+    avisarTrocaDeGrade(m, antes, v.grade, hoje);
+    return res.json({ ok: true, imediata: true, ...estadoDaGrade(r.matricula, hoje) });
+  }
+
+  const aPartirDe = proximaSegunda(hoje);
+  const cheios = horariosSemVaga(m, v.grade, aPartirDe);
+  if (cheios.length) {
+    const quais = cheios.map((s) => `${grade.NOME_DIA[s.dia]} ${s.hora}`).join(', ');
+    return res.status(409).json({
+      erro: `Sem vaga para aluno fixo em: ${quais}. Escolha outro horário ou fale com o estúdio.`,
+    });
+  }
+
+  const r = matriculas.agendarTrocaDeGrade(m.id, v.grade, aPartirDe);
+  if (!r.ok) return res.status(409).json({ erro: r.motivo });
+  if (!r.desfeita) avisarTrocaDeGrade(m, antes, v.grade, aPartirDe);
+  res.json({ ok: true, desfeita: Boolean(r.desfeita), ...estadoDaGrade(r.matricula, hoje) });
+});
+
+rotas.post('/agenda/grade/cancelar', exigirLogin, (req, res) => {
+  const hoje = agenda.hoje(config.ler().estudio.fuso);
+  const m = matriculas.porTelefone(req.aluno.telefone);
+  if (!m) return res.status(409).json({ erro: 'Não encontramos sua matrícula.' });
+  const r = matriculas.cancelarTrocaDeGrade(m.id);
+  if (!r.ok) return res.status(409).json({ erro: r.motivo });
+  Promise.resolve()
+    .then(() => poller.enviarEmail(`↩️ Troca de horário cancelada: ${m.nome}`,
+      `${m.nome} desistiu da troca de horário fixo. Continua: ${textoDaGrade(m.grade)}.`))
+    .catch(() => {});
+  res.json({ ok: true, ...estadoDaGrade(r.matricula, hoje) });
+});
+
 /* --------------------------- administração ------------------------------- */
 
 rotas.get('/admin/dia', exigirLogin, exigirAdmin, (req, res) => {

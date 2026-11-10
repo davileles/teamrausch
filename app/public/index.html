@@ -763,6 +763,29 @@
   .entrada .grade-linha span{flex:1;font:500 14px 'Work Sans',sans-serif;color:var(--apagado)}
   .entrada .grade-linha select{flex:0 0 132px;min-height:50px}
 
+  /* Horário fixo em "Meus horários" e a janela de troca. O seletor de dias e
+     horários é o mesmo da entrada, com escopo próprio. */
+  .fixo-cartao{background:var(--superficie);border:1px solid var(--linha-2);padding:15px 16px;
+    margin-bottom:18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .fixo-cartao .quem{flex:1;min-width:180px}
+  .fixo-cartao .quem small{display:block;font:600 11px 'Work Sans',sans-serif;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--fraco);margin-bottom:4px}
+  .fixo-cartao .quem b{font:600 15px 'Work Sans',sans-serif;color:var(--texto)}
+  .fixo-cartao .agendada{flex-basis:100%;font:400 13px/1.5 'Work Sans',sans-serif;color:var(--amarelo-2);
+    border-top:1px solid var(--linha);padding-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .fixo-cartao .agendada span{flex:1;min-width:180px}
+  .modal .corpo.troca-grade{white-space:normal}
+  .troca-grade .grade-dias{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .troca-grade .grade-linha{display:flex;align-items:center;gap:10px;margin-top:10px}
+  .troca-grade .grade-linha span{flex:1;font:500 14px 'Work Sans',sans-serif;color:var(--apagado)}
+  .troca-grade .grade-linha select{flex:0 0 132px;min-height:46px}
+  .troca-grade .resumo{margin-top:14px;padding-top:12px;border-top:1px solid var(--linha);
+    font:400 13.5px/1.55 'Work Sans',sans-serif;color:var(--apagado)}
+  .troca-grade .resumo b{color:var(--texto);font-weight:600}
+  .troca-grade .resumo .alerta{color:var(--amarelo-2);display:block;margin-top:6px}
+  .modal .pe.duplo{display:flex;gap:8px}
+  .modal .pe.duplo button{flex:1}
+
   /* Telas bem estreitas (iPhone SE e similares) */
   @media (max-width:380px){
     .cab #quem-sou{display:none}
@@ -1712,11 +1735,15 @@ document.body.addEventListener('click', async e=>{
 async function carregarMeus(){
   const alvo = document.getElementById('aba-meus');
   try{
-    const r = await api('/agenda');
+    const [r, g] = await Promise.all([
+      api('/agenda'),
+      api('/agenda/grade').catch(()=>null),
+    ]);
+    gradeEstado = g;
     // Aula fixa e reserva convivem na mesma lista. O rótulo diz de onde veio,
     // e o botão muda junto: reserva cancela por id, aula fixa desmarca por dia.
     const rotulo = {fixo:'aula da sua matrícula', extra:'aula extra', reserva:'reservado'};
-    alvo.innerHTML = '<h2>Meus horários</h2>' + (r.meus.length
+    alvo.innerHTML = '<h2>Meus horários</h2>' + cartaoHorarioFixo(g) + (r.meus.length
       ? r.meus.map(a=>{
           const largar = !a.podeLargar ? ''
             : a.id
@@ -1735,6 +1762,137 @@ async function carregarMeus(){
       : '<div class="vazio">Você não tem horários reservados.</div>');
   }catch(e){ alvo.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
 }
+
+/* ------------------------ trocar horário fixo -------------------------- */
+var gradeEstado = null;
+
+function cartaoHorarioFixo(g){
+  if (!g || !g.temMatricula) return '';
+  const temFixo = (g.atual||[]).length > 0;
+  const agendada = g.troca ? `<div class="agendada">
+      <span>A partir de <b>${esc(g.troca.aPartirDeTexto)}</b> seu horário passa a ser
+        <b>${esc(g.troca.emTexto)}</b>.</span>
+      <button class="leve grade-cancelar">Desistir</button></div>` : '';
+  return `<div class="fixo-cartao">
+    <div class="quem"><small>Seu horário fixo</small>
+      <b>${esc(temFixo ? g.atualEmTexto : 'Ainda sem horário fixo')}</b></div>
+    <button class="leve grade-trocar">${temFixo ? 'Trocar horário fixo' : 'Definir horário fixo'}</button>
+    ${agendada}</div>`;
+}
+
+const NOMES_CURTOS = ['dom','seg','ter','qua','qui','sex','sáb'];
+function gradeComoTexto(lista){
+  const porHora = new Map();
+  [...lista].sort((a,b)=>a.dia-b.dia).forEach(s=>{
+    if (!porHora.has(s.hora)) porHora.set(s.hora, []);
+    porHora.get(s.hora).push(NOMES_CURTOS[s.dia]);
+  });
+  return [...porHora.entries()].map(([h,d])=>`${h} · ${d.join(', ')}`).join(' / ') || '—';
+}
+
+function abrirTrocaDeGrade(){
+  const g = gradeEstado;
+  if (!g || document.querySelector('.fundo-modal')) return;
+  const temFixo = (g.atual||[]).length > 0;
+  // Abre com o que vai valer: a troca agendada, se houver, senão a grade atual.
+  const base = g.troca ? g.troca.grade : g.atual;
+  const marcada = new Map((base||[]).map(s=>[Number(s.dia), s.hora]));
+  const diasAtual = new Set((g.atual||[]).map(s=>s.dia)).size;
+
+  const fundo = document.createElement('div');
+  fundo.className = 'fundo-modal';
+  fundo.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tg-titulo">
+      <div class="topo" id="tg-titulo">${temFixo ? 'Trocar horário fixo' : 'Definir horário fixo'}</div>
+      <div class="corpo troca-grade">
+        <p style="margin:0">${temFixo
+          ? `Marque os dias e horários da sua nova rotina. Vale para todas as semanas a partir de
+             <b>${esc(g.proximaSegundaTexto)}</b> (segunda). Esta semana continua como está.`
+          : 'Marque os dias e horários em que você vai treinar toda semana.'}</p>
+        <div class="grade-dias" id="tg-dias">${(g.horarios||[]).map(d=>
+          `<button type="button" class="chip${marcada.has(d.dia)?' sel':''}" data-dia="${d.dia}">${esc(d.nome.slice(0,3))}</button>`
+        ).join('')}</div>
+        <div id="tg-horas"></div>
+        <div class="resumo" id="tg-resumo"></div>
+      </div>
+      <div class="pe duplo">
+        <button class="leve" id="tg-desistir">Voltar</button>
+        <button class="leve" id="tg-salvar">Confirmar</button>
+      </div>
+    </div>`;
+
+  const horas = fundo.querySelector('#tg-horas');
+  const resumo = fundo.querySelector('#tg-resumo');
+  const escolhida = ()=>[...horas.querySelectorAll('select[data-dia]')]
+    .map(s=>({ dia:Number(s.dataset.dia), hora:s.value }));
+
+  function desenharResumo(){
+    const nova = escolhida();
+    if (!nova.length){ resumo.innerHTML = 'Escolha pelo menos um dia.'; return; }
+    const nDias = new Set(nova.map(s=>s.dia)).size;
+    resumo.innerHTML = (temFixo
+        ? `Sai: <b>${esc(gradeComoTexto(g.atual))}</b><br>Entra: <b>${esc(gradeComoTexto(nova))}</b>`
+        : `Seu horário: <b>${esc(gradeComoTexto(nova))}</b>`)
+      + (temFixo && nDias !== diasAtual
+        ? `<span class="alerta">Sua rotina passa de ${diasAtual}x para ${nDias}x por semana.
+             O estúdio será avisado para ajustar seu plano.</span>` : '');
+  }
+
+  function desenharHoras(){
+    const antes = {};
+    marcada.forEach((hora, dia)=>{ antes[dia] = hora; });
+    horas.querySelectorAll('select[data-dia]').forEach(s=>{ antes[s.dataset.dia] = s.value; });
+    const marcados = [...fundo.querySelectorAll('#tg-dias .chip.sel')].map(b=>Number(b.dataset.dia));
+    horas.innerHTML = (g.horarios||[]).filter(d=>marcados.includes(d.dia)).map(d=>
+      `<div class="grade-linha"><span>${esc(d.nome)}</span><select data-dia="${d.dia}">`
+      + d.horas.map(h=>`<option value="${esc(h)}"${antes[d.dia]===h?' selected':''}>${esc(h)}</option>`).join('')
+      + `</select></div>`).join('');
+    desenharResumo();
+  }
+
+  const fechar = ()=>{ fundo.remove(); document.removeEventListener('keydown', tecla); };
+  function tecla(e){ if (e.key === 'Escape') fechar(); }
+  document.addEventListener('keydown', tecla);
+
+  fundo.addEventListener('change', e=>{ if (e.target.matches('select[data-dia]')) desenharResumo(); });
+  fundo.addEventListener('click', async e=>{
+    if (e.target === fundo || e.target.closest('#tg-desistir')) return fechar();
+    const chip = e.target.closest('#tg-dias .chip');
+    if (chip){ chip.classList.toggle('sel'); desenharHoras(); return; }
+    const salvar = e.target.closest('#tg-salvar');
+    if (!salvar) return;
+    const nova = escolhida();
+    if (!nova.length) return avisar('Escolha pelo menos um dia e horário.', 'erro');
+    salvar.disabled = true; salvar.textContent = '…';
+    try{
+      const r = await api('/agenda/grade', {method:'POST', body:JSON.stringify({ grade: nova })});
+      fechar();
+      avisar(r.imediata ? 'Horário fixo salvo.'
+        : r.desfeita ? 'Troca desfeita. Seu horário continua o mesmo.'
+        : `Horário fixo trocado. Vale a partir de ${r.troca ? r.troca.aPartirDeTexto : 'segunda'}.`, 'ok');
+      carregarMeus();
+    }catch(err){
+      avisar(err.message, 'erro');
+      salvar.disabled = false; salvar.textContent = 'Confirmar';
+    }
+  });
+
+  document.body.appendChild(fundo);
+  desenharHoras();
+}
+
+document.body.addEventListener('click', async e=>{
+  if (e.target.closest('button.grade-trocar')){ abrirTrocaDeGrade(); return; }
+  const canc = e.target.closest('button.grade-cancelar');
+  if (!canc) return;
+  if (!confirm('Desistir da troca e manter o horário fixo atual?')) return;
+  canc.disabled = true;
+  try{
+    await api('/agenda/grade/cancelar', {method:'POST', body:'{}'});
+    avisar('Troca cancelada. Seu horário fixo continua o mesmo.', 'ok');
+  }catch(err){ avisar(err.message, 'erro'); }
+  carregarMeus();
+});
 
 /* ----------------------------- meus dados ------------------------------- */
 

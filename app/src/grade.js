@@ -67,6 +67,11 @@ function gradeVigente(matricula, data) {
   for (const h of matricula.gradeAnterior || []) {
     if (noIntervalo(data, h.vigenteDe, h.vigenteAte)) return h.grade || [];
   }
+  // Troca de horário fixo pedida pelo aluno e ainda não aplicada na ficha: as
+  // datas a partir do início já usam a grade nova (agenda e lotação da semana
+  // que vem), as anteriores continuam na grade atual.
+  const t = matricula.trocaDeGrade;
+  if (t && t.aPartirDe && data >= t.aPartirDe) return t.grade || [];
   if (matricula.vigenteDe && data < matricula.vigenteDe) return [];
   return matricula.grade || [];
 }
