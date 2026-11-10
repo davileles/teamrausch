@@ -150,12 +150,12 @@
 
   /* ── 5. Barra de status ────────────────────────────────────────────────── */
   // Style.Dark = ícones claros (fundo escuro); Style.Light = ícones escuros.
+  // Segue só o tema: o cabeçalho usa --preto, que no tema claro é cinza-claro
+  // (#F2F3F5). Antes, logado forçava ícones claros e a hora sumia no claro.
   var estiloAtual = '';
   function ajustarBarra() {
     if (!StatusBar) return;
-    var app = document.getElementById('tela-app');
-    var logado = app && !app.hidden;
-    var escuro = logado || html.getAttribute('data-tema') === 'escuro';
+    var escuro = html.getAttribute('data-tema') === 'escuro';
     var estilo = escuro ? 'DARK' : 'LIGHT';
     if (estilo === estiloAtual) return;
     estiloAtual = estilo;
