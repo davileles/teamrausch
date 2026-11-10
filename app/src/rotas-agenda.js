@@ -16,6 +16,7 @@ const conquistas = require('./conquistas-mensagens');
 const metaMensal = require('./meta-mensal-mensagens');
 const boasVindasExperimental = require('./boas-vindas-experimental');
 const boasVindasApp = require('./boas-vindas-app');
+const dispositivos = require('./dispositivos');
 
 const rotas = express.Router();
 
@@ -646,6 +647,75 @@ rotas.get('/auth/eu', (req, res) => {
     },
     config: config.publica(),
   });
+});
+
+/* ------------------- app do celular (mobile/): Face ID e push ------------------- */
+
+// Ativa a entrada por Face ID/digital neste celular. O segredo volta só agora;
+// o app guarda no cofre do sistema, protegido pela biometria.
+rotas.post('/auth/dispositivo', exigirLogin, (req, res) => {
+  const b = req.body || {};
+  const r = dispositivos.registrar(req.aluno.telefone, { plataforma: b.plataforma, substituir: b.substituir });
+  if (!r.ok) return res.status(400).json({ erro: r.erro });
+  res.json({ ok: true, id: r.id, segredo: r.segredo });
+});
+
+// Troca a chave do celular (liberada pelo Face ID) por uma sessão nova.
+const tentativasDispositivo = new Map(); // ip → { n, ts }
+rotas.post('/auth/dispositivo/entrar', (req, res) => {
+  const ip = String(req.get('cf-connecting-ip') || req.get('x-forwarded-for') || req.ip || '').split(',')[0].trim();
+  const t = tentativasDispositivo.get(ip) || { n: 0, ts: Date.now() };
+  if (Date.now() - t.ts > 10 * 60 * 1000) { t.n = 0; t.ts = Date.now(); }
+  t.n += 1; tentativasDispositivo.set(ip, t);
+  if (t.n > 40) return res.status(429).json({ ok: false, motivo: 'tentativas' });
+
+  const { id, segredo } = req.body || {};
+  if (!id || !segredo) return res.status(400).json({ ok: false, motivo: 'dados' });
+  const r = dispositivos.conferir(String(id), String(segredo));
+  if (!r.ok) return res.json({ ok: false, motivo: r.motivo });
+  const aluno = store.aluno(r.telefone);
+  if (!aluno) return res.json({ ok: false, motivo: 'chave' });
+  if (aluno.bloqueado) return res.json({ ok: false, motivo: 'bloqueado' });
+  const c = config.ler();
+  const token = store.abrirSessao(r.telefone, Number(c.acesso.diasDeSessao || 7));
+  res.json({
+    ok: true,
+    token,
+    aluno: {
+      nome: aluno.nome,
+      telefone: mostrarTelefone(r.telefone),
+      admin: ehAdmin(r.telefone),
+    },
+  });
+});
+
+rotas.post('/auth/dispositivo/remover', exigirLogin, (req, res) => {
+  dispositivos.remover(req.aluno.telefone, String((req.body || {}).id || ''));
+  res.json({ ok: true });
+});
+
+// Token de notificação do celular (a Apple pode trocar: o app manda a cada abertura).
+rotas.post('/auth/dispositivo/push', exigirLogin, (req, res) => {
+  const r = dispositivos.guardarPush(req.aluno.telefone, req.body || {});
+  if (!r.ok) return res.status(400).json({ erro: r.erro });
+  res.json({ ok: true, id: r.id });
+});
+
+// Admin: quantos celulares têm o app e se o push está configurado no servidor.
+rotas.get('/admin/app', exigirLogin, exigirAdmin, (_req, res) => {
+  res.json(dispositivos.estado());
+});
+
+// Admin: manda uma notificação de teste para os próprios celulares.
+rotas.post('/admin/app/teste', exigirLogin, exigirAdmin, async (req, res) => {
+  const alvos = dispositivos.comPush(req.aluno.telefone).length;
+  if (!alvos) return res.status(400).json({ erro: 'Seu celular ainda não ativou as notificações no app.' });
+  const r = await dispositivos.notificar(req.aluno.telefone, {
+    titulo: 'Team Rausch',
+    corpo: 'Notificação de teste: o app está recebendo avisos do estúdio.',
+    dados: { aba: 'agendar' },
+  });
+  res.json({ ok: r.enviados > 0, ...r });
 });
 
 /* ------------------------------ perfil ----------------------------------- */

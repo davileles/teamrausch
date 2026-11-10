@@ -44,8 +44,10 @@ for (const f of readdirSync(join(PUBLICO, 'fonts'))) {
 }
 
 // 2) Capacitor sem bundler: core + plugins em build IIFE, num arquivo só
-const MODS = ['core/dist/capacitor.js', 'app', 'browser', 'share', 'status-bar', 'splash-screen', 'haptics', 'preferences']
+const MODS = ['core/dist/capacitor.js', 'app', 'browser', 'share', 'status-bar', 'splash-screen', 'haptics', 'preferences', 'push-notifications']
   .map((m) => '@capacitor/' + (m.includes('/') ? m : `${m}/dist/plugin.js`));
+// Plugin de terceiros (build IIFE em dist/plugin.js): Face ID/digital.
+MODS.push('@capgo/capacitor-native-biometric/dist/plugin.js');
 const bundle = MODS.map((m) => {
   const cod = readFileSync(join(AQUI, 'node_modules', m), 'utf8').replace(/\/\/# sourceMappingURL=.*$/gm, '');
   return `/* ── ${m} ── */\n${cod}`;
