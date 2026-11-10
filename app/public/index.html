@@ -77,6 +77,7 @@
   .cab h1{font:400 15px Anton,sans-serif;letter-spacing:.08em;color:var(--amarelo);text-transform:uppercase;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
   .cab small{font:600 13px 'Work Sans',sans-serif;color:var(--apagado);white-space:nowrap;flex-shrink:0}
+  .cab #quem-sou{max-width:110px;overflow:hidden;text-overflow:ellipsis}
   .cab .logo-topo{height:30px;width:auto;flex-shrink:0;display:block;align-self:center}
   .cab .eu{display:flex;align-items:center;gap:10px;flex-shrink:0}
   .cab .eu button{background:transparent;border:1px solid var(--linha-3);color:var(--apagado);
@@ -1835,7 +1836,7 @@ async function carregarPerfil(){
         if (!p.nomeDoWellhub) corpo.nome = document.getElementById('p-nome').value;
         const r = await api('/perfil', {method:'PUT', body: JSON.stringify(corpo)});
         eu.nome = r.nome; eu.aniversario = r.aniversario;
-        document.getElementById('quem-sou').textContent = eu.nome || eu.telefone;
+        mostrarQuemSou();
         avisar('Dados atualizados.', 'ok');
       }catch(e){ avisar(e.message, 'erro'); }
       finally{ b.disabled = false; b.textContent = 'Salvar meus dados'; }
@@ -2881,6 +2882,17 @@ const SITUACAO = {
  * já com as colunas separadas e os acentos certos, sem passar pelo assistente
  * de importação.
  */
+/**
+ * Cabeçalho: só o primeiro nome de quem está logado. O nome completo ocupava
+ * o espaço do nome do estúdio (sobrava só o "T"). O nome inteiro fica no title.
+ */
+function mostrarQuemSou(){
+  const el = document.getElementById('quem-sou');
+  const nome = String((eu && eu.nome) || '').trim();
+  el.textContent = nome ? nome.split(/\s+/)[0] : ((eu && eu.telefone) || '');
+  el.title = nome || '';
+}
+
 function baixarCsv(nome, cabecalho, linhas){
   const campo = (v)=>{
     const t = v === null || v === undefined ? '' : String(v);
@@ -6735,7 +6747,7 @@ async function comecar(manterAba, usarRota){
     document.getElementById('tela-login').hidden = true;
     document.getElementById('tela-app').hidden = false;
     document.getElementById('nome-estudio').textContent = r.config.estudio.nome;
-    document.getElementById('quem-sou').textContent = eu.nome || eu.telefone;
+    mostrarQuemSou();
     document.querySelectorAll('.so-admin').forEach(b=>{ b.hidden = !eu.admin; });
 
     // Só o boot lê a URL. Depois de um login a rota que estiver ali é da conta
