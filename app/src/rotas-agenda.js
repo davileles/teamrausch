@@ -86,6 +86,21 @@ function registrarFalha(telefone) {
  * configurações e na lista de todos os alunos. O código do administrador sai
  * pelo canal normal — em modo de teste, no log do servidor.
  */
+/**
+ * Conta de revisão das lojas (App Store / Google Play). O revisor não recebe
+ * o código no WhatsApp, então o telefone de REVISAO_TELEFONE entra com o
+ * código fixo REVISAO_CODIGO (≥ 6 dígitos), sem envio, mesmo sem cadastro, e
+ * não precisa escolher grade (não vira aluno de turma). Sem as duas env (ou
+ * código curto), fica desligada. Tirar as env depois da aprovação.
+ * Devolve o código fixo quando o telefone é o da revisão; senão, null.
+ */
+function codigoDaRevisao(telefone) {
+  const tel = normalizarTelefone(process.env.REVISAO_TELEFONE || '');
+  const codigo = String(process.env.REVISAO_CODIGO || '').trim();
+  if (!tel || !/^\d{6,}$/.test(codigo) || !telefone) return null;
+  return tel === telefone ? codigo : null;
+}
+
 function entraSemCodigo(telefone) {
   return config.ler().acesso.canalDoCodigo === 'aberto' && !ehAdmin(telefone);
 }
@@ -181,6 +196,7 @@ function horariosDaSemana() {
  */
 function precisaDeGrade(cadastrado, telefone, experimental) {
   if (ehAdmin(telefone)) return false;
+  if (codigoDaRevisao(telefone)) return false;
   // Visitante em aula experimental (tablet da entrada): ainda não tem rotina,
   // a grade só é pedida quando voltar como aluno.
   if (experimental) return false;
@@ -379,7 +395,8 @@ rotas.post('/auth/codigo', async (req, res) => {
 
   const cadastrado = store.aluno(telefone);
   const experimental = Boolean(req.body.experimental);
-  if (!cadastrado && !c.acesso.cadastroAberto) {
+  const codigoRevisao = codigoDaRevisao(telefone);
+  if (!cadastrado && !c.acesso.cadastroAberto && !codigoRevisao) {
     return res.status(403).json({ erro: 'Telefone não cadastrado. Fale com o estúdio.' });
   }
   if (cadastrado && cadastrado.bloqueado) {
@@ -387,6 +404,23 @@ rotas.post('/auth/codigo', async (req, res) => {
   }
   if (store.pedidosNaUltimaHora(telefone) >= Number(c.acesso.maxPedidosPorHora || 5)) {
     return res.status(429).json({ erro: 'Muitos pedidos de código. Tente daqui a pouco.' });
+  }
+
+  // Conta de revisão das lojas: código fixo, nada é enviado.
+  if (codigoRevisao) {
+    store.guardarCodigo(telefone, codigoRevisao, Number(c.acesso.minutosDeValidadeDoCodigo || 10));
+    console.log('[acesso] pedido de código da conta de revisão das lojas');
+    return res.json({
+      enviado: true,
+      canal: 'whatsapp',
+      telefone: mostrarTelefone(telefone),
+      precisaDeNome: primeiroAcesso(cadastrado) || !cadastrado.nome,
+      precisaDeAniversario: primeiroAcesso(cadastrado) || !cadastrado.aniversario,
+      precisaDeGrade: false,
+      gradeAtual: [],
+      nomeSugerido: null,
+      horarios: horariosDaSemana(),
+    });
   }
 
   // Administrador com senha definida: não há código nenhum, é senha.
