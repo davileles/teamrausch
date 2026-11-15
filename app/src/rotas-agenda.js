@@ -735,6 +735,42 @@ rotas.post('/auth/dispositivo/push', exigirLogin, (req, res) => {
   res.json({ ok: true, id: r.id });
 });
 
+/*
+ * Exclusão da conta pelo próprio aluno (exigência da App Store, 5.1.1(v), e do
+ * Google Play). Apaga o acesso ao app (cadastro de login e sessões), os
+ * celulares (Face ID e push) e as reservas futuras. A ficha de matrícula e o
+ * histórico de check-ins do Wellhub ficam com o estúdio (cobrança), e o estúdio
+ * recebe um e-mail para inativar/apagar a ficha se for o caso.
+ */
+rotas.post('/auth/excluir-conta', exigirLogin, (req, res) => {
+  const telefone = req.aluno.telefone;
+  if (req.admin) return res.status(400).json({ erro: 'Conta de administrador não pode ser excluída pelo app.' });
+  const quem = req.aluno.nome || mostrarTelefone(telefone);
+  const hoje = agenda.hoje(config.ler().estudio.fuso);
+  let reservas = 0;
+  for (const a of store.doAluno(telefone, hoje)) {
+    if (store.cancelar(a.id, 'exclusao-de-conta')) reservas++;
+  }
+  const celulares = dispositivos.removerTodos(telefone);
+  store.removerAluno(telefone);
+  const m = matriculas.porTelefone(telefone);
+  const fuso = process.env.TZ_ESTUDIO || 'America/Sao_Paulo';
+  const linhas = [
+    `${quem} excluiu a conta pelo app.`,
+    '',
+    `Telefone: ${mostrarTelefone(telefone)}`,
+    `Reservas futuras canceladas: ${reservas}`,
+    `Celulares desconectados: ${celulares}`,
+    m ? `Matrícula: ${m.nome} (#${m.id}) — confira se é para inativar ou excluir a ficha.` : 'Matrícula: nenhuma ficha vinculada a este telefone.',
+    `Quando: ${new Date().toLocaleString('pt-BR', { timeZone: fuso })}`,
+  ];
+  Promise.resolve()
+    .then(() => poller.enviarEmail(`🗑️ Conta excluída no app: ${quem}`, linhas.join('\n')))
+    .catch((e) => console.warn(`[acesso] aviso de exclusão de conta não saiu: ${e.message}`));
+  console.log(`[acesso] conta excluída pelo aluno (${reservas} reserva(s), ${celulares} celular(es))`);
+  res.json({ ok: true });
+});
+
 // Admin: quantos celulares têm o app e se o push está configurado no servidor.
 rotas.get('/admin/app', exigirLogin, exigirAdmin, (_req, res) => {
   res.json(dispositivos.estado());

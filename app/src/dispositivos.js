@@ -178,4 +178,12 @@ function estado() {
   };
 }
 
-module.exports = { registrar, conferir, remover, guardarPush, comPush, notificar, estado };
+/** Conta excluída pelo aluno: tira todos os celulares (Face ID e push) dele. */
+function removerTodos(telefone) {
+  const antes = dados.dispositivos.length;
+  dados.dispositivos = dados.dispositivos.filter((x) => x.telefone !== telefone);
+  if (dados.dispositivos.length !== antes) gravar();
+  return antes - dados.dispositivos.length;
+}
+
+module.exports = { registrar, conferir, remover, removerTodos, guardarPush, comPush, notificar, estado };

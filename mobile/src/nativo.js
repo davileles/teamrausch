@@ -259,6 +259,8 @@
     if (Bio) falhaSilenciosa(Bio.deleteCredentials({ server: BIO_SERVIDOR }));
     var b = document.getElementById('tr-bio-login'); if (b) b.remove();
   }
+  // Conta excluída pelo aluno (aba Meus dados): apaga a chave deste celular.
+  window.trBiometria = { esquecer: bioEsquecer };
 
   function el(tag, attrs, filhos) {
     var e = document.createElement(tag);

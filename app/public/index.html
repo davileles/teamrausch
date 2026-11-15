@@ -1977,7 +1977,26 @@ async function carregarPerfil(){
         </div>
         <div class="rodape"><button class="leve" id="p-salvar">Salvar meus dados</button></div>
       </div>
-      ${desde ? `<p class="ajuda" style="text-align:center">Você está no estúdio desde ${esc(desde)}.</p>` : ''}`;
+      ${desde ? `<p class="ajuda" style="text-align:center">Você está no estúdio desde ${esc(desde)}.</p>` : ''}
+      ${eu && eu.admin ? '' : `<h3>Minha conta</h3>
+      <p class="ajuda">Excluir a conta apaga seu acesso ao app, os celulares conectados e as reservas futuras.</p>
+      <div class="rodape"><button class="leve" id="p-excluir-conta" style="color:#d64545">Excluir minha conta</button></div>`}`;
+
+    const btnExcluir = document.getElementById('p-excluir-conta');
+    if (btnExcluir) btnExcluir.addEventListener('click', async ()=>{
+      if (!confirm('Excluir sua conta do app Team Rausch?\n\nSeu acesso, os celulares conectados e as reservas futuras serão apagados. Isso não tem volta.')) return;
+      if (!confirm('Confirma a exclusão definitiva da sua conta?')) return;
+      btnExcluir.disabled = true; btnExcluir.textContent = 'Excluindo…';
+      try{
+        await api('/auth/excluir-conta', {method:'POST'});
+        try{ if (window.trBiometria && window.trBiometria.esquecer) window.trBiometria.esquecer(); }catch{}
+        alert('Sua conta foi excluída.');
+        sair(true);
+      }catch(e){
+        alert(e.message || 'Não foi possível excluir agora. Tente de novo.');
+        btnExcluir.disabled = false; btnExcluir.textContent = 'Excluir minha conta';
+      }
+    });
 
     const pAniv = document.getElementById('p-aniv');
     pAniv.addEventListener('input', ()=>{
