@@ -324,81 +324,93 @@ function etapaDaProgressao(hoje = frequencia.hojeLocal()) {
 }
 
 /**
- * Frase do {{progresso}}: muda pela ETAPA do mês (começo, metade, reta final)
- * e pela SITUAÇÃO do aluno. Dois tipos de mensagem só:
- *   - em dia (ou pacote fechado) → agradecimento;
- *   - atrasado ou crítico        → aviso curto do quanto falta, para recuperar.
- * Os dias que restam são corridos: o check-in vale qualquer dia.
- * Os textos de cada etapa ficam em TEXTOS_PROGRESSAO, para revisar num lugar só.
+ * FRASES DO {{progresso}} — PADRÃO DO SISTEMA
+ *   Cada uma é um texto com marcadores, igual ao do modelo. O modelo pode
+ *   trocar qualquer uma pela tela (`modelo.textosProgressao`); caixa vazia
+ *   volta para a frase daqui. Dois tipos só: em dia → agradecimento;
+ *   atrasado/crítico → aviso curto para recuperar. Pacote fechado fica fora
+ *   do público (já recebe a "Meta do mês").
+ *   Marcadores próprios destas frases já vêm com a unidade certa:
+ *   {{atrasoNoRitmo}} → "2 check-ins atrás do ritmo" / "no limite do ritmo";
+ *   {{checkinsQueFaltam}} → "1 check-in" / "6 check-ins".
  */
 const ESQUECEU = 'Esqueceu algum check-in? Dá para fazer depois, até no fim de semana.';
-const atrasoTxt = (n) => (n ? `${n} ${plural(n, 'check-in', 'check-ins')} atrás do ritmo`
-  : 'no limite do ritmo');
-
-const TEXTOS_PROGRESSAO = {
-  // ---- EM DIA ----
-  emDia: {
-    1: () => 'Você começou o mês no ritmo certo — obrigado pela constância! Bora manter! 💪',
-    2: () => 'Chegamos na metade do mês e você está em dia — obrigado pela constância! '
-      + 'Segue assim que o mês fecha redondo. 💪',
-    3: ({ faltam }) => `Reta final do mês e você está em dia! ${plural(faltam, 'Falta', 'Faltam')} só `
-      + `${faltam} ${plural(faltam, 'check-in', 'check-ins')} para fechar o pacote. Obrigado pela constância! 💪`,
-  },
-  // ---- ATRASADO / CRÍTICO ----
-  //   Um número só por mensagem (a abertura já diz "fez X de Y"): começo e
-  //   metade falam de quantos está atrás; a reta final, de quantos faltam.
-  atrasado: {
-    1: ({ atraso }) => `O mês está só começando e você está ${atrasoTxt(atraso)} — dá para `
-      + `recuperar com tranquilidade! ${ESQUECEU}`,
-    2: ({ atraso }) => `Chegamos na metade do mês e você está ${atrasoTxt(atraso)} — esta semana `
-      + `é a hora de recuperar! ${ESQUECEU}`,
-    3: ({ faltam }) => `Reta final do mês: ${plural(faltam, 'falta', 'faltam')} ${faltam} `
-      + `${plural(faltam, 'check-in', 'check-ins')} para fechar o pacote. Se precisar de um horário `
-      + `extra, é só responder aqui que a gente encaixa. ${ESQUECEU}`,
-  },
-  // Pacote fechado vale em qualquer etapa (hoje fica fora do público da régua).
-  quitado: () => 'Pacote do mês fechado — obrigado pela constância! 💪',
-  // Não cabe mais no mês (faltam mais check-ins do que dias): não prometer recuperação.
-  semTempo: () => 'Este mês o pacote já não fecha, mas cada check-in ainda conta! '
+const PROGRESSAO_PADRAO = {
+  emDia1: 'Você começou o mês no ritmo certo — obrigado pela constância! Bora manter! 💪',
+  emDia2: 'Chegamos na metade do mês e você está em dia — obrigado pela constância! '
+    + 'Segue assim que o mês fecha redondo. 💪',
+  emDia3: 'Reta final do mês e você está em dia! Só mais {{checkinsQueFaltam}} para fechar '
+    + 'o pacote. Obrigado pela constância! 💪',
+  atrasado1: 'O mês está só começando e você está {{atrasoNoRitmo}} — dá para recuperar com '
+    + `tranquilidade! ${ESQUECEU}`,
+  atrasado2: 'Chegamos na metade do mês e você está {{atrasoNoRitmo}} — esta semana é a hora '
+    + `de recuperar! ${ESQUECEU}`,
+  atrasado3: 'Reta final do mês: mais {{checkinsQueFaltam}} e você fecha o pacote. Se precisar '
+    + `de um horário extra, é só responder aqui que a gente encaixa. ${ESQUECEU}`,
+  semTempo: 'Este mês o pacote já não fecha, mas cada check-in ainda conta! '
     + 'Se quiser ajustar seus horários, é só responder aqui.',
 };
 
-/**
- * O que o {{progresso}} vira em cada caso, com números de exemplo. A tela do
- * modelo mostra esta lista para quem edita saber a mensagem que de fato sai.
- */
+/** Rótulos das caixas da tela, na ordem em que aparecem. */
+const PROGRESSAO_CAMPOS = [
+  { chave: 'emDia1', etapa: 'Começo do mês (25%)', caso: 'Em dia' },
+  { chave: 'atrasado1', etapa: 'Começo do mês (25%)', caso: 'Atrasado' },
+  { chave: 'emDia2', etapa: 'Metade do mês (50%)', caso: 'Em dia' },
+  { chave: 'atrasado2', etapa: 'Metade do mês (50%)', caso: 'Atrasado' },
+  { chave: 'emDia3', etapa: 'Reta final (75%)', caso: 'Em dia' },
+  { chave: 'atrasado3', etapa: 'Reta final (75%)', caso: 'Atrasado' },
+  { chave: 'semTempo', etapa: 'Qualquer etapa', caso: 'Atrasado que não fecha mais o pacote' },
+];
+
+const ETAPAS = { 1: 'Começo do mês (25%)', 2: 'Metade do mês (50%)', 3: 'Reta final (75%)' };
+
+/** O que a tela do modelo precisa: caixas, frases padrão e a etapa de hoje. */
 function exemplosProgressao() {
-  const ex = { faltam: 6, dias: 14, devido: 6, atraso: 2 };
-  const ETAPAS = { 1: 'Começo do mês (25%)', 2: 'Metade do mês (50%)', 3: 'Reta final (75%)' };
-  const lista = [];
-  for (const e of [1, 2, 3]) {
-    lista.push({ etapa: ETAPAS[e], caso: 'Em dia', texto: TEXTOS_PROGRESSAO.emDia[e](ex) });
-    lista.push({ etapa: ETAPAS[e], caso: 'Atrasado', texto: TEXTOS_PROGRESSAO.atrasado[e](ex) });
-  }
-  lista.push({ etapa: 'Qualquer etapa', caso: 'Atrasado que não fecha mais o pacote',
-    texto: TEXTOS_PROGRESSAO.semTempo(ex) });
-  return { etapaDeHoje: ETAPAS[etapaDaProgressao()], lista };
+  return { etapaDeHoje: ETAPAS[etapaDaProgressao()], campos: PROGRESSAO_CAMPOS,
+    padrao: PROGRESSAO_PADRAO };
 }
 
-function frasePorSituacao(aluno, etapa = etapaDaProgressao()) {
-  const v = {
-    faltam: Number(aluno.faltamNoMes || 0),
-    dias: Number(aluno.diasRestantes || 0),
-    devido: Number(aluno.devidoAteHoje || 0),
-    atraso: Number(aluno.atrasoNoRitmo || 0),
-  };
+/** Qual caixa vale para este aluno nesta etapa ('' = não há frase). */
+function chaveDaProgressao(aluno, etapa) {
+  const faltam = Number(aluno.faltamNoMes || 0);
+  const dias = Number(aluno.diasRestantes || 0);
   if (aluno.situacao === 'atrasado' || aluno.situacao === 'critico') {
-    if (v.faltam > v.dias) return TEXTOS_PROGRESSAO.semTempo(v);
-    return TEXTOS_PROGRESSAO.atrasado[etapa](v);
+    return faltam > dias ? 'semTempo' : `atrasado${etapa}`;
   }
-  if (aluno.situacao === 'quitado' || (aluno.situacao === 'em-dia' && !v.faltam)) {
-    return TEXTOS_PROGRESSAO.quitado(v);
-  }
-  if (aluno.situacao === 'em-dia') return TEXTOS_PROGRESSAO.emDia[etapa](v);
+  if (aluno.situacao === 'quitado' || (aluno.situacao === 'em-dia' && !faltam)) return 'quitado';
+  if (aluno.situacao === 'em-dia') return `emDia${etapa}`;
   return '';
 }
 
+function frasePorSituacao(aluno, etapa = etapaDaProgressao(), personalizados = null) {
+  const chave = chaveDaProgressao(aluno, etapa);
+  if (!chave) return '';
+  if (chave === 'quitado') return 'Pacote do mês fechado — obrigado pela constância! 💪';
+  const proprio = personalizados && String(personalizados[chave] || '').trim();
+  return proprio || PROGRESSAO_PADRAO[chave];
+}
+
+function substituir(texto, valores) {
+  // Marcador é o que a pessoa digita, e ninguém lembra da caixa certa no meio
+  // de um texto longo. {{NOME}} sumindo da mensagem é pior que um erro visível:
+  // o aluno recebe "Olá, !" e ninguém percebe até ele responder.
+  const porNomeSimples = new Map(
+    Object.keys(valores).map((k) => [k.toLowerCase(), k]));
+  return String(texto || '').replace(/\{\{(\w+)\}\}/g, (_, chave) => {
+    const real = porNomeSimples.get(String(chave).toLowerCase());
+    const valor = real === undefined ? undefined : valores[real];
+    return valor === undefined || valor === null ? '' : String(valor);
+  });
+}
+
+/**
+ * @param extras { etapaProgressao, textosProgressao, ...valores extras }
+ *   textosProgressao = frases do {{progresso}} escritas no modelo.
+ */
 function preencher(texto, aluno, extras = {}) {
+  const { etapaProgressao, textosProgressao, ...outros } = extras;
+  const atraso = Number(aluno.atrasoNoRitmo || 0);
+  const faltam = Number(aluno.faltamNoMes || 0);
   const valores = {
     /* --- nomes atuais, os que a tela oferece --- */
     nome: aluno.primeiroNome,
@@ -412,7 +424,11 @@ function preencher(texto, aluno, extras = {}) {
     ultimoTreino: dataCurta(aluno.ultimoCheckin),
     diasAteFimDoMes: aluno.diasRestantes,
     treinosAteHoje: aluno.devidoAteHoje,
-    progresso: frasePorSituacao(aluno, extras.etapaProgressao),
+    // Com a unidade junto, para as frases da progressão não saírem "1 check-ins".
+    checkinsQueFaltam: `${faltam} ${plural(faltam, 'check-in', 'check-ins')}`,
+    atrasoNoRitmo: atraso
+      ? `${atraso} ${plural(atraso, 'check-in', 'check-ins')} atrás do ritmo`
+      : 'no limite do ritmo',
     plano: aluno.vinculo === 'wellhub' ? 'Wellhub' : 'mensalista',
 
     /* --- NOMES ANTIGOS, MANTIDOS DE PROPÓSITO ---
@@ -426,19 +442,13 @@ function preencher(texto, aluno, extras = {}) {
     mesRealizado: aluno.mesRealizado,
     mesEsperado: aluno.mesEsperado,
 
-    ...extras,
+    ...outros,
   };
-  // Marcador é o que a pessoa digita, e ninguém lembra da caixa certa no meio
-  // de um texto longo. {{NOME}} sumindo da mensagem é pior que um erro visível:
-  // o aluno recebe "Olá, !" e ninguém percebe até ele responder.
-  const porNomeSimples = new Map(
-    Object.keys(valores).map((k) => [k.toLowerCase(), k]));
-
-  return String(texto || '').replace(/\{\{(\w+)\}\}/g, (_, chave) => {
-    const real = porNomeSimples.get(String(chave).toLowerCase());
-    const valor = real === undefined ? undefined : valores[real];
-    return valor === undefined || valor === null ? '' : String(valor);
-  });
+  // A frase do {{progresso}} também tem marcadores: preenche antes, sem ela
+  // mesma (uma frase com {{progresso}} dentro viraria vazio, não laço).
+  valores.progresso = substituir(
+    frasePorSituacao(aluno, etapaProgressao, textosProgressao), { ...valores, progresso: '' });
+  return substituir(texto, valores);
 }
 
 /** Lista dos marcadores, para a tela oferecer os botões de inserir. */
@@ -458,7 +468,9 @@ const MARCADORES = [
   { chave: 'diasSemTreinar', descricao: 'Há quantos dias não aparece', exemplo: '9' },
   { chave: 'ultimoTreino', descricao: 'Data do último treino — "18/08"', exemplo: '18/08' },
   { chave: 'treinosAteHoje', descricao: 'Quantos treinos o ritmo do mês pedia até hoje', exemplo: '5' },
-  { chave: 'progresso', descricao: 'Frase automática que muda no começo, na metade e na reta final do mês: agradecimento para quem está em dia, aviso de atraso para quem está atrás do ritmo', exemplo: 'Você está dentro do ritmo do mês — obrigado pela constância! Bora manter! 💪' },
+  { chave: 'progresso', descricao: 'Frase da régua Progressão do mês: muda no começo, na metade e na reta final e conforme o aluno está em dia ou atrasado (as frases são editadas no próprio modelo)', exemplo: 'Chegamos na metade do mês e você está em dia — obrigado pela constância!' },
+  { chave: 'atrasoNoRitmo', descricao: 'Quanto está atrás do ritmo, já com a unidade', exemplo: '2 check-ins atrás do ritmo' },
+  { chave: 'checkinsQueFaltam', descricao: 'Quantos check-ins faltam para fechar o mês, já com a unidade', exemplo: '6 check-ins' },
   { chave: 'diasAteFimDoMes', descricao: 'Quantos dias ainda restam no mês', exemplo: '11' },
   { chave: 'plano', descricao: 'Wellhub ou mensalista', exemplo: 'Wellhub' },
 ];
@@ -475,4 +487,5 @@ function porMatricula(matriculaId) {
   return montar('todos').alunos.find((a) => a.matriculaId === matriculaId) || null;
 }
 
-module.exports = { montar, porMatricula, preencher, primeiroNome, MARCADORES, exemplosProgressao };
+module.exports = { montar, porMatricula, preencher, primeiroNome, MARCADORES, exemplosProgressao,
+  PROGRESSAO_CAMPOS };

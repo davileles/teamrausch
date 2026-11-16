@@ -65,6 +65,12 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
    * lógica dos marcadores em JavaScript de navegador, e a mensagem enviada
    * poderia sair diferente da que foi mostrada antes de confirmar.
    */
+  function fonteTextosProgressao(v) {
+    if (!v) return null;
+    if (typeof v === 'string') { try { return JSON.parse(v); } catch { return null; } }
+    return typeof v === 'object' ? v : null;
+  }
+
   function responderDestinatarios(fonte, res) {
     const publico = String(fonte.publico || 'todos');
     if (!modelos.PUBLICOS.includes(publico)) {
@@ -85,6 +91,10 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     if (modelo && modelo.ausenteDias) opcoes.ausenteDias = modelo.ausenteDias;
     if (modelo && modelo.ausenteAte) opcoes.ausenteAte = modelo.ausenteAte;
     const lista = destinatarios.montar(publico, opcoes);
+    // Frases do {{progresso}}: as da tela (prévia do modelo em edição) ou as
+    // salvas no modelo.
+    const textosProgressao = fonteTextosProgressao(fonte.textosProgressao)
+      || (modelo ? modelo.textosProgressao : null);
 
     // Lote em andamento: quem já recebeu não volta para a fila.
     const jaForam = fonte.lote ? new Set(modelos.jaEnviados(String(fonte.lote))) : new Set();
@@ -93,7 +103,7 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       ...lista,
       alunos: lista.alunos.map((a) => ({
         ...a,
-        previa: texto === null ? null : destinatarios.preencher(texto, a),
+        previa: texto === null ? null : destinatarios.preencher(texto, a, { textosProgressao }),
         jaEnviado: jaForam.has(a.matriculaId),
       })),
     });
@@ -178,7 +188,11 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     //   ou sem modelo. Preencher duas vezes é inofensivo — o que já virou nome
     //   não é mais marcador.
     const ficha = m ? destinatarios.porMatricula(m.id) : null;
-    const texto = ficha ? destinatarios.preencher(bruto, ficha) : bruto;
+    const modeloDoEnvio = corpo.modeloId ? modelos.porId(String(corpo.modeloId)) : null;
+    const texto = ficha
+      ? destinatarios.preencher(bruto, ficha,
+        { textosProgressao: modeloDoEnvio ? modeloDoEnvio.textosProgressao : null })
+      : bruto;
 
     // Sem ficha não há o que preencher: um número avulso não tem nome, treino
     // nem plano. Melhor recusar do que mandar "Olá, {{nome}}!" para alguém.

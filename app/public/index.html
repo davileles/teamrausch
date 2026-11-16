@@ -5341,17 +5341,25 @@ function msgPainelModelos(){
             title="${esc(x.descricao)}${x.exemplo?' · vira \''+esc(x.exemplo)+'\'':''}">{{${x.chave}}}</button>`).join('')}</div></div>
 
       <div class="campo" id="mm-progresso-exemplos" ${gatilho==='progressao'?'':'hidden'}>
-        <label>O que o {{progresso}} vira em cada envio</label>
-        <p class="ajuda">O {{progresso}} não é um texto fixo: o sistema escolhe a frase pela
-          etapa do mês e pela situação de cada aluno. Exemplos com números fictícios
-          (o aluno recebe os números dele).${msgEstado.progressao
+        <label>Frases do {{progresso}}</label>
+        <p class="ajuda">O {{progresso}} é trocado por uma destas frases, conforme a etapa do mês
+          e a situação de cada aluno. Edite à vontade; caixa vazia volta para a frase padrão.
+          Marcadores valem aqui também — <b>{{atrasoNoRitmo}}</b> vira "2 check-ins atrás do ritmo"
+          e <b>{{checkinsQueFaltam}}</b> vira "6 check-ins".${msgEstado.progressao
             ? ` Hoje vale: <b>${esc(msgEstado.progressao.etapaDeHoje)}</b>.` : ''}</p>
-        ${(msgEstado.progressao ? msgEstado.progressao.lista : []).map(x=>`
-          <div style="border:1px solid var(--linha);border-radius:8px;padding:8px 10px;margin:6px 0">
-            <div style="font-size:.8em;opacity:.7;margin-bottom:3px">${esc(x.etapa)} · <b>${esc(x.caso)}</b></div>
-            <div>${esc(x.texto)}</div></div>`).join('')}
+        ${(msgEstado.progressao ? msgEstado.progressao.campos : []).map(x=>{
+          const salvo = (m.textosProgressao||{})[x.chave];
+          const padrao = msgEstado.progressao.padrao[x.chave] || '';
+          return `<div style="margin:8px 0">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+              <span style="font-size:.85em"><b>${esc(x.caso)}</b> · ${esc(x.etapa)}</span>
+              <button type="button" class="chip" onclick="msgProgressoPadrao('${x.chave}')">Voltar ao padrão</button></div>
+            <textarea id="mm-prog-${x.chave}" rows="3" data-padrao="${esc(padrao)}">${esc(salvo||padrao)}</textarea></div>`;
+        }).join('')}
         <p class="ajuda">Quem já fechou o pacote do mês não recebe esta mensagem
-          (já ganhou a "Meta do mês").</p></div>
+          (já ganhou a "Meta do mês").</p>
+        <button type="button" class="leve" onclick="msgPreviaProgresso()">Ver prévia com alunos reais</button>
+        <div id="mm-prog-previa"></div></div>
 
       <div class="campo"><label for="mm-ativo">Situação</label>
         <select id="mm-ativo"><option value="1"${m.ativo===false?'':' selected'}>Ligado</option>
@@ -5373,6 +5381,41 @@ function msgPainelModelos(){
           <button class="leve" data-excluir="${esc(x.id)}">Excluir</button>
         </div>
       </div>`).join('') : '<div class="vazio">Nenhum modelo cadastrado ainda.</div>'}`;
+}
+
+function msgProgressoPadrao(chave){
+  const ta = document.getElementById('mm-prog-'+chave);
+  if (ta) ta.value = ta.dataset.padrao || '';
+}
+
+/* Frases do {{progresso}} da tela; só vai o que difere do padrão, para uma
+   melhoria futura da frase padrão continuar chegando a quem não mexeu. */
+function msgTextosProgresso(){
+  const p = msgEstado.progressao; if (!p) return null;
+  const out = {};
+  for (const x of p.campos){
+    const ta = document.getElementById('mm-prog-'+x.chave);
+    const v = ta ? ta.value.trim() : '';
+    if (v && v !== (p.padrao[x.chave]||'').trim()) out[x.chave] = v;
+  }
+  return out;
+}
+
+async function msgPreviaProgresso(){
+  const alvo = document.getElementById('mm-prog-previa');
+  alvo.innerHTML = '<p class="ajuda">Montando a prévia…</p>';
+  try{
+    const r = await api('/mensagens/destinatarios', {method:'POST', body:JSON.stringify({
+      publico:'progressao', texto:(document.getElementById('mm-texto')||{}).value||'',
+      textosProgressao: msgTextosProgresso() })});
+    const pega = s => r.alunos.find(a=>a.situacao===s);
+    const ex = [['Em dia', pega('em-dia')], ['Atrasado', pega('atrasado')], ['Atrasado (crítico)', pega('critico')]]
+      .filter(([,a])=>a);
+    alvo.innerHTML = `<p class="ajuda">${r.total} aluno(s) receberiam hoje. Exemplos reais (etapa de hoje):</p>`
+      + ex.map(([rot,a])=>`<div style="border:1px solid var(--linha);border-radius:8px;padding:8px 10px;margin:6px 0">
+          <div style="font-size:.8em;opacity:.7;margin-bottom:3px"><b>${esc(rot)}</b> · ${esc(a.nome)}</div>
+          <div style="white-space:pre-wrap">${esc(a.previa||'')}</div></div>`).join('');
+  }catch(e){ alvo.innerHTML = `<p class="ajuda">${esc(e.message)}</p>`; }
 }
 
 function msgAtualizarForm(){
@@ -5441,6 +5484,7 @@ async function msgSalvarModelo(){
   corpo.ausenteDias = Number(v('mm-ausente-dias')) || 0;
   corpo.ausenteAte = Number(v('mm-ausente-ate')) || 0;
   corpo.avisarGrupo = v('mm-avisar-grupo') === '1';
+  if (modo === 'recorrente' && corpo.gatilho === 'progressao') corpo.textosProgressao = msgTextosProgresso();
 
   const btn = document.getElementById('mm-salvar');
   btn.disabled = true;

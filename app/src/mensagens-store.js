@@ -30,6 +30,8 @@ const backup = backupGithub.criar(CAMINHO_BACKUP, 'Mensagens do estúdio');
 
 /** Manual sai por decisão sua; os outros dois o agendador dispara sozinho. */
 const MODOS = ['manual', 'programado', 'recorrente'];
+const CHAVES_PROGRESSAO = ['emDia1', 'emDia2', 'emDia3', 'atrasado1', 'atrasado2',
+  'atrasado3', 'semTempo'];
 /** Quem recebe. `devedores` é calculado na hora do envio, não fica congelado.
  *  `sem_app` idem: quem entrar no app hoje sai da lista no disparo de amanhã.
  *  `criticos` e `atrasados` são as duas metades de `devedores`, separadas para
@@ -162,6 +164,18 @@ function normalizar(campos, base = {}) {
   m.avisarGrupo = campos.avisarGrupo === undefined
     ? (base.avisarGrupo === undefined ? true : Boolean(base.avisarGrupo))
     : Boolean(campos.avisarGrupo);
+
+  // Frases do {{progresso}} escritas na tela (régua "Progressão do mês").
+  // Só as caixas preenchidas ficam; vazia = frase padrão do sistema.
+  const fonteTextos = campos.textosProgressao === undefined
+    ? base.textosProgressao : campos.textosProgressao;
+  const textos = {};
+  for (const k of CHAVES_PROGRESSAO) {
+    const v = fonteTextos && typeof fonteTextos === 'object'
+      ? String(fonteTextos[k] || '').trim().slice(0, 1000) : '';
+    if (v) textos[k] = v;
+  }
+  m.textosProgressao = Object.keys(textos).length ? textos : null;
 
   if (modo === 'programado') {
     const quando = String(campos.quando === undefined ? base.quando : campos.quando || '').trim();

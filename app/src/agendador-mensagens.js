@@ -232,7 +232,8 @@ async function disparar(modelo, hoje) {
   const falhas = [];
   const saiu = [];
   for (const a of alvos) {
-    const texto = destinatarios.preencher(modelo.texto, a);
+    const texto = destinatarios.preencher(modelo.texto, a,
+      { textosProgressao: modelo.textosProgressao });
     const numero = telefone.normalizar(a.telefone);
     const r = await enviarTexto(numero, texto);
     if (r.ok) { enviados++; saiu.push(a); } else { falhas.push({ ...a, motivo: r.motivo }); }
