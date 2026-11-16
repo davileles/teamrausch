@@ -36,6 +36,7 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       marcadores: destinatarios.MARCADORES,
       publicos: modelos.PUBLICOS,
       gatilhos: modelos.GATILHOS,
+      progressao: destinatarios.exemplosProgressao(),
     });
   });
 

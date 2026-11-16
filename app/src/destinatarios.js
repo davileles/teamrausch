@@ -363,6 +363,23 @@ const TEXTOS_PROGRESSAO = {
     + 'Se quiser ajustar seus horários, é só responder aqui.',
 };
 
+/**
+ * O que o {{progresso}} vira em cada caso, com números de exemplo. A tela do
+ * modelo mostra esta lista para quem edita saber a mensagem que de fato sai.
+ */
+function exemplosProgressao() {
+  const ex = { faltam: 6, dias: 14, devido: 6, atraso: 2 };
+  const ETAPAS = { 1: 'Começo do mês (25%)', 2: 'Metade do mês (50%)', 3: 'Reta final (75%)' };
+  const lista = [];
+  for (const e of [1, 2, 3]) {
+    lista.push({ etapa: ETAPAS[e], caso: 'Em dia', texto: TEXTOS_PROGRESSAO.emDia[e](ex) });
+    lista.push({ etapa: ETAPAS[e], caso: 'Atrasado', texto: TEXTOS_PROGRESSAO.atrasado[e](ex) });
+  }
+  lista.push({ etapa: 'Qualquer etapa', caso: 'Atrasado que não fecha mais o pacote',
+    texto: TEXTOS_PROGRESSAO.semTempo(ex) });
+  return { etapaDeHoje: ETAPAS[etapaDaProgressao()], lista };
+}
+
 function frasePorSituacao(aluno, etapa = etapaDaProgressao()) {
   const v = {
     faltam: Number(aluno.faltamNoMes || 0),
@@ -458,4 +475,4 @@ function porMatricula(matriculaId) {
   return montar('todos').alunos.find((a) => a.matriculaId === matriculaId) || null;
 }
 
-module.exports = { montar, porMatricula, preencher, primeiroNome, MARCADORES };
+module.exports = { montar, porMatricula, preencher, primeiroNome, MARCADORES, exemplosProgressao };

@@ -5171,6 +5171,7 @@ async function carregarMensagens(){
     const r = await api('/mensagens/modelos');
     msgEstado.modelos = r.modelos || [];
     msgEstado.marcadores = r.marcadores || [];
+    msgEstado.progressao = r.progressao || null;
 
     alvo.innerHTML = `<h2>Mensagens</h2>
       <div class="subabas" id="sub-msg" role="tablist">
@@ -5339,6 +5340,19 @@ function msgPainelModelos(){
           `<button class="chip" type="button" data-marcador="${x.chave}"
             title="${esc(x.descricao)}${x.exemplo?' · vira \''+esc(x.exemplo)+'\'':''}">{{${x.chave}}}</button>`).join('')}</div></div>
 
+      <div class="campo" id="mm-progresso-exemplos" ${gatilho==='progressao'?'':'hidden'}>
+        <label>O que o {{progresso}} vira em cada envio</label>
+        <p class="ajuda">O {{progresso}} não é um texto fixo: o sistema escolhe a frase pela
+          etapa do mês e pela situação de cada aluno. Exemplos com números fictícios
+          (o aluno recebe os números dele).${msgEstado.progressao
+            ? ` Hoje vale: <b>${esc(msgEstado.progressao.etapaDeHoje)}</b>.` : ''}</p>
+        ${(msgEstado.progressao ? msgEstado.progressao.lista : []).map(x=>`
+          <div style="border:1px solid var(--linha);border-radius:8px;padding:8px 10px;margin:6px 0">
+            <div style="font-size:.8em;opacity:.7;margin-bottom:3px">${esc(x.etapa)} · <b>${esc(x.caso)}</b></div>
+            <div>${esc(x.texto)}</div></div>`).join('')}
+        <p class="ajuda">Quem já fechou o pacote do mês não recebe esta mensagem
+          (já ganhou a "Meta do mês").</p></div>
+
       <div class="campo"><label for="mm-ativo">Situação</label>
         <select id="mm-ativo"><option value="1"${m.ativo===false?'':' selected'}>Ligado</option>
           <option value="0"${m.ativo===false?' selected':''}>Desligado</option></select></div>
@@ -5372,6 +5386,8 @@ function msgAtualizarForm(){
   if (ds) ds.hidden = gatilho !== 'dia_da_semana';
   const ap = document.getElementById('mm-ajuda-progressao');
   if (ap) ap.hidden = gatilho !== 'progressao';
+  const pe = document.getElementById('mm-progresso-exemplos');
+  if (pe) pe.hidden = !(modo === 'recorrente' && gatilho === 'progressao');
   // Régua de progressão: já deixa público e texto prontos, sem sobrescrever o
   // que você tiver escrito.
   if (modo === 'recorrente' && gatilho === 'progressao') {
