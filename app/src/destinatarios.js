@@ -331,6 +331,10 @@ function etapaDaProgressao(hoje = frequencia.hojeLocal()) {
  * Os dias que restam são corridos: o check-in vale qualquer dia.
  * Os textos de cada etapa ficam em TEXTOS_PROGRESSAO, para revisar num lugar só.
  */
+const ESQUECEU = 'Esqueceu algum check-in? Dá para fazer depois, até no fim de semana.';
+const atrasoTxt = (n) => (n ? `${n} ${plural(n, 'check-in', 'check-ins')} atrás do ritmo`
+  : 'no limite do ritmo');
+
 const TEXTOS_PROGRESSAO = {
   // ---- EM DIA ----
   emDia: {
@@ -341,30 +345,22 @@ const TEXTOS_PROGRESSAO = {
       + `${faltam} ${plural(faltam, 'check-in', 'check-ins')} para fechar o pacote. Obrigado pela constância! 💪`,
   },
   // ---- ATRASADO / CRÍTICO ----
+  //   Um número só por mensagem (a abertura já diz "fez X de Y"): começo e
+  //   metade falam de quantos está atrás; a reta final, de quantos faltam.
   atrasado: {
-    1: ({ devido, atraso, faltam, dias }) => `Pelo ritmo do mês, até hoje seriam ${devido} `
-      + `${plural(devido, 'check-in', 'check-ins')}${atraso ? ` — você está ${atraso} ${plural(atraso, 'check-in', 'check-ins')} atrás` : ''}. `
-      + `O mês está só começando: ${plural(faltam, 'falta', 'faltam')} ${faltam} ${plural(faltam, 'check-in', 'check-ins')} `
-      + `e ${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')}, dá para recuperar com tranquilidade. `
-      + 'Veio e esqueceu o check-in? Dá para fazer depois, até no fim de semana.',
-    2: ({ devido, atraso, faltam, dias }) => `Chegamos na metade do mês: pelo ritmo, até hoje seriam ${devido} `
-      + `${plural(devido, 'check-in', 'check-ins')}${atraso ? ` e você está ${atraso} ${plural(atraso, 'check-in', 'check-ins')} atrás` : ''}. `
-      + `${plural(faltam, 'Falta', 'Faltam')} ${faltam} ${plural(faltam, 'check-in', 'check-ins')} para fechar o mês e `
-      + `${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')} — esta semana é a hora de recuperar! `
-      + 'Veio e esqueceu o check-in? Dá para fazer depois, até no fim de semana.',
-    3: ({ atraso, faltam, dias }) => `Reta final do mês: ${plural(faltam, 'falta', 'faltam')} ${faltam} `
-      + `${plural(faltam, 'check-in', 'check-ins')} para fechar o pacote e ${plural(dias, 'resta', 'restam')} `
-      + `${dias} ${plural(dias, 'dia', 'dias')}${atraso ? ` (você está ${atraso} ${plural(atraso, 'check-in', 'check-ins')} atrás do ritmo)` : ''}. `
-      + 'Vamos fechar juntos? Se precisar de um horário extra, é só responder aqui que a gente encaixa. '
-      + 'E se veio e esqueceu o check-in, dá para fazer depois, até no fim de semana.',
+    1: ({ atraso }) => `O mês está só começando e você está ${atrasoTxt(atraso)} — dá para `
+      + `recuperar com tranquilidade! ${ESQUECEU}`,
+    2: ({ atraso }) => `Chegamos na metade do mês e você está ${atrasoTxt(atraso)} — esta semana `
+      + `é a hora de recuperar! ${ESQUECEU}`,
+    3: ({ faltam }) => `Reta final do mês: ${plural(faltam, 'falta', 'faltam')} ${faltam} `
+      + `${plural(faltam, 'check-in', 'check-ins')} para fechar o pacote. Se precisar de um horário `
+      + `extra, é só responder aqui que a gente encaixa. ${ESQUECEU}`,
   },
-  // Pacote fechado vale em qualquer etapa.
+  // Pacote fechado vale em qualquer etapa (hoje fica fora do público da régua).
   quitado: () => 'Pacote do mês fechado — obrigado pela constância! 💪',
-  // Não cabe mais no mês (faltam mais treinos do que dias): não prometer recuperação.
-  semTempo: ({ faltam, dias }) => `${plural(faltam, 'Falta', 'Faltam')} ${faltam} `
-    + `${plural(faltam, 'check-in', 'check-ins')} e ${plural(dias, 'resta', 'restam')} ${dias} `
-    + `${plural(dias, 'dia', 'dias')}, então o pacote inteiro já não fecha este mês — mas cada check-in `
-    + 'ainda conta! Se quiser ajustar seus horários, é só responder aqui.',
+  // Não cabe mais no mês (faltam mais check-ins do que dias): não prometer recuperação.
+  semTempo: () => 'Este mês o pacote já não fecha, mas cada check-in ainda conta! '
+    + 'Se quiser ajustar seus horários, é só responder aqui.',
 };
 
 function frasePorSituacao(aluno, etapa = etapaDaProgressao()) {
