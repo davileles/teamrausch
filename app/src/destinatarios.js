@@ -310,30 +310,76 @@ function dataCurta(iso) {
 const plural = (n, um, varios) => (Number(n) === 1 ? um : varios);
 
 /**
- * Frase do {{progresso}}. Dois tipos só: quem está em dia (ou já fechou o
- * pacote) recebe um agradecimento; quem está atrás do ritmo (atrasado ou
- * crítico) recebe um aviso curto do quanto falta, para tentar recuperar.
- * Os dias que restam são corridos: o check-in vale qualquer dia.
+ * Em que etapa da régua "Progressão do mês" estamos: 1 (25% dos úteis,
+ * começo do mês), 2 (50%, metade) ou 3 (75%, reta final). Conta quantos
+ * marcos do mês já chegaram até hoje — assim o envio manual entre dois
+ * marcos usa o texto da última etapa que passou. Antes do 1º marco, vale 1.
  */
-function frasePorSituacao(aluno) {
-  const faltam = Number(aluno.faltamNoMes || 0);
-  const dias = Number(aluno.diasRestantes || 0);
-  const devido = Number(aluno.devidoAteHoje || 0);
-  const atraso = Number(aluno.atrasoNoRitmo || 0);
+function etapaDaProgressao(hoje = frequencia.hojeLocal()) {
+  const marcos = frequencia.marcosDeProgressao(hoje);
+  const passados = marcos.filter((d) => d <= hoje).length;
+  return Math.min(Math.max(passados, 1), 3);
+}
 
+/**
+ * Frase do {{progresso}}: muda pela ETAPA do mês (começo, metade, reta final)
+ * e pela SITUAÇÃO do aluno. Dois tipos de mensagem só:
+ *   - em dia (ou pacote fechado) → agradecimento;
+ *   - atrasado ou crítico        → aviso curto do quanto falta, para recuperar.
+ * Os dias que restam são corridos: o check-in vale qualquer dia.
+ * Os textos de cada etapa ficam em TEXTOS_PROGRESSAO, para revisar num lugar só.
+ */
+const TEXTOS_PROGRESSAO = {
+  // ---- EM DIA ----
+  emDia: {
+    1: () => 'Você começou o mês no ritmo certo — obrigado pela constância! Bora manter! 💪',
+    2: () => 'Chegamos na metade do mês e você está em dia — obrigado pela constância! '
+      + 'Segue assim que o mês fecha redondo. 💪',
+    3: ({ faltam }) => `Reta final do mês e você está em dia! ${plural(faltam, 'Falta', 'Faltam')} só `
+      + `${faltam} ${plural(faltam, 'treino', 'treinos')} para fechar o pacote. Obrigado pela constância! 💪`,
+  },
+  // ---- ATRASADO / CRÍTICO ----
+  atrasado: {
+    1: ({ devido, atraso, faltam, dias }) => `Pelo ritmo do mês, até hoje seriam ${devido} `
+      + `${plural(devido, 'treino', 'treinos')}${atraso ? ` — você está ${atraso} ${plural(atraso, 'treino', 'treinos')} atrás` : ''}. `
+      + `O mês está só começando: ${plural(faltam, 'falta', 'faltam')} ${faltam} ${plural(faltam, 'treino', 'treinos')} `
+      + `e ${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')}, dá para recuperar com tranquilidade. `
+      + 'Veio e esqueceu o check-in? Dá para fazer depois, até no fim de semana.',
+    2: ({ devido, atraso, faltam, dias }) => `Chegamos na metade do mês: pelo ritmo, até hoje seriam ${devido} `
+      + `${plural(devido, 'treino', 'treinos')}${atraso ? ` e você está ${atraso} ${plural(atraso, 'treino', 'treinos')} atrás` : ''}. `
+      + `${plural(faltam, 'Falta', 'Faltam')} ${faltam} ${plural(faltam, 'treino', 'treinos')} para fechar o mês e `
+      + `${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')} — esta semana é a hora de recuperar! `
+      + 'Veio e esqueceu o check-in? Dá para fazer depois, até no fim de semana.',
+    3: ({ atraso, faltam, dias }) => `Reta final do mês: ${plural(faltam, 'falta', 'faltam')} ${faltam} `
+      + `${plural(faltam, 'treino', 'treinos')} para fechar o pacote e ${plural(dias, 'resta', 'restam')} `
+      + `${dias} ${plural(dias, 'dia', 'dias')}${atraso ? ` (você está ${atraso} ${plural(atraso, 'treino', 'treinos')} atrás do ritmo)` : ''}. `
+      + 'Vamos fechar juntos? Se precisar de um horário extra, é só responder aqui que a gente encaixa. '
+      + 'E se veio e esqueceu o check-in, dá para fazer depois, até no fim de semana.',
+  },
+  // Pacote fechado vale em qualquer etapa.
+  quitado: () => 'Pacote do mês fechado — obrigado pela constância! 💪',
+  // Não cabe mais no mês (faltam mais treinos do que dias): não prometer recuperação.
+  semTempo: ({ faltam, dias }) => `${plural(faltam, 'Falta', 'Faltam')} ${faltam} `
+    + `${plural(faltam, 'treino', 'treinos')} e ${plural(dias, 'resta', 'restam')} ${dias} `
+    + `${plural(dias, 'dia', 'dias')}, então o pacote inteiro já não fecha este mês — mas cada treino `
+    + 'ainda conta! Se quiser ajustar seus horários, é só responder aqui.',
+};
+
+function frasePorSituacao(aluno, etapa = etapaDaProgressao()) {
+  const v = {
+    faltam: Number(aluno.faltamNoMes || 0),
+    dias: Number(aluno.diasRestantes || 0),
+    devido: Number(aluno.devidoAteHoje || 0),
+    atraso: Number(aluno.atrasoNoRitmo || 0),
+  };
   if (aluno.situacao === 'atrasado' || aluno.situacao === 'critico') {
-    return `Pelo ritmo do mês, até hoje seriam ${devido} ${plural(devido, 'treino', 'treinos')}`
-      + (atraso ? ` — você está ${atraso} ${plural(atraso, 'treino', 'treinos')} atrás. ` : '. ')
-      + `${plural(faltam, 'Falta', 'Faltam')} ${faltam} ${plural(faltam, 'treino', 'treinos')} `
-      + `para fechar o mês e ${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')} — `
-      + 'ainda dá para recuperar! Veio e esqueceu o check-in? Dá para fazer em outro horário, '
-      + 'até no fim de semana.';
+    if (v.faltam > v.dias) return TEXTOS_PROGRESSAO.semTempo(v);
+    return TEXTOS_PROGRESSAO.atrasado[etapa](v);
   }
-  if (aluno.situacao === 'em-dia' || aluno.situacao === 'quitado') {
-    return faltam
-      ? 'Você está dentro do ritmo do mês — obrigado pela constância! Bora manter! 💪'
-      : 'Pacote do mês fechado — obrigado pela constância! 💪';
+  if (aluno.situacao === 'quitado' || (aluno.situacao === 'em-dia' && !v.faltam)) {
+    return TEXTOS_PROGRESSAO.quitado(v);
   }
+  if (aluno.situacao === 'em-dia') return TEXTOS_PROGRESSAO.emDia[etapa](v);
   return '';
 }
 
@@ -351,7 +397,7 @@ function preencher(texto, aluno, extras = {}) {
     ultimoTreino: dataCurta(aluno.ultimoCheckin),
     diasAteFimDoMes: aluno.diasRestantes,
     treinosAteHoje: aluno.devidoAteHoje,
-    progresso: frasePorSituacao(aluno),
+    progresso: frasePorSituacao(aluno, extras.etapaProgressao),
     plano: aluno.vinculo === 'wellhub' ? 'Wellhub' : 'mensalista',
 
     /* --- NOMES ANTIGOS, MANTIDOS DE PROPÓSITO ---
@@ -397,7 +443,7 @@ const MARCADORES = [
   { chave: 'diasSemTreinar', descricao: 'Há quantos dias não aparece', exemplo: '9' },
   { chave: 'ultimoTreino', descricao: 'Data do último treino — "18/08"', exemplo: '18/08' },
   { chave: 'treinosAteHoje', descricao: 'Quantos treinos o ritmo do mês pedia até hoje', exemplo: '5' },
-  { chave: 'progresso', descricao: 'Frase automática: agradecimento para quem está em dia, aviso de atraso para quem está atrás do ritmo', exemplo: 'Você está dentro do ritmo do mês — obrigado pela constância! Bora manter! 💪' },
+  { chave: 'progresso', descricao: 'Frase automática que muda no começo, na metade e na reta final do mês: agradecimento para quem está em dia, aviso de atraso para quem está atrás do ritmo', exemplo: 'Você está dentro do ritmo do mês — obrigado pela constância! Bora manter! 💪' },
   { chave: 'diasAteFimDoMes', descricao: 'Quantos dias ainda restam no mês', exemplo: '11' },
   { chave: 'plano', descricao: 'Wellhub ou mensalista', exemplo: 'Wellhub' },
 ];
