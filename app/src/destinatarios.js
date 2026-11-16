@@ -226,9 +226,11 @@ function montar(publico = 'todos', opcoes = {}) {
     } else if (publico === 'progressao') {
       // TODOS OS ALUNOS WELLHUB COM PACOTE, NÃO SÓ OS ATRASADOS
       //   A régua de progressão avisa cada um de como está o mês — em dia,
-      //   atrasado, crítico ou pacote fechado — antes da cobrança da 2ª
+      //   atrasado ou crítico — antes da cobrança da 2ª
       //   quinzena. Experimental e ficha sem grade não têm combinado a medir.
-      const FORA = new Set(['experimental', 'sem-grade', 'sem-aula']);
+      // Pacote fechado também fica de fora: quem bate a meta já recebe a
+      // mensagem "Meta do mês" na hora, e não precisa de outra nos marcos.
+      const FORA = new Set(['experimental', 'sem-grade', 'sem-aula', 'quitado']);
       ids = new Set(painel.alunos
         .filter((a) => a.vinculo === 'wellhub' && !FORA.has(a.situacao) && a.mes && a.mes.meta)
         .map((a) => a.matriculaId));
@@ -336,23 +338,23 @@ const TEXTOS_PROGRESSAO = {
     2: () => 'Chegamos na metade do mês e você está em dia — obrigado pela constância! '
       + 'Segue assim que o mês fecha redondo. 💪',
     3: ({ faltam }) => `Reta final do mês e você está em dia! ${plural(faltam, 'Falta', 'Faltam')} só `
-      + `${faltam} ${plural(faltam, 'treino', 'treinos')} para fechar o pacote. Obrigado pela constância! 💪`,
+      + `${faltam} ${plural(faltam, 'check-in', 'check-ins')} para fechar o pacote. Obrigado pela constância! 💪`,
   },
   // ---- ATRASADO / CRÍTICO ----
   atrasado: {
     1: ({ devido, atraso, faltam, dias }) => `Pelo ritmo do mês, até hoje seriam ${devido} `
-      + `${plural(devido, 'treino', 'treinos')}${atraso ? ` — você está ${atraso} ${plural(atraso, 'treino', 'treinos')} atrás` : ''}. `
-      + `O mês está só começando: ${plural(faltam, 'falta', 'faltam')} ${faltam} ${plural(faltam, 'treino', 'treinos')} `
+      + `${plural(devido, 'check-in', 'check-ins')}${atraso ? ` — você está ${atraso} ${plural(atraso, 'check-in', 'check-ins')} atrás` : ''}. `
+      + `O mês está só começando: ${plural(faltam, 'falta', 'faltam')} ${faltam} ${plural(faltam, 'check-in', 'check-ins')} `
       + `e ${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')}, dá para recuperar com tranquilidade. `
       + 'Veio e esqueceu o check-in? Dá para fazer depois, até no fim de semana.',
     2: ({ devido, atraso, faltam, dias }) => `Chegamos na metade do mês: pelo ritmo, até hoje seriam ${devido} `
-      + `${plural(devido, 'treino', 'treinos')}${atraso ? ` e você está ${atraso} ${plural(atraso, 'treino', 'treinos')} atrás` : ''}. `
-      + `${plural(faltam, 'Falta', 'Faltam')} ${faltam} ${plural(faltam, 'treino', 'treinos')} para fechar o mês e `
+      + `${plural(devido, 'check-in', 'check-ins')}${atraso ? ` e você está ${atraso} ${plural(atraso, 'check-in', 'check-ins')} atrás` : ''}. `
+      + `${plural(faltam, 'Falta', 'Faltam')} ${faltam} ${plural(faltam, 'check-in', 'check-ins')} para fechar o mês e `
       + `${plural(dias, 'resta', 'restam')} ${dias} ${plural(dias, 'dia', 'dias')} — esta semana é a hora de recuperar! `
       + 'Veio e esqueceu o check-in? Dá para fazer depois, até no fim de semana.',
     3: ({ atraso, faltam, dias }) => `Reta final do mês: ${plural(faltam, 'falta', 'faltam')} ${faltam} `
-      + `${plural(faltam, 'treino', 'treinos')} para fechar o pacote e ${plural(dias, 'resta', 'restam')} `
-      + `${dias} ${plural(dias, 'dia', 'dias')}${atraso ? ` (você está ${atraso} ${plural(atraso, 'treino', 'treinos')} atrás do ritmo)` : ''}. `
+      + `${plural(faltam, 'check-in', 'check-ins')} para fechar o pacote e ${plural(dias, 'resta', 'restam')} `
+      + `${dias} ${plural(dias, 'dia', 'dias')}${atraso ? ` (você está ${atraso} ${plural(atraso, 'check-in', 'check-ins')} atrás do ritmo)` : ''}. `
       + 'Vamos fechar juntos? Se precisar de um horário extra, é só responder aqui que a gente encaixa. '
       + 'E se veio e esqueceu o check-in, dá para fazer depois, até no fim de semana.',
   },
@@ -360,8 +362,8 @@ const TEXTOS_PROGRESSAO = {
   quitado: () => 'Pacote do mês fechado — obrigado pela constância! 💪',
   // Não cabe mais no mês (faltam mais treinos do que dias): não prometer recuperação.
   semTempo: ({ faltam, dias }) => `${plural(faltam, 'Falta', 'Faltam')} ${faltam} `
-    + `${plural(faltam, 'treino', 'treinos')} e ${plural(dias, 'resta', 'restam')} ${dias} `
-    + `${plural(dias, 'dia', 'dias')}, então o pacote inteiro já não fecha este mês — mas cada treino `
+    + `${plural(faltam, 'check-in', 'check-ins')} e ${plural(dias, 'resta', 'restam')} ${dias} `
+    + `${plural(dias, 'dia', 'dias')}, então o pacote inteiro já não fecha este mês — mas cada check-in `
     + 'ainda conta! Se quiser ajustar seus horários, é só responder aqui.',
 };
 
