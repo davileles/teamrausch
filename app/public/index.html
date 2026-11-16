@@ -415,6 +415,10 @@
      lado e o formulário, que era um corredor de 2.000px, cabe numa tela. */
   .painel-config .col-a > h3:first-of-type{margin-top:6px}
   .painel-config .colunas > div{min-width:0}
+  /* Separador de assunto dentro das Configurações (Estúdio, Agenda, Mensagens…) */
+  .grupo-cfg{font:400 20px Anton,sans-serif;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--texto);margin:44px 0 0;padding-top:18px;border-top:2px solid var(--linha-2)}
+  .painel-config .grupo-cfg:first-child{margin-top:4px;padding-top:0;border-top:0}
   /* Salvar sempre à mão: gruda logo acima das abas enquanto o formulário rola. */
   #btn-salvar{position:sticky;bottom:calc(62px + env(safe-area-inset-bottom));z-index:40;
     box-shadow:var(--sombra-fixa)}
@@ -811,10 +815,8 @@
       grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:8px}
     #tela-app.larga .dupla{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
     #tela-app.larga #aba-dia > .campo{max-width:320px}
-    /* Configurações em duas colunas */
-    #tela-app.larga .painel-config .colunas{display:grid;grid-template-columns:1fr 1fr;
-      gap:0 36px;align-items:start}
-    #tela-app.larga .painel-config .col-b > h3:first-of-type{margin-top:6px}
+    /* Configurações: uma coluna só, na ordem (duas colunas misturavam assuntos) */
+    #tela-app.larga .painel-config .colunas{max-width:760px}
     #tela-app.larga .linha-c{grid-template-columns:96px 72px minmax(0,1fr) auto}
     #tela-app.larga .linha-c .c-titulo,#tela-app.larga .linha-c button{grid-column:auto}
     /* Lotação: a lista de quem está na turma abre ao lado da tabela, não embaixo */
@@ -6072,6 +6074,7 @@ async function carregarConfig(){
       <div class="painel-config" data-painel="negocio">
       <div class="colunas"><div class="col-a">
 
+      <h2 class="grupo-cfg" style="margin-top:4px;padding-top:0;border-top:0">Estúdio e avisos</h2>
       <h3>Estúdio</h3>
       <div class="campo"><label for="c-nome">Nome</label><input id="c-nome" value="${esc(c.estudio.nome)}"></div>
       <h3>Recado fixo</h3>
@@ -6144,6 +6147,7 @@ async function carregarConfig(){
         <p class="ajuda">Gerado no Google Cast Developer Console. Com ele salvo, aparece no
           canto do tablet da entrada o botão que liga o mural na TV.</p></div>
 
+      <h2 class="grupo-cfg">Agenda</h2>
       <h3>Regras de agendamento</h3>
       <div class="dupla">
         <div class="campo"><label for="c-antec">Dias abertos além de hoje</label>
@@ -6218,6 +6222,7 @@ async function carregarConfig(){
         </details>`).join('')}
       </div>
 
+      <h2 class="grupo-cfg">Conquistas e equipe</h2>
       <h3>Conquistas</h3>
       <p class="ajuda">Marcos que o aluno vê na aba Meus dados. Ele ganha a conquista ao
         atingir o número de <b>aulas em que apareceu</b> — presença confirmada no tablet
@@ -6263,6 +6268,7 @@ async function carregarConfig(){
         <p class="ajuda">Separe por vírgula. Quem está aqui vê as abas Lista do dia,
           Alunos e Configurações. Você não pode tirar o seu próprio número.</p></div>
 
+      <h2 class="grupo-cfg">Wellhub e cobrança</h2>
       <h3>Repasse do Wellhub</h3>
       <p class="ajuda">Quanto o Wellhub paga por check-in validado, em cada produto. O portal
         já manda no check-in qual dos dois o aluno marcou, então basta o valor: a aba
@@ -6333,6 +6339,7 @@ async function carregarConfig(){
         <p class="ajuda">O que o botão "Cobrar" da aba Frequência sugere. Aceita
           {{nome}}, {{mesRealizado}} e {{mesEsperado}}.</p></div>
 
+      <h2 class="grupo-cfg">Mensagens aos alunos</h2>
       <h3>Agradecimento pela meta do mês</h3>
       <p class="ajuda">Quando o aluno Wellhub fecha os check-ins combinados no mês — 8 para
         quem treina 2x por semana, 12 para quem treina 3x — ele recebe um obrigado no
@@ -6455,6 +6462,7 @@ async function carregarConfig(){
           <p class="ajuda">Acima disso o aviso corta e diz quantos sobraram.</p></div>
       </div>
 
+      <h2 class="grupo-cfg">Avisos para o estúdio</h2>
       <h3>Avisos de operação</h3>
       <p class="ajuda">Fila do Wellhub esperando confirmação, falha ao confirmar, sessão do
         portal recusada e a cobrança de frequência. Check-in confirmado com sucesso
@@ -6487,6 +6495,7 @@ async function carregarConfig(){
         No dia a dia do estúdio você não precisa tocar em nada aqui.</div>
       <div class="colunas"><div class="col-a">
 
+      <h2 class="grupo-cfg">Servidor e acesso</h2>
       <h3>Servidor</h3>
       <div class="campo"><label for="c-fuso">Fuso horário</label><input id="c-fuso" value="${esc(c.estudio.fuso)}">
         <p class="ajuda">Base de todos os horários. Ex: America/Sao_Paulo.</p></div>
@@ -6543,6 +6552,7 @@ async function carregarConfig(){
 
       </div><div class="col-b">
 
+      <h2 class="grupo-cfg">WhatsApp e backup</h2>
       <h3>Envio do código</h3>
       <p class="ajuda">Um POST em JSON. Serve para o seu servidor de WhatsApp e para provedores de SMS.</p>
       <div class="campo"><label for="c-url">Endereço</label>
