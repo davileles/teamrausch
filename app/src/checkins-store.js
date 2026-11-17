@@ -289,6 +289,18 @@ function vincularAutomatico(reg) {
   if (achado.via !== 'wellhub-id' && reg.gympassId && !achado.matricula.gympassId) {
     matriculas.definirGympassId(achado.matricula.id, reg.gympassId);
     log(`${achado.matricula.nome}: Wellhub ID ${reg.gympassId} vinculado pelo ${achado.via === 'titular' ? 'titular da conta' : 'nome'}.`);
+    // Os check-ins anteriores do mesmo ID ficaram órfãos enquanto o nome não
+    // casava. Sem arrastá-los aqui, só o de hoje contava (caso Tatiana Turani
+    // Marques, nov/2026: ligada no dia 9, os de 1 a 8 sumiam da contagem).
+    let arrastados = 0;
+    for (const outro of dados.checkins) {
+      if (outro === reg || outro.matriculaId) continue;
+      if (String(outro.gympassId) !== String(reg.gympassId)) continue;
+      outro.matriculaId = achado.matricula.id;
+      outro.vinculadoPor = 'wellhub-id';
+      arrastados += 1;
+    }
+    if (arrastados) log(`${achado.matricula.nome}: ${arrastados} check-in(s) anterior(es) do mesmo ID religado(s).`);
   }
 
   // Casou pelo titular: o nome que veio no check-in é de quem assina o plano,
@@ -529,6 +541,39 @@ function revincularOrfaos() {
   }
   if (ligados) gravar();
   return { ligados, restantes: dados.checkins.filter((c) => !c.matriculaId).length };
+}
+
+/**
+ * Solta os check-ins presos a uma ficha que não existe mais e tenta de novo.
+ *
+ * Apagar uma ficha de vez (`?remover=1`) tirava a matrícula da base, mas os
+ * check-ins continuavam apontando para o id dela. Como já tinham dono, nenhuma
+ * passada de órfãos olhava para eles: o aluno treinava, o Wellhub pagava e o
+ * treino sumia da contagem da ficha nova (caso Mariana Luzia Pessoa, nov/2026:
+ * 3, 4 e 5/nov presos numa ficha apagada; a mensagem dizia 3 check-ins, eram 6).
+ *
+ * Com `matriculaId`, solta só os dessa ficha (chamado ao apagar). Sem, varre a
+ * base inteira (boot). Depois religa pelo caminho normal — id do Wellhub já
+ * gravado na ficha certa, depois nome.
+ */
+function soltarDeFichasApagadas(matriculaId = null) {
+  let soltos = 0;
+  for (const c of dados.checkins) {
+    if (!c.matriculaId) continue;
+    const alvo = matriculaId ? c.matriculaId === matriculaId : !matriculas.porId(c.matriculaId);
+    if (!alvo) continue;
+    c.matriculaId = null;
+    c.nomeMatricula = null;
+    c.vinculadoPor = null;
+    soltos += 1;
+  }
+  // Roda mesmo sem nada solto: no boot isso religa também os órfãos antigos
+  // de quem já tem o ID do Wellhub gravado na ficha.
+  const r = revincularOrfaos();
+  if (!soltos && !r.ligados) return { soltos: 0, ligados: 0 };
+  gravar();
+  log(`${soltos} check-in(s) de ficha apagada solto(s), ${r.ligados} órfão(s) religado(s).`);
+  return { soltos, ligados: r.ligados };
 }
 
 /* ---------------------------- backfill do mês ----------------------------- */
@@ -783,7 +828,10 @@ semear()
   }))
   .then(() => {
     try {
-      if (dados.checkins.length) aplicarNomesDoPortal();
+      if (dados.checkins.length) {
+        soltarDeFichasApagadas();
+        aplicarNomesDoPortal();
+      }
     } catch (e) {
       console.error('[checkins] varredura de nomes falhou:', e.message);
     }
@@ -791,7 +839,7 @@ semear()
 setInterval(() => limparAntigos(), 24 * 3600000).unref();
 
 module.exports = {
-  registrar, registrarLote, porId, vincular, desvincular, revincularOrfaos,
+  registrar, registrarLote, porId, vincular, desvincular, revincularOrfaos, soltarDeFichasApagadas,
   importarHistorico, pessoas, reatribuir, moverMatricula, quantosDaMatricula,
   listar, datasDaMatricula, mapaPorMatricula, ultimoDaMatricula, aplicarNomesDoPortal,
   produtoPorMatricula,

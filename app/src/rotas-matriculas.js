@@ -762,7 +762,11 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
       ? store.remover(req.params.id)
       : store.inativar(req.params.id);
     if (!r.ok) return res.status(404).json({ erro: r.motivo });
-    res.json({ ok: true, removida: req.query.remover === '1' });
+    // Apagada de vez: os check-ins dela voltam a ser órfãos e procuram outra
+    // ficha, senão ficam presos a um id que não existe e somem da contagem.
+    const soltos = req.query.remover === '1'
+      ? checkins.soltarDeFichasApagadas(req.params.id) : null;
+    res.json({ ok: true, removida: req.query.remover === '1', checkins: soltos });
   });
 
   /* -------------------------------- grade -------------------------------- */
