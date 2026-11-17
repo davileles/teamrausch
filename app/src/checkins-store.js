@@ -234,14 +234,17 @@ function acharMatricula(reg) {
   // pareça: "Gabriela Anchieta Souza Silva" abreviada vira "Gabriela Silva" e
   // casava com a "Gabriela Esteves da Silva" (nov/2026). Nome só decide entre
   // fichas sem id ou com o mesmo id.
+  //   Nome completo idêntico continua valendo mesmo com id diferente: é a
+  //   mesma pessoa que trocou de conta no Wellhub (Rafaela, Simone — nov/2026).
   const compativel = (m) => !reg.gympassId || !m.gympassId
     || String(m.gympassId) === String(reg.gympassId);
-  lista = lista.filter(compativel);
 
   const candidatos = lista.filter((m) => m.ativo && viaNome(m, alvo));
   if (candidatos.length === 1) {
     return { matricula: candidatos[0], via: viaNome(candidatos[0], alvo) };
   }
+  // Daqui para baixo o nome é aproximado: só fichas sem id ou com o mesmo id.
+  lista = lista.filter(compativel);
 
   // Nome não bate exato: tenta primeiro + último sobrenome, que é como o
   // portal costuma abreviar. Ainda exigindo candidato único.
@@ -596,6 +599,9 @@ function desfazerVinculosConflitantes() {
     if (!c.matriculaId || !c.gympassId || c.vinculadoPor === 'manual') continue;
     const m = matriculas.porId(c.matriculaId);
     if (!m || !m.gympassId || String(m.gympassId) === String(c.gympassId)) continue;
+    // Mesmo nome completo = mesma pessoa com outra conta do Wellhub: fica.
+    const n = normalizarNome(c.nome);
+    if (n && nomesDaFicha(m).some((x) => x.nome === n)) continue;
     afetados.set(`${m.nome} ← ${c.nome}`, (afetados.get(`${m.nome} ← ${c.nome}`) || 0) + 1);
     c.matriculaId = null;
     c.nomeMatricula = null;
