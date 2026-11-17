@@ -756,17 +756,18 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     res.json({ ok: true, acessos: acessosSoltos() });
   });
 
-  /** Padrão é inativar (preserva histórico). ?remover=1 apaga de vez. */
+  /**
+   * DELETE só inativa. Ficha não se apaga (nov/2026): apagar deixava os
+   * check-ins presos a um id inexistente e eles sumiam da contagem do aluno.
+   * Cadastro em dobro se resolve com /:id/mesclar, que leva os check-ins.
+   */
   rotas.delete('/:id', (req, res) => {
-    const r = req.query.remover === '1'
-      ? store.remover(req.params.id)
-      : store.inativar(req.params.id);
+    if (req.query.remover === '1') {
+      return res.status(400).json({ erro: 'Ficha não se exclui. Inative, ou use "Ficha duplicada" para juntar com a outra.' });
+    }
+    const r = store.inativar(req.params.id);
     if (!r.ok) return res.status(404).json({ erro: r.motivo });
-    // Apagada de vez: os check-ins dela voltam a ser órfãos e procuram outra
-    // ficha, senão ficam presos a um id que não existe e somem da contagem.
-    const soltos = req.query.remover === '1'
-      ? checkins.soltarDeFichasApagadas(req.params.id) : null;
-    res.json({ ok: true, removida: req.query.remover === '1', checkins: soltos });
+    res.json({ ok: true, removida: false });
   });
 
   /* -------------------------------- grade -------------------------------- */

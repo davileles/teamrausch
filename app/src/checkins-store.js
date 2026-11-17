@@ -220,7 +220,7 @@ function viaNome(m, alvo, curto = false) {
  * "Ana Paula" na base derrubam a tentativa em vez de sortear um.
  */
 function acharMatricula(reg) {
-  const lista = matriculas.listar();
+  let lista = matriculas.listar();
 
   if (reg.gympassId) {
     const porId = lista.find((m) => String(m.gympassId || '') === String(reg.gympassId));
@@ -229,6 +229,14 @@ function acharMatricula(reg) {
 
   const alvo = normalizarNome(reg.nome);
   if (!alvo) return null;
+
+  // Ficha que já tem OUTRO id do Wellhub é de outra pessoa, por mais que o nome
+  // pareça: "Gabriela Anchieta Souza Silva" abreviada vira "Gabriela Silva" e
+  // casava com a "Gabriela Esteves da Silva" (nov/2026). Nome só decide entre
+  // fichas sem id ou com o mesmo id.
+  const compativel = (m) => !reg.gympassId || !m.gympassId
+    || String(m.gympassId) === String(reg.gympassId);
+  lista = lista.filter(compativel);
 
   const candidatos = lista.filter((m) => m.ativo && viaNome(m, alvo));
   if (candidatos.length === 1) {
@@ -576,6 +584,29 @@ function soltarDeFichasApagadas(matriculaId = null) {
   return { soltos, ligados: r.ligados };
 }
 
+/**
+ * Desfaz vínculo automático feito pelo nome com uma ficha que tem outro id do
+ * Wellhub. Vínculo manual fica (é decisão sua na tela). O check-in volta a ser
+ * órfão; a varredura de nomes que roda em seguida devolve à ficha o nome do
+ * check-in dela mesma.
+ */
+function desfazerVinculosConflitantes() {
+  const afetados = new Map();
+  for (const c of dados.checkins) {
+    if (!c.matriculaId || !c.gympassId || c.vinculadoPor === 'manual') continue;
+    const m = matriculas.porId(c.matriculaId);
+    if (!m || !m.gympassId || String(m.gympassId) === String(c.gympassId)) continue;
+    afetados.set(`${m.nome} ← ${c.nome}`, (afetados.get(`${m.nome} ← ${c.nome}`) || 0) + 1);
+    c.matriculaId = null;
+    c.nomeMatricula = null;
+    c.vinculadoPor = null;
+  }
+  if (!afetados.size) return 0;
+  gravar();
+  for (const [par, n] of afetados) log(`vínculo errado desfeito: ${par} (${n} check-in(s)).`);
+  return afetados.size;
+}
+
 /* ---------------------------- backfill do mês ----------------------------- */
 
 /**
@@ -829,6 +860,7 @@ semear()
   .then(() => {
     try {
       if (dados.checkins.length) {
+        desfazerVinculosConflitantes();
         soltarDeFichasApagadas();
         aplicarNomesDoPortal();
       }

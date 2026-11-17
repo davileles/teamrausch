@@ -2380,7 +2380,6 @@ function fichaMatricula(m){
       <button class="leve mf-salvar">${novo ? 'Cadastrar' : 'Salvar'}</button>
       <button class="leve mf-cancelar">Cancelar</button>
       ${novo ? '' : `<button class="leve mf-inativar">${m.ativo?'Inativar':'Reativar'}</button>`}
-      ${novo || m.ativo ? '' : `<button class="leve mf-excluir">Excluir de vez</button>`}
     </div>
   </div>`;
 }
@@ -2754,18 +2753,9 @@ function ligarFicha(el, id){
     }catch(e){ avisar(e.message,'erro'); }
   });
 
-  // Só para ficha inativa. Apagar de vez leva junto faltas e aulas extras; os
-  // check-ins ficam sem dono — por isso, se a ficha tem histórico, mesclar é
-  // o caminho certo.
-  const exc = el.querySelector('.mf-excluir');
-  if (exc) exc.addEventListener('click', async ()=>{
-    if (!confirm('Excluir esta ficha de vez? Não tem volta.\n\nSe ela tem check-ins ou histórico da mesma pessoa, use "Ficha duplicada" (mesclar) na ficha ativa em vez de excluir.')) return;
-    try{
-      await api('/matriculas/'+id+'?remover=1', {method:'DELETE'});
-      avisar('Ficha excluída.', 'ok');
-      matEstado.aberta = null; redesenhar();
-    }catch(e){ avisar(e.message,'erro'); }
-  });
+  // Ficha não se apaga (nov/2026): apagar deixava os check-ins presos a um id
+  // que não existia mais e eles sumiam da contagem. Saiu do estúdio → Inativar;
+  // cadastro em dobro → "Ficha duplicada" (mesclar), que leva os check-ins.
 }
 
 async function carregarMatriculas(){
