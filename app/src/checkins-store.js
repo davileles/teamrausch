@@ -596,7 +596,10 @@ function soltarDeFichasApagadas(matriculaId = null) {
 function desfazerVinculosConflitantes() {
   const afetados = new Map();
   for (const c of dados.checkins) {
-    if (!c.matriculaId || !c.gympassId || c.vinculadoPor === 'manual') continue;
+    // Só vínculo feito por palpite de nome. Ligado pelo id (na época em que a
+    // ficha tinha aquele id) ou à mão é legítimo, mesmo que a ficha tenha
+    // trocado de conta do Wellhub depois (Simone, nov/2026).
+    if (!c.matriculaId || !c.gympassId || !['nome', 'titular'].includes(c.vinculadoPor)) continue;
     const m = matriculas.porId(c.matriculaId);
     if (!m || !m.gympassId || String(m.gympassId) === String(c.gympassId)) continue;
     // Mesmo nome completo = mesma pessoa com outra conta do Wellhub: fica.
