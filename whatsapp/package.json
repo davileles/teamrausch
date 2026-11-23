@@ -6,7 +6,7 @@
   "engines": { "node": ">=20" },
   "scripts": { "start": "node index.js" },
   "dependencies": {
-    "baileys": "6.7.24",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "express": "^4.19.2",
     "pino": "^9.5.0",
     "qrcode": "^1.5.4"

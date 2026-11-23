@@ -13,13 +13,25 @@ const path = require('path');
 const fs = require('fs');
 const QRCode = require('qrcode');
 const pino = require('pino');
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  Browsers,
-} = require('baileys');
+/*
+ * Baileys 7 (mesma versão do baileys-server). A 6.7.24 não entendia o LID
+ * (identificador novo do WhatsApp): o aluno recebia "Aguardando mensagem" e
+ * pedia reenvio em quase todo envio individual (23/11/2026). A 7 é só ESM,
+ * então entra por import() — este serviço continua CommonJS.
+ */
+let makeWASocket;
+let useMultiFileAuthState;
+let DisconnectReason = {};
+let fetchLatestBaileysVersion;
+let Browsers;
+let proto;
+
+async function carregarBaileys() {
+  if (makeWASocket) return;
+  const b = await import('@whiskeysockets/baileys');
+  makeWASocket = b.default || b.makeWASocket;
+  ({ useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, Browsers, proto } = b);
+}
 
 const PORTA = process.env.PORT || 3000;
 const TOKEN = process.env.WHATSAPP_TOKEN || '';
@@ -62,6 +74,7 @@ function mudarSituacao(nova) {
 /** Nome legível do código de queda do Baileys (401 → loggedOut etc.). */
 function nomeDaQueda(codigo) {
   if (!codigo) return 'sem código';
+  if (!DisconnectReason) return `código ${codigo}`;
   const nome = Object.keys(DisconnectReason).find((k) => DisconnectReason[k] === codigo);
   return nome ? `${nome} (${codigo})` : `código ${codigo}`;
 }
@@ -75,15 +88,56 @@ function anotarFalhaDeEnvio(fase, mensagem) {
 // Quando o celular do destinatário não consegue decifrar a mensagem, ele pede
 // ao remetente para mandar de novo. O Baileys só atende se `getMessage`
 // devolver a mensagem original — sem isso ela fica em "Aguardando mensagem".
-// Guardamos as enviadas em memória por 24h (máx. 1000).
+// Guardamos as enviadas por 24h (máx. 1000), em memória e em disco
+// (/data/enviadas.json): sem o disco, um deploy logo depois de um envio em
+// massa deixava os pedidos de reenvio sem resposta.
 const ENVIADAS_TTL = 24 * 60 * 60 * 1000;
 const ENVIADAS_MAX = 1000;
+const ARQUIVO_ENVIADAS = path.join(PASTA, 'enviadas.json');
 const enviadas = new Map(); // key.id -> { message, em }
+let gravacaoEnviadas = null;
+
+function carregarEnviadas() {
+  try {
+    if (!fs.existsSync(ARQUIVO_ENVIADAS)) return;
+    // Gravado como protobuf em base64: o JSON comum estraga os campos binários
+    // (chave da mídia), e o reenvio de imagem/documento sairia ilegível.
+    const lido = JSON.parse(fs.readFileSync(ARQUIVO_ENVIADAS, 'utf8'));
+    const agora = Date.now();
+    for (const [id, item] of Object.entries(lido || {})) {
+      if (!item || !item.b64 || agora - item.em > ENVIADAS_TTL) continue;
+      try { enviadas.set(id, { message: proto.Message.decode(Buffer.from(item.b64, 'base64')), em: item.em }); } catch (_) { /* ignora a quebrada */ }
+    }
+    log(`${enviadas.size} mensagem(ns) guardada(s) para reenvio`);
+  } catch (erro) {
+    log('não consegui ler as mensagens guardadas para reenvio:', erro.message);
+  }
+}
+
+function gravarEnviadasAgora() {
+  if (!proto) return;
+  try {
+    fs.mkdirSync(PASTA, { recursive: true });
+    const vivas = {};
+    for (const [id, item] of enviadas) {
+      if (Date.now() - item.em > ENVIADAS_TTL) continue;
+      try { vivas[id] = { em: item.em, b64: Buffer.from(proto.Message.encode(item.message).finish()).toString('base64') }; } catch (_) { /* nada */ }
+    }
+    const temp = `${ARQUIVO_ENVIADAS}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify(vivas));
+    fs.renameSync(temp, ARQUIVO_ENVIADAS);
+  } catch (erro) {
+    log('falha ao gravar as mensagens guardadas para reenvio:', erro.message);
+  }
+}
 
 function guardarEnviada(r) {
   if (!r || !r.key || !r.key.id || !r.message) return;
   enviadas.set(r.key.id, { message: r.message, em: Date.now() });
   while (enviadas.size > ENVIADAS_MAX) enviadas.delete(enviadas.keys().next().value);
+  if (gravacaoEnviadas) return;
+  gravacaoEnviadas = setTimeout(() => { gravacaoEnviadas = null; gravarEnviadasAgora(); }, 5000);
+  if (gravacaoEnviadas.unref) gravacaoEnviadas.unref();
 }
 
 async function buscarEnviada(key) {
@@ -127,6 +181,11 @@ const msgRetryCounterCache = {
 const ARQUIVO_CONTATOS = path.join(PASTA, 'contatos.json');
 const nomes = new Map();   // '5511999999999' -> { agenda, perfil, em }
 let gravacaoNomes = null;
+
+/** Primeiro endereço que seja telefone (o LID não é telefone e não entra no caderno). */
+function enderecoComTelefone(...candidatos) {
+  return candidatos.find((j) => typeof j === 'string' && j && !j.endsWith('@lid')) || null;
+}
 
 function soNumero(entrada) {
   const n = String(entrada || '').split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -224,6 +283,7 @@ function agendarReconexao(espera) {
 
 async function conectar() {
   if (encerrando) return;
+  await carregarBaileys();
   if (timerReconexao) { clearTimeout(timerReconexao); timerReconexao = null; }
   fecharSocket();
   fs.mkdirSync(PASTA_SESSAO, { recursive: true });
@@ -245,17 +305,13 @@ async function conectar() {
 
   // Sincronização inicial: é aqui que a agenda do celular pareado aparece, uma
   // única vez por pareamento. Se este bloco não guardar, não tem segunda chance.
-  socket.ev.on('messaging-history.set', ({ contacts }) => {
-    for (const contato of contacts || []) {
-      anotarNome(contato.id, { agenda: contato.name, perfil: contato.notify || contato.verifiedName });
-    }
-  });
-
   const daAgenda = (lista) => {
     for (const contato of lista || []) {
-      anotarNome(contato.id, { agenda: contato.name, perfil: contato.notify || contato.verifiedName });
+      const jid = enderecoComTelefone(contato.phoneNumber, contato.id, contato.jid);
+      if (jid) anotarNome(jid, { agenda: contato.name, perfil: contato.notify || contato.verifiedName });
     }
   };
+  socket.ev.on('messaging-history.set', ({ contacts }) => daAgenda(contacts));
   socket.ev.on('contacts.upsert', daAgenda);
   socket.ev.on('contacts.update', daAgenda);
 
@@ -263,8 +319,11 @@ async function conectar() {
   // na agenda — em grupo grande é o que mais rende.
   socket.ev.on('messages.upsert', ({ messages }) => {
     for (const msg of messages || []) {
-      const autor = msg.key?.participant || msg.key?.remoteJid;
-      if (!msg.key?.fromMe && autor) anotarNome(autor, { perfil: msg.pushName });
+      const k = msg.key || {};
+      const autor = k.participant
+        ? enderecoComTelefone(k.participant, k.participantAlt)
+        : enderecoComTelefone(k.remoteJid, k.remoteJidAlt);
+      if (!k.fromMe && autor && !autor.endsWith('@g.us')) anotarNome(autor, { perfil: msg.pushName });
     }
   });
 
@@ -762,6 +821,8 @@ function encerrar(sinal, codigoSaida = 0) {
   if (timerReconexao) clearTimeout(timerReconexao);
   if (gravacaoNomes) { clearTimeout(gravacaoNomes); gravacaoNomes = null; }
   gravarContatosAgora();
+  if (gravacaoEnviadas) { clearTimeout(gravacaoEnviadas); gravacaoEnviadas = null; }
+  gravarEnviadasAgora();
   fecharSocket();
   if (servidor) servidor.close();
   setTimeout(() => process.exit(codigoSaida), 3000).unref();
@@ -770,7 +831,7 @@ process.on('SIGTERM', () => encerrar('SIGTERM'));
 process.on('SIGINT', () => encerrar('SIGINT'));
 
 servidor = app.listen(PORTA, () => log(`WhatsApp do estúdio na porta ${PORTA}`));
-conectar().catch((e) => {
+carregarBaileys().then(() => { carregarEnviadas(); return conectar(); }).catch((e) => {
   log('falha ao iniciar:', e.message);
   agendarReconexao(5000);
 });
