@@ -421,6 +421,24 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
     });
   });
 
+  /**
+   * Tira da lista de órfãos quem fez check-in sem ficha e não tem cadastro a
+   * vincular (gente de passagem). Não apaga nada: os check-ins continuam na
+   * base. Se a pessoa voltar a treinar, reaparece sozinha.
+   */
+  rotas.post('/checkins/:id/dispensar', (req, res) => {
+    const r = checkins.dispensarOrfao(req.params.id);
+    if (!r.ok) return res.status(400).json({ erro: r.motivo });
+    res.json(r);
+  });
+
+  /** Desfaz a dispensa: a pessoa volta para a lista de pendências. */
+  rotas.post('/checkins/:id/restaurar', (req, res) => {
+    const r = checkins.restaurarOrfao(req.params.id);
+    if (!r.ok) return res.status(404).json({ erro: r.motivo });
+    res.json(r);
+  });
+
   rotas.post('/checkins/:id/desvincular', (req, res) => {
     const r = checkins.desvincular(req.params.id);
     if (!r.ok) return res.status(404).json({ erro: r.motivo });

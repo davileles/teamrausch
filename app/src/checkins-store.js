@@ -53,11 +53,27 @@ const CAMINHO_HISTORICO = process.env.GITHUB_PATH_CHECKINS_HISTORICO
   || 'teamrausch/checkins-historico.json';
 const FUSO = process.env.TZ_ESTUDIO || 'America/Sao_Paulo';
 const RETENCAO_DIAS = Number(process.env.CHECKINS_RETENCAO_DIAS || 400);
+/*
+ * ÓRFÃO QUE SUMIU NÃO É PENDÊNCIA
+ *   Quem fez check-in sem ter ficha e não volta há mais de 45 dias (um mês e
+ *   meio) não tem com quem ser vinculado: não é aluno, não vai virar, e só
+ *   polui a lista. Passa a ficar oculto sozinho — o check-in continua na base
+ *   (o Wellhub pagou por ele), só sai da lista de pendências e dos avisos.
+ *   Voltou a treinar, reaparece no mesmo dia.
+ */
+const ORFAO_SUMIU_DIAS = Number(process.env.ORFAOS_SUMIU_DIAS || 45);
 
 const backup = backupGithub.criar(CAMINHO_BACKUP, 'Check-ins Wellhub');
 const fonteHistorico = backupGithub.criar(CAMINHO_HISTORICO, 'Histórico de check-ins');
 
-let dados = { checkins: [] };
+/*
+ * `dispensados`: órfãos que você tirou da lista na mão (ex.: gente de passagem
+ * que treinou uma vez ontem). Chave = Wellhub ID (ou `avulso:<id do check-in>`
+ * quando o portal não identificou). Nada é apagado: os check-ins ficam, só
+ * deixam de pedir vínculo. Se a pessoa fizer check-in de novo depois da
+ * dispensa, ela volta para a lista sozinha.
+ */
+let dados = { checkins: [], dispensados: {} };
 let pendente = null;
 let semeando = false;
 
@@ -71,6 +87,8 @@ function carregar() {
     if (fs.existsSync(ARQUIVO)) {
       const lido = JSON.parse(fs.readFileSync(ARQUIVO, 'utf8'));
       dados.checkins = Array.isArray(lido.checkins) ? lido.checkins : [];
+      dados.dispensados = lido.dispensados && typeof lido.dispensados === 'object'
+        ? lido.dispensados : {};
     }
   } catch (erro) {
     console.error('[checkins] não consegui ler, começando vazio:', erro.message);
@@ -82,6 +100,7 @@ function montar() {
     atualizadoEm: new Date().toISOString(),
     total: dados.checkins.length,
     checkins: dados.checkins,
+    dispensados: dados.dispensados,
   }, null, 2);
 }
 
@@ -115,6 +134,9 @@ async function semear() {
     }
     if (dados.checkins.length) return;   // chegou check-in enquanto baixava
     dados.checkins = remoto.checkins;
+    if (remoto.dispensados && typeof remoto.dispensados === 'object') {
+      dados.dispensados = remoto.dispensados;
+    }
     fs.mkdirSync(DIR, { recursive: true });
     fs.writeFileSync(ARQUIVO, montar());
     log(`histórico semeado do backup: ${dados.checkins.length} check-ins.`);
@@ -393,9 +415,80 @@ function registrar(bruto, origem = 'portal') {
   };
   vincularAutomatico(reg);
 
+  // Dispensado que voltou a treinar deixa de ser dispensado: agora há motivo
+  // para cadastrar, e esconder o check-in novo seria perder o aluno.
+  if (!reg.matriculaId) {
+    const k = chaveOrfao(reg);
+    const d = dados.dispensados[k];
+    if (d && reg.data > d.ultimaData) {
+      delete dados.dispensados[k];
+      log(`${reg.nome || k}: voltou a treinar depois de dispensado — de volta à lista.`);
+    }
+  }
+
   dados.checkins.push(reg);
   gravar();
   return { novo: true, checkin: reg };
+}
+
+/* ------------------------- órfãos ocultos/dispensados -------------------- */
+
+/** Mesma chave que a tela usa para agrupar órfãos por pessoa. */
+function chaveOrfao(c) {
+  return c.gympassId ? String(c.gympassId) : 'avulso:' + c.id;
+}
+
+/** Último check-in órfão de cada pessoa (chave → data). */
+function ultimasOrfas() {
+  const mapa = new Map();
+  for (const c of dados.checkins) {
+    if (c.matriculaId) continue;
+    const k = chaveOrfao(c);
+    if (!mapa.has(k) || c.data > mapa.get(k)) mapa.set(k, c.data);
+  }
+  return mapa;
+}
+
+/**
+ * Por que um órfão está fora da lista: 'dispensado' (você tirou), 'sumiu'
+ * (sem check-in há mais de ORFAO_SUMIU_DIAS) ou null (pendência de verdade).
+ */
+function motivoOculto(c, ultimas = ultimasOrfas()) {
+  if (c.matriculaId) return null;
+  const k = chaveOrfao(c);
+  const d = dados.dispensados[k];
+  if (d && c.data <= d.ultimaData) return 'dispensado';
+  const ultima = ultimas.get(k);
+  if (ultima && ultima < grade.somarDias(hojeLocal(), -ORFAO_SUMIU_DIAS)) return 'sumiu';
+  return null;
+}
+
+/** Tira a pessoa (todos os check-ins órfãos dela até hoje) da lista de pendências. */
+function dispensarOrfao(id) {
+  const c = dados.checkins.find((x) => x.id === id);
+  if (!c) return { ok: false, motivo: 'Check-in não encontrado.' };
+  if (c.matriculaId) return { ok: false, motivo: 'Este check-in já está vinculado a um aluno.' };
+  const k = chaveOrfao(c);
+  const ultima = ultimasOrfas().get(k) || c.data;
+  dados.dispensados[k] = {
+    nome: c.nome || null,
+    ultimaData: ultima,
+    em: new Date().toISOString(),
+  };
+  gravar();
+  log(`${c.nome || k}: dispensado da lista de órfãos (último check-in ${ultima}).`);
+  return { ok: true, chave: k, ultimaData: ultima };
+}
+
+/** Desfaz a dispensa: a pessoa volta para a lista. */
+function restaurarOrfao(id) {
+  const c = dados.checkins.find((x) => x.id === id);
+  if (!c) return { ok: false, motivo: 'Check-in não encontrado.' };
+  const k = chaveOrfao(c);
+  if (!dados.dispensados[k]) return { ok: true, chave: k, jaEstava: true };
+  delete dados.dispensados[k];
+  gravar();
+  return { ok: true, chave: k };
 }
 
 /**
@@ -769,8 +862,13 @@ function quantosDaMatricula(matriculaId) {
 /* ------------------------------- consultas ------------------------------- */
 
 function listar({ de, ate, matriculaId, gympassId, semVinculo, limite = 500 } = {}) {
+  const ultimas = semVinculo ? ultimasOrfas() : null;
   return dados.checkins
-    .map(comNomeAtual)
+    .map((c) => {
+      const r = comNomeAtual(c);
+      // A tela separa a pendência de verdade de quem só polui a lista.
+      return semVinculo ? { ...r, oculto: motivoOculto(c, ultimas) } : r;
+    })
     .filter((c) =>
       (!de || c.data >= de) &&
       (!ate || c.data <= ate) &&
@@ -837,15 +935,25 @@ function resumo() {
   const hoje = hojeLocal();
   const semana = grade.somarDias(hoje, -6);
   const naSemana = dados.checkins.filter((c) => c.data >= semana);
+  const ultimas = ultimasOrfas();
   return {
     total: dados.checkins.length,
     hoje: dados.checkins.filter((c) => c.data === hoje).length,
     ultimos7: naSemana.length,
     semVinculo: dados.checkins.filter((c) => !c.matriculaId).length,
-    semVinculo7: naSemana.filter((c) => !c.matriculaId).length,
+    // O aviso semanal fala do que ainda dá para resolver: dispensado não entra.
+    semVinculo7: naSemana.filter((c) => !c.matriculaId && !motivoOculto(c, ultimas)).length,
+    semVinculoOcultos: dados.checkins.filter((c) => motivoOculto(c, ultimas)).length,
     primeiroDia: dados.checkins.length
       ? dados.checkins.reduce((a, c) => (c.data < a ? c.data : a), hoje) : null,
   };
+}
+
+/** Quantos check-ins órfãos do período foram dispensados — o aviso diário desconta. */
+function dispensadosNoPeriodo({ de, ate } = {}) {
+  const ultimas = ultimasOrfas();
+  return dados.checkins.filter((c) => (!de || c.data >= de) && (!ate || c.data <= ate) &&
+    motivoOculto(c, ultimas) === 'dispensado').length;
 }
 
 /** Um pouco mais de um ano de histórico: o suficiente para comparar temporadas. */
@@ -885,4 +993,5 @@ module.exports = {
   listar, datasDaMatricula, mapaPorMatricula, ultimoDaMatricula, aplicarNomesDoPortal,
   produtoPorMatricula,
   resumo, normalizarNome, dataLocal, hojeLocal, backup,
+  dispensarOrfao, restaurarOrfao, dispensadosNoPeriodo, ORFAO_SUMIU_DIAS,
 };

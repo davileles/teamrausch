@@ -2169,7 +2169,7 @@ function matEstadoInicial(){
   return { sub:'alunos', busca:'', situacao:'ativos', vinculo:'', revisar:false,
     experimental:false, acesso:'', data:null, aberta:null, freqDias:7, freqSo:'devendo',
     focarFicha:false, mesRef:null,
-    ret:'vagas', retDias:28, retSo:'atencao', retVin:'', expDias:0 };
+    ret:'vagas', retDias:28, retSo:'atencao', retVin:'', expDias:0, freqOcultos:false };
 }
 let matEstado = matEstadoInicial();
 /* Fora da função de propósito: `carregarMatriculas` roda de novo a cada
@@ -3296,6 +3296,14 @@ function linhaFrequencia(a){
  * A chave é o Wellhub ID. Sem ID (caso raro, portal sem identificar) cada
  * registro fica sozinho, porque aí não há o que garanta que é a mesma pessoa.
  */
+/** Dias corridos de uma data YYYY-MM-DD até hoje (fuso do navegador). */
+function diasDesde(data){
+  if (!data) return 0;
+  const [a,m,d] = String(data).split('-').map(Number);
+  const h = new Date(); h.setHours(0,0,0,0);
+  return Math.max(0, Math.round((h - new Date(a, m-1, d)) / 86400000));
+}
+
 function agruparOrfaos(lista){
   const grupos = new Map();
   for (const c of lista){
@@ -3341,11 +3349,15 @@ function agruparOrfaos(lista){
  *   desfaria uma decisão tomada na tela do aluno.
  */
 function linhaOrfa(c, alunos){
+  // Oculto: 'sumiu' (sem check-in há mais de 45 dias) ou 'dispensado' (você
+  // tirou da lista). Continua dando para vincular ou criar daqui, se mudar de ideia.
+  const marca = c.oculto === 'dispensado' ? ' <span class="fraco">· dispensado</span>'
+    : c.oculto === 'sumiu' ? ` <span class="fraco">· sem vir há ${diasDesde(c.ultima)} dias</span>` : '';
   const periodo = c.quantos > 1
     ? `${dataCurta(c.primeira)} a ${dataCurta(c.ultima)}`
     : `${dataCurta(c.data)} às ${esc(c.hora||'--:--')}`;
   return `<tr class="orfao" data-id="${esc(c.id)}" data-nome="${esc(c.nome||'')}">
-    <td class="nome">${esc(c.nome || 'Sem nome no portal')}</td>
+    <td class="nome">${esc(c.nome || 'Sem nome no portal')}${marca}</td>
     <td class="num">${c.quantos}</td>
     <td class="opc"><span class="fraco">${periodo}</span></td>
     <td class="opc"><span class="fraco">${esc(c.gympassId || '—')}</span></td>
@@ -3359,6 +3371,10 @@ function linhaOrfa(c, alunos){
     <td><div class="acoes">
       <button class="leve orf-ok">Vincular</button>
       <button class="leve orf-criar">Criar</button>
+      ${c.oculto === 'dispensado'
+        ? '<button class="leve orf-restaurar" title="Volta para a lista de pendências">Restaurar</button>'
+        : c.oculto ? ''
+        : '<button class="leve orf-dispensar" title="Sem cadastro a vincular: tira da lista sem apagar os check-ins">Dispensar</button>'}
     </div></td>
   </tr>`;
 }
@@ -3397,7 +3413,13 @@ async function carregarFrequencia(){
       api('/matriculas?situacao=ativos'),
     ]);
 
-    const pessoasOrfas = agruparOrfaos(orfaos.checkins);
+    // Órfão que sumiu (+45 dias sem vir) ou que você dispensou não é pendência:
+    // sai da tabela principal e fica numa lista recolhida embaixo.
+    const todasOrfas = agruparOrfaos(orfaos.checkins);
+    const pessoasOrfas = todasOrfas.filter(p=>!p.oculto);
+    const orfasOcultas = todasOrfas.filter(p=>p.oculto)
+      .sort((a,b)=> String(b.ultima).localeCompare(String(a.ultima)));
+    const checkinsOrfaos = pessoasOrfas.reduce((s,p)=> s + p.quantos, 0);
     // O outro lado do buraco: ficha Wellhub sem conta ligada. Sai da mesma
     // chamada que popula o seletor de alunos, sem pedir nada a mais ao servidor.
     // `contaDe` também é vínculo: a ficha treina na assinatura de outro aluno e
@@ -3497,10 +3519,12 @@ async function carregarFrequencia(){
 
       ${pessoasOrfas.length ? `<h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;
         text-transform:uppercase;color:var(--amarelo);margin:0 0 8px">
-        ${pessoasOrfas.length} pessoa(s) do Wellhub sem aluno${orfaos.checkins.length > pessoasOrfas.length
-          ? ` · ${orfaos.checkins.length} check-ins` : ''}</h3>
+        ${pessoasOrfas.length} pessoa(s) do Wellhub sem aluno${checkinsOrfaos > pessoasOrfas.length
+          ? ` · ${checkinsOrfaos} check-ins` : ''}</h3>
         <p class="ajuda">Treinaram, mas não contam para ninguém. Vincular uma vez resolve todos
-          os check-ins da pessoa e grava o Wellhub ID na ficha.</p>
+          os check-ins da pessoa e grava o Wellhub ID na ficha. Quem não tem cadastro a vincular
+          (gente de passagem), use <b>Dispensar</b>: sai da lista sem apagar os check-ins. Quem
+          fica mais de 45 dias sem vir sai sozinho. Se a pessoa voltar, reaparece aqui.</p>
         <div id="fq-orfaos"><table class="freq-tabela">
           <thead><tr>
             <th>Pessoa no portal</th>
@@ -3516,6 +3540,30 @@ async function carregarFrequencia(){
         </table></div>
         <button class="leve" id="fq-revincular" style="margin:10px 0 20px">Tentar vincular sozinho</button>`
       : ''}
+
+      ${orfasOcultas.length ? (()=>{
+        const sumiu = orfasOcultas.filter(p=>p.oculto==='sumiu').length;
+        const disp = orfasOcultas.length - sumiu;
+        const partes = [sumiu ? `${sumiu} sem vir há mais de 45 dias` : '',
+          disp ? `${disp} dispensada(s)` : ''].filter(Boolean).join(' · ');
+        return `<p class="ajuda" style="margin:${pessoasOrfas.length ? '-10px' : '0'} 0 14px">
+          ${orfasOcultas.length} pessoa(s) sem aluno fora da lista (${partes}).
+          <button class="leve" id="fq-ocultos" style="margin-left:6px">
+            ${matEstado.freqOcultos ? 'Esconder' : 'Mostrar'}</button></p>
+          ${matEstado.freqOcultos ? `<div id="fq-orfaos-ocultos" style="margin-bottom:20px">
+            <table class="freq-tabela">
+            <thead><tr>
+              <th>Pessoa no portal</th>
+              <th class="num">Check-ins</th>
+              <th class="opc">Período</th>
+              <th class="opc">Wellhub ID</th>
+              <th>Aluno na base</th>
+              <th class="opc" style="text-align:center" title="Criar como aula experimental">Exp</th>
+              <th></th>
+            </tr></thead>
+            <tbody>${orfasOcultas.map(c=>linhaOrfa(c, base.matriculas)).join('')}</tbody>
+          </table></div>` : ''}`;
+      })() : ''}
 
       ${semConta.length ? `<h3 style="font:400 14px Anton,sans-serif;letter-spacing:.06em;
         text-transform:uppercase;color:var(--amarelo);margin:0 0 8px">
@@ -3689,8 +3737,37 @@ async function carregarFrequencia(){
       }catch(err){ avisar(err.message,'erro'); }
     });
 
+    const btnOcultos = alvo.querySelector('#fq-ocultos');
+    if (btnOcultos) btnOcultos.addEventListener('click', async ()=>{
+      matEstado.freqOcultos = !matEstado.freqOcultos;
+      await carregarFrequencia();
+    });
+
     alvo.querySelectorAll('.orfao').forEach(el=>{
       const nomePortal = el.dataset.nome || '';
+
+      const dispensar = el.querySelector('.orf-dispensar');
+      if (dispensar) dispensar.addEventListener('click', async ()=>{
+        if (!confirm(`Dispensar "${nomePortal || 'esta pessoa'}" da lista?\n\n`
+          + 'Os check-ins continuam na base, só deixam de aparecer como pendência. '
+          + 'Se ela fizer check-in de novo, volta para a lista sozinha.')) return;
+        dispensar.disabled = true;
+        try{
+          await api('/matriculas/checkins/'+el.dataset.id+'/dispensar', {method:'POST'});
+          avisar(`"${nomePortal || 'Pessoa'}" dispensada da lista.`, 'ok');
+          await carregarFrequencia();
+        }catch(err){ avisar(err.message,'erro'); dispensar.disabled = false; }
+      });
+
+      const restaurar = el.querySelector('.orf-restaurar');
+      if (restaurar) restaurar.addEventListener('click', async ()=>{
+        restaurar.disabled = true;
+        try{
+          await api('/matriculas/checkins/'+el.dataset.id+'/restaurar', {method:'POST'});
+          avisar(`"${nomePortal || 'Pessoa'}" de volta à lista.`, 'ok');
+          await carregarFrequencia();
+        }catch(err){ avisar(err.message,'erro'); restaurar.disabled = false; }
+      });
 
       el.querySelector('.orf-ok').addEventListener('click', async ()=>{
         const sel = el.querySelector('.orf-quem');

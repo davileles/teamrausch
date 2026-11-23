@@ -230,9 +230,12 @@ function montarTexto(data, painel) {
   }
 
   /* ------------------------------ pendência ------------------------------ */
-  if (linha.semVinculoAcum) {
+  // Dispensados (gente de passagem, sem ficha a vincular) não são pendência.
+  const semAlunoPendente = Math.max(0, (linha.semVinculoAcum || 0)
+    - checkins.dispensadosNoPeriodo({ de: data.slice(0, 8) + '01', ate: data }));
+  if (semAlunoPendente) {
     corpo.push('');
-    corpo.push(`⚠️ ${linha.semVinculoAcum} check-in(s) do mês sem aluno identificado — `
+    corpo.push(`⚠️ ${semAlunoPendente} check-in(s) do mês sem aluno identificado — `
       + 'vincule em Matrículas → Frequência para que contem.');
   }
 
