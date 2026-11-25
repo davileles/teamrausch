@@ -5775,6 +5775,20 @@ async function msgEnviarIndividual(){
 
 /* ----------------------------- disparo em massa -------------------------- */
 
+/**
+ * Modelos do "Em massa": os manuais e, num grupo à parte, os programados da
+ * Progressão do mês. Esses saem sozinhos nos marcos, mas às vezes é preciso
+ * mandar fora deles — o público e os números são calculados na hora, e a
+ * frase do {{progresso}} segue a última etapa que passou.
+ */
+function msgOpcoesModeloMassa(){
+  const op = m => `<option value="${esc(m.id)}"${msgEstado.modeloId===m.id?' selected':''}>${esc(m.nome)}</option>`;
+  const manuais = msgEstado.modelos.filter(m=>m.modo==='manual');
+  const progressao = msgEstado.modelos.filter(m=>m.modo!=='manual' && m.gatilho==='progressao');
+  return manuais.map(op).join('')
+    + (progressao.length ? `<optgroup label="Progressão do mês (enviar agora)">${progressao.map(op).join('')}</optgroup>` : '');
+}
+
 async function msgPainelMassa(){
   const alvo = document.getElementById('msg-massa');
   const modelo = msgEstado.modelos.find(m=>m.id===msgEstado.modeloId);
@@ -5783,7 +5797,10 @@ async function msgPainelMassa(){
     || (modelo ? modelo.texto : '');
 
   try{
-    const r = await msgBuscarDestinatarios({ publico, texto, lote: msgEstado.lote });
+    // modeloId junto: a prévia precisa usar as frases do {{progresso}} salvas
+    // no modelo, as mesmas que o envio usa.
+    const r = await msgBuscarDestinatarios({ publico, texto,
+      modeloId: modelo ? modelo.id : null, lote: msgEstado.lote });
     msgEstado.publico = publico;
 
     // Mesmo público de antes: vale a seleção guardada. Público novo: padrão.
@@ -5801,10 +5818,10 @@ async function msgPainelMassa(){
           <div class="campo"><label for="mx-modelo">Modelo</label>
             <select id="mx-modelo" onchange="msgTrocarModeloMassa()">
               <option value="">Escrever na hora…</option>
-              ${msgEstado.modelos.filter(m=>m.modo==='manual').map(m=>
-                `<option value="${esc(m.id)}"${msgEstado.modeloId===m.id?' selected':''}>${esc(m.nome)}</option>`).join('')}
+              ${msgOpcoesModeloMassa()}
             </select>
-            <p class="ajuda">Só modelos manuais: os programados saem sozinhos.</p></div>
+            <p class="ajuda">Modelos manuais e os da Progressão do mês (para mandar fora
+              dos marcos, com os check-ins de hoje). Os demais programados saem sozinhos.</p></div>
           <div class="campo"><label for="mx-publico">Quem recebe</label>
             <select id="mx-publico" onchange="msgTrocarPublicoMassa()" ${modelo?'disabled':''}>
               ${MSG_PUBLICOS.map(([v,rr])=>
