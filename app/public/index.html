@@ -5193,11 +5193,13 @@ const MSG_PAUSA_MAX = 18000;
 // Em ordem alfabética do rótulo, que é o que aparece no seletor.
 const MSG_PUBLICOS = [['atrasados','Atrasados (Wellhub)'],['criticos','Críticos (Wellhub)'],
   ['devedores','Devendo treino (atrasados + críticos)'],
-  ['mensalista','Mensalistas'],['sem_app','Nunca entraram no app'],
+  ['mensalista','Mensalistas'],
+  ['no_limite','No limite do mês: check-in todo dia (Wellhub, 1x/mês)'],
+  ['sem_app','Nunca entraram no app'],
   ['progressao','Progressão do mês (todos os Wellhub)'],
   ['ausentes','Sumidos'],['todos','Todos os ativos'],['wellhub','Wellhub']];
 /** Públicos que só existem para aluno Wellhub, contados pelo check-in. */
-const MSG_PUBLICOS_WELLHUB = ['atrasados','criticos','devedores','ausentes','progressao'];
+const MSG_PUBLICOS_WELLHUB = ['atrasados','criticos','devedores','ausentes','progressao','no_limite'];
 const MSG_MODOS = [['manual','Manual — você dispara pela tela'],
   ['programado','Programado — uma data e hora'],
   ['recorrente','Recorrente — repete sempre']];

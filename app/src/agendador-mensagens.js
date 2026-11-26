@@ -179,8 +179,10 @@ async function avisarGrupo(modelo, resultado, pulados) {
       + falhas.slice(0, 5).map((f) => f.nome).join(', ') + '.', '');
   }
   if (pulados) {
-    corpo.push(`${pulados} não entrou/entraram: já receberam esta mensagem nos `
-      + `últimos ${modelo.intervaloDias} dias.`, '');
+    corpo.push(modelos.PUBLICOS_UMA_VEZ_POR_MES.has(modelo.publico)
+      ? `${pulados} não entrou/entraram: já receberam esta mensagem este mês.`
+      : `${pulados} não entrou/entraram: já receberam esta mensagem nos `
+        + `últimos ${modelo.intervaloDias} dias.`, '');
   }
   corpo.push('Se alguém aqui já saiu do estúdio, inative a ficha em Matrículas '
     + 'para não receber de novo.');
@@ -211,13 +213,18 @@ async function disparar(modelo, hoje) {
   //   Conta envios de qualquer origem, inclusive os feitos à mão pela tela:
   //   se você acabou de falar com a pessoa, o automático não repete atrás.
   const recentes = modelos.recebeuDoModeloDesde(modelo.id, modelo.intervaloDias);
+  // UMA VEZ POR MÊS (público "Chegou no limite"): quem segue fazendo o
+  // check-in todo dia continua no público até o fim do mês, e não precisa de
+  // um lembrete diário. No mês seguinte pode receber de novo.
+  if (modelos.PUBLICOS_UMA_VEZ_POR_MES.has(modelo.publico)) {
+    for (const id of modelos.recebeuDoModeloNoMes(modelo.id, hoje)) recentes.add(id);
+  }
   let pulados = 0;
   if (recentes.size) {
     const antes = alvos.length;
     alvos = alvos.filter((a) => !recentes.has(a.matriculaId));
     pulados = antes - alvos.length;
-    if (pulados) log(`"${modelo.nome}": ${pulados} pulado(s) — já receberam nos `
-      + `últimos ${modelo.intervaloDias} dias.`);
+    if (pulados) log(`"${modelo.nome}": ${pulados} pulado(s) — já receberam antes.`);
   }
 
   if (!alvos.length) {
@@ -250,6 +257,25 @@ async function disparar(modelo, hoje) {
   log(`"${modelo.nome}": ${enviados} enviada(s), ${falhas.length} com erro.`);
   await avisarGrupo(modelo, { alvos: saiu, falhas }, pulados);
   return { enviados, falhas: falhas.length, total: alvos.length, pulados, lote };
+}
+
+/* --------------------------- modelos de fábrica --------------------------- */
+
+const TEXTO_NO_LIMITE = 'Oi, {{nome}}, tudo bem? 😊 Passando para te avisar do seu mês aqui no '
+  + 'TeamRausch: você fez {{treinosNoMes}} de {{metaDoMes}} check-ins e faltam '
+  + '{{checkinsQueFaltam}} para fechar o pacote.\n\n'
+  + 'Chegamos no limite: a partir de agora, só fecha com check-in todos os dias até '
+  + '{{ultimoDiaDoMes}}. Vale também no sábado e no domingo — se vier e esquecer, dá para '
+  + 'fazer depois no mesmo dia. Se precisar de um horário extra, é só responder aqui que a '
+  + 'gente encaixa. Bora fechar o mês! 💪';
+
+function semearModelos(hoje) {
+  modelos.semearModelo('no_limite_v1', {
+    nome: 'Chegou no limite do mês',
+    texto: TEXTO_NO_LIMITE,
+    modo: 'recorrente', gatilho: 'diario', hora: '09:00',
+    publico: 'no_limite', ativo: true, avisarGrupo: true,
+  }, hoje);
 }
 
 /* ------------------------------- ciclo ----------------------------------- */
@@ -301,6 +327,7 @@ function iniciar() {
   log(`agendado: checagem a cada 5 min, pausa de ${pausaMs() / 1000}s entre envios`
     + `${ativo() ? '' : ' — DESLIGADO na configuração'}.`);
   const ciclo = () => {
+    try { semearModelos(frequencia.hojeLocal()); } catch (e) { log('semear:', e.message); }
     if (!ativo()) return;
     rodar().catch((e) => log(e.message));
   };

@@ -41,7 +41,8 @@ function ausenteDiasPadrao() {
  * Públicos contados pelo check-in do Wellhub. O mensalista fica de fora de
  * todos eles — ver o comentário "SÓ WELLHUB" em `montar`.
  */
-const PUBLICOS_WELLHUB = new Set(['devedores', 'criticos', 'atrasados', 'ausentes', 'progressao']);
+const PUBLICOS_WELLHUB = new Set(['devedores', 'criticos', 'atrasados', 'ausentes', 'progressao',
+  'no_limite']);
 
 /** Diferença em dias entre uma data 'AAAA-MM-DD' e hoje. */
 function diasDesde(iso, hoje) {
@@ -234,6 +235,24 @@ function montar(publico = 'todos', opcoes = {}) {
       ids = new Set(painel.alunos
         .filter((a) => a.vinculo === 'wellhub' && !FORA.has(a.situacao) && a.mes && a.mes.meta)
         .map((a) => a.matriculaId));
+    } else if (publico === 'no_limite') {
+      // CHEGOU NO LIMITE: SÓ FECHA O PACOTE COM CHECK-IN TODOS OS DIAS
+      //   Os check-ins que faltam são exatamente os dias que sobram no mês
+      //   (corridos — o check-in vale até no fim de semana). Quem já fez o
+      //   check-in de hoje tem um dia a menos pela frente, porque dois no mesmo
+      //   dia valem um. Quem já não fecha (faltam mais que os dias) fica fora:
+      //   para esse não há o que pedir. Uma vez por mês por aluno — a trava fica
+      //   no agendador (`publicoUmaVezPorMes`).
+      const hoje = frequencia.hojeLocal();
+      const FORA = new Set(['experimental', 'sem-grade', 'sem-aula', 'quitado']);
+      ids = new Set(painel.alunos
+        .filter((a) => a.vinculo === 'wellhub' && !FORA.has(a.situacao) && a.mes && a.mes.meta)
+        .filter((a) => {
+          const faltam = Number(a.mes.faltam || 0);
+          const livres = Number(a.mes.diasRestantes || 0) - (a.ultimoCheckin === hoje ? 1 : 0);
+          return faltam > 0 && faltam === livres;
+        })
+        .map((a) => a.matriculaId));
     } else if (publico === 'criticos' || publico === 'atrasados') {
       // AS DUAS METADES DE "DEVEDORES", PELA MESMA CLASSIFICAÇÃO
       //   Filtra a situação que o painel já calculou, em vez de refazer a conta:
@@ -284,6 +303,12 @@ function montar(publico = 'todos', opcoes = {}) {
   // que a pessoa nunca abriu o app.
   if (publico === 'sem_app') {
     for (const a of alunos) a.motivo = 'nunca entrou no app';
+  }
+  if (publico === 'no_limite') {
+    for (const a of alunos) {
+      a.motivo = `no limite · faltam ${a.faltamNoMes} check-in(s) e só sobram `
+        + `${a.faltamNoMes} dia(s) no mês · ${a.mesRealizado} de ${a.metaDoMes}`;
+    }
   }
 
   // Aniversariantes do dia: filtro extra, aplicado sobre qualquer público.
@@ -424,6 +449,8 @@ function preencher(texto, aluno, extras = {}) {
     ultimoTreino: dataCurta(aluno.ultimoCheckin),
     diasAteFimDoMes: aluno.diasRestantes,
     treinosAteHoje: aluno.devidoAteHoje,
+    // "30/11": último dia do mês corrente, para "todos os dias até 30/11".
+    ultimoDiaDoMes: dataCurta(frequencia.fimDoMes(frequencia.hojeLocal())),
     // Com a unidade junto, para as frases da progressão não saírem "1 check-ins".
     checkinsQueFaltam: `${faltam} ${plural(faltam, 'check-in', 'check-ins')}`,
     atrasoNoRitmo: atraso
@@ -471,6 +498,7 @@ const MARCADORES = [
   { chave: 'progresso', descricao: 'Frase da régua Progressão do mês: muda no começo, na metade e na reta final e conforme o aluno está em dia ou atrasado (as frases são editadas no próprio modelo)', exemplo: 'Chegamos na metade do mês e você está em dia — obrigado pela constância!' },
   { chave: 'atrasoNoRitmo', descricao: 'Quanto está atrás do ritmo, já com a unidade', exemplo: '2 check-ins atrás do ritmo' },
   { chave: 'checkinsQueFaltam', descricao: 'Quantos check-ins faltam para fechar o mês, já com a unidade', exemplo: '6 check-ins' },
+  { chave: 'ultimoDiaDoMes', descricao: 'Último dia do mês — "30/11"', exemplo: '30/11' },
   { chave: 'diasAteFimDoMes', descricao: 'Quantos dias ainda restam no mês', exemplo: '11' },
   { chave: 'plano', descricao: 'Wellhub ou mensalista', exemplo: 'Wellhub' },
 ];

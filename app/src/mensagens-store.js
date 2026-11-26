@@ -38,11 +38,13 @@ const CHAVES_PROGRESSAO = ['emDia1', 'emDia2', 'emDia3', 'atrasado1', 'atrasado2
  *  cada grupo poder receber um tom diferente. `devedores` continua existindo
  *  porque há modelos salvos apontando para ele. */
 const PUBLICOS = ['todos', 'wellhub', 'mensalista', 'devedores', 'criticos', 'atrasados',
-  'ausentes', 'sem_app', 'progressao'];
+  'ausentes', 'sem_app', 'progressao', 'no_limite'];
+/** Públicos em que cada aluno recebe o modelo no máximo uma vez por mês. */
+const PUBLICOS_UMA_VEZ_POR_MES = new Set(['no_limite']);
 /** Só para modo `recorrente`. */
 const GATILHOS = ['aniversario', 'dia_do_mes', 'dia_da_semana', 'diario', 'progressao'];
 
-let dados = { modelos: [], historico: [] };
+let dados = { modelos: [], historico: [], semeados: [] };
 
 /* ------------------------------ persistência ----------------------------- */
 
@@ -53,6 +55,7 @@ function log(...a) { console.log('[mensagens]', ...a); }
     const bruto = JSON.parse(fs.readFileSync(ARQUIVO, 'utf8'));
     dados.modelos = Array.isArray(bruto.modelos) ? bruto.modelos : [];
     dados.historico = Array.isArray(bruto.historico) ? bruto.historico : [];
+    dados.semeados = Array.isArray(bruto.semeados) ? bruto.semeados : [];
     log(`${dados.modelos.length} modelo(s), ${dados.historico.length} envio(s) no histórico.`);
   } catch (e) { log('primeira vez: arquivo ainda não existe.'); }
 })();
@@ -62,6 +65,7 @@ function montar() {
     atualizadoEm: new Date().toISOString(),
     modelos: dados.modelos,
     historico: dados.historico,
+    semeados: dados.semeados,
   }, null, 2);
 }
 
@@ -84,6 +88,7 @@ async function semear() {
     if (!remoto) return;
     dados.modelos = Array.isArray(remoto.modelos) ? remoto.modelos : [];
     dados.historico = Array.isArray(remoto.historico) ? remoto.historico : [];
+    dados.semeados = Array.isArray(remoto.semeados) ? remoto.semeados : [];
     fs.mkdirSync(DIR, { recursive: true });
     fs.writeFileSync(ARQUIVO, montar());
     log(`semeado do backup: ${dados.modelos.length} modelo(s).`);
@@ -331,6 +336,39 @@ function recebeuDoModeloDesde(modeloId, dias) {
 }
 
 /**
+ * Quem já recebeu este modelo (com sucesso) desde o 1º dia do mês de `hoje`
+ * ('AAAA-MM-DD', hora do estúdio, -03:00 fixo).
+ */
+function recebeuDoModeloNoMes(modeloId, hoje) {
+  if (!modeloId || !hoje) return new Set();
+  const corte = new Date(`${String(hoje).slice(0, 8)}01T00:00:00-03:00`).toISOString();
+  const ids = new Set();
+  for (const h of dados.historico) {
+    if (!h.ok || !h.matriculaId || h.modeloId !== modeloId) continue;
+    if (String(h.em || '') < corte) continue;
+    ids.add(h.matriculaId);
+  }
+  return ids;
+}
+
+/**
+ * MODELOS QUE O SISTEMA CRIA SOZINHO, UMA VEZ SÓ
+ *   A chave fica em `semeados`: se você apagar o modelo, ele não volta no
+ *   próximo deploy. `ultimaMarca` = hoje → o primeiro envio é no dia seguinte,
+ *   dando tempo de revisar o texto na tela.
+ */
+function semearModelo(chave, campos, hoje) {
+  if (dados.semeados.includes(chave)) return null;
+  const r = criarModelo(campos);
+  if (!r.ok) { log(`não consegui criar o modelo "${chave}":`, r.motivo); return null; }
+  r.modelo.ultimaMarca = hoje || null;
+  dados.semeados.push(chave);
+  gravar();
+  log(`modelo "${r.modelo.nome}" criado sozinho (${chave}).`);
+  return r.modelo;
+}
+
+/**
  * Quem já recebeu neste lote e deu certo. É o que a tela usa para retomar um
  * disparo interrompido sem mandar a mensagem duas vezes.
  */
@@ -373,6 +411,7 @@ semear().catch((e) => log('semeadura falhou:', e.message));
 module.exports = {
   semear, listarModelos, porId, criarModelo, atualizarModelo, removerModelo,
   marcarDisparo, registrar, historico, jaEnviados, recebeuDoModeloDesde,
+  recebeuDoModeloNoMes, semearModelo, PUBLICOS_UMA_VEZ_POR_MES,
   moverMatricula, situacao,
   MODOS, PUBLICOS, GATILHOS,
 };
