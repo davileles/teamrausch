@@ -5787,8 +5787,13 @@ function msgOpcoesModeloMassa(){
   const op = m => `<option value="${esc(m.id)}"${msgEstado.modeloId===m.id?' selected':''}>${esc(m.nome)}</option>`;
   const manuais = msgEstado.modelos.filter(m=>m.modo==='manual');
   const progressao = msgEstado.modelos.filter(m=>m.modo!=='manual' && m.gatilho==='progressao');
+  // "Chegou no limite do mês": sai sozinho às 9h, mas dá para mandar na hora.
+  // Ir pelo modelo (e não por texto colado) é o que faz o automático de
+  // amanhã saber que a pessoa já recebeu este mês.
+  const limite = msgEstado.modelos.filter(m=>m.modo!=='manual' && m.publico==='no_limite');
   return manuais.map(op).join('')
-    + (progressao.length ? `<optgroup label="Progressão do mês (enviar agora)">${progressao.map(op).join('')}</optgroup>` : '');
+    + (progressao.length ? `<optgroup label="Progressão do mês (enviar agora)">${progressao.map(op).join('')}</optgroup>` : '')
+    + (limite.length ? `<optgroup label="No limite do mês (enviar agora)">${limite.map(op).join('')}</optgroup>` : '');
 }
 
 async function msgPainelMassa(){

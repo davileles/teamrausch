@@ -19,6 +19,7 @@
 const express = require('express');
 const modelos = require('./mensagens-store');
 const destinatarios = require('./destinatarios');
+const frequencia = require('./frequencia');
 const { enviarTexto } = require('./mensageiro');
 const matriculas = require('./matriculas-store');
 const telefone = require('./telefone');
@@ -98,6 +99,11 @@ module.exports = function criarRotas({ exigirLogin, exigirAdmin }) {
 
     // Lote em andamento: quem já recebeu não volta para a fila.
     const jaForam = fonte.lote ? new Set(modelos.jaEnviados(String(fonte.lote))) : new Set();
+    // Modelo de uma vez por mês: quem já recebeu este mês (pelo automático ou
+    // à mão) aparece como já enviado e não recebe de novo.
+    if (modelo && modelos.PUBLICOS_UMA_VEZ_POR_MES.has(modelo.publico)) {
+      for (const id of modelos.recebeuDoModeloNoMes(modelo.id, frequencia.hojeLocal())) jaForam.add(id);
+    }
 
     res.json({
       ...lista,
