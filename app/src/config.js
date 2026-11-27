@@ -166,6 +166,22 @@ const PADRAO = {
     mensagem: '',
   },
   /**
+   * CHECK-IN COMO CROSSTRAINING
+   *
+   * Quem faz check-in no Wellhub como Funcional recebe, a partir da 2ª vez
+   * (e em toda vez depois disso), um pedido para marcar Crosstraining — mesmo
+   * plano e mesmo custo para o aluno, valor maior para o estúdio. O 1º passa
+   * sem mensagem. `mensagem` vazia usa o texto padrão de `funcional-aviso.js`.
+   * Marcadores: {{nome}}, {{nomeCompleto}}, {{estudio}}, {{noEstudio}},
+   * {{quando}} ("de hoje", "de ontem") e {{vezes}} (nº do check-in no Funcional).
+   */
+  funcionalAviso: {
+    ativo: true,
+    inicio: '05:00',
+    fim: '21:00',
+    mensagem: '',
+  },
+  /**
    * TABLET DA ENTRADA
    *
    * Quanto tempo ao redor do horário da aula a confirmação de presença vale.

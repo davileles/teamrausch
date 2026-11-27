@@ -352,12 +352,27 @@ async function avisarProdutoBarato(registros, querAvisar) {
     c.data === hoje && frequencia.chaveProduto(c.produto) === 'funcional');
   if (!alvos.length) return [];
 
+  // Require tardio: funcional-aviso chega aqui pelos gatilhos, e o topo do
+  // arquivo não deve depender dele.
+  let pedido = null;
+  try {
+    const mod = require('./funcional-aviso');
+    if (mod.ativo()) pedido = mod;
+  } catch (e) { pedido = null; }
+
   const linhas = alvos.map((c) => {
     const nome = c.nomeMatricula || c.nome || 'Sem nome';
     const tel = telefoneDaFicha(c.matriculaId);
     const contato = tel
       || (c.matriculaId ? 'sem telefone na ficha' : 'sem ficha — vincule em Matrículas → Frequência');
-    return `• ${nome} — ${contato}\n  Funcional às ${c.hora || '--:--'}`;
+    let nota = '';
+    if (pedido) {
+      const ordem = pedido.ordemFuncional(c);
+      nota = ordem < pedido.A_PARTIR_DE
+        ? ' · 1ª vez — sem mensagem ao aluno'
+        : (tel ? ` · ${ordem}ª vez — o aluno recebe o pedido automático` : ` · ${ordem}ª vez`);
+    }
+    return `• ${nome} — ${contato}\n  Funcional às ${c.hora || '--:--'}${nota}`;
   });
 
   const n = alvos.length;

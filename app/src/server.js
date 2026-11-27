@@ -16,6 +16,7 @@ const conquistas = require('./conquistas-mensagens');
 const metaMensal = require('./meta-mensal-mensagens');
 const resumoGrupo = require('./resumo-grupo');
 const boasVindasExperimental = require('./boas-vindas-experimental');
+const funcionalAviso = require('./funcional-aviso');
 const boasVindasApp = require('./boas-vindas-app');
 const planilhaAlunos = require('./planilha-alunos');
 const configApp = require('./config');
@@ -781,4 +782,5 @@ app.listen(PORTA, () => {
   resumoGrupo.iniciar(); // resumo das conquistas e metas para o grupo do operador, às 14h e 21h
   boasVindasExperimental.iniciar(); // obrigado pela aula experimental, uma vez por aluno
   boasVindasApp.iniciar(); // instruções do app para quem passa a ter grade fixa
+  funcionalAviso.iniciar(); // pede Crosstraining a quem marca Funcional a partir da 2ª vez
 });

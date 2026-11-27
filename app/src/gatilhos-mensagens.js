@@ -4,7 +4,8 @@
  * app/src/gatilhos-mensagens.js — davileles/teamrausch
  *
  * Dispara conquistas e meta do mês NA HORA em que a aula entra no sistema,
- * em vez de esperar a passada da noite.
+ * em vez de esperar a passada da noite. Também o pedido de check-in como
+ * Crosstraining (`funcional-aviso.js`) para quem marcou Funcional de novo.
  *
  * QUEM CHAMA
  *   - poller-portal.js, quando o ciclo grava check-in novo do Wellhub;
@@ -40,6 +41,7 @@ async function rodarTudo(origens) {
     ['meta-mensal', require('./meta-mensal-mensagens')],
     ['experimental', require('./boas-vindas-experimental')],
     ['boas-vindas-app', require('./boas-vindas-app')],
+    ['funcional', require('./funcional-aviso')],
   ];
   for (const [nome, mod] of modulos) {
     try {

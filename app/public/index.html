@@ -6592,6 +6592,37 @@ async function carregarConfig(){
       <p class="ajuda"><b>A primeira passada não envia nada.</b> Quem já está como experimental
         quando o recurso entra é só anotado. A partir daí, só quem for cadastrado depois.</p>
 
+      <h3>Check-in como Crosstraining</h3>
+      <p class="ajuda">Quem faz check-in no Wellhub como <b>Funcional</b> recebe no WhatsApp um pedido para
+        marcar <b>Crosstraining</b> — o mesmo plano, sem custo a mais para o aluno, e o estúdio recebe mais.
+        O <b>1º check-in no Funcional</b> de cada pessoa passa sem mensagem (quem está chegando ainda não sabe);
+        do <b>2º em diante</b>, toda vez que acontecer, a mensagem sai. Precisa de ficha com telefone.</p>
+      <div class="dupla">
+        <div class="campo"><label for="c-fun-ativo">Pedido automático</label>
+          <select id="c-fun-ativo">
+            <option value="0"${(c.funcionalAviso||{}).ativo===false?' selected':''}>Desligado</option>
+            <option value="1"${(c.funcionalAviso||{}).ativo===false?'':' selected'}>Ligado</option>
+          </select></div>
+        <div class="campo"></div>
+      </div>
+      <div class="dupla">
+        <div class="campo"><label for="c-fun-inicio">Envia a partir de</label>
+          <input id="c-fun-inicio" type="time" value="${esc((c.funcionalAviso||{}).inicio || '05:00')}"></div>
+        <div class="campo"><label for="c-fun-fim">Até</label>
+          <input id="c-fun-fim" type="time" value="${esc((c.funcionalAviso||{}).fim || '21:00')}">
+          <p class="ajuda">Check-in feito fora da janela sai na manhã seguinte ("de ontem").</p></div>
+      </div>
+      <div class="campo"><label for="c-fun-texto">Texto do pedido</label>
+        <textarea id="c-fun-texto" maxlength="1200" style="min-height:140px"
+          placeholder="Vazio usa o texto padrão">${esc((c.funcionalAviso||{}).mensagem || '')}</textarea>
+        <p class="ajuda">Marcadores: <code>{{nome}}</code>, <code>{{nomeCompleto}}</code>,
+          <code>{{estudio}}</code>, <code>{{noEstudio}}</code>, <code>{{quando}}</code> ("de hoje", "de ontem")
+          e <code>{{vezes}}</code> (qual check-in no Funcional é esse). Vazio usa o texto padrão.</p></div>
+      <button class="leve" id="c-fun-previa">Ver quem receberia agora</button>
+      <div id="c-fun-previa-saida" class="ajuda" style="white-space:pre-wrap;margin-top:8px"></div>
+      <p class="ajuda"><b>A primeira passada não envia nada.</b> Os check-ins de hoje e de ontem que já
+        existem quando o recurso entra são só anotados.</p>
+
       <h3>Envio automático de mensagens</h3>
       <div class="dupla">
         <div class="campo"><label for="c-msg-ativo">Agendador</label>
@@ -6801,6 +6832,29 @@ async function carregarConfig(){
       }catch(e){ saida.textContent = 'Não consegui consultar: ' + (e.message || e); }
     });
 
+    document.getElementById('c-fun-previa').addEventListener('click', async ()=>{
+      const saida = document.getElementById('c-fun-previa-saida');
+      saida.textContent = 'Consultando…';
+      try{
+        const r = await api('/admin/funcional/previa');
+        if (r.seraSemeado) {
+          saida.textContent = 'Primeira passada: os check-ins de hoje e de ontem serão só anotados, sem envio.';
+          return;
+        }
+        const lista = r.pendentes || [];
+        const primeiras = r.primeiras || [];
+        const linhasPrim = primeiras.length
+          ? '\n\n1º check-in no Funcional (sem mensagem):\n' + primeiras.map(p=>`• ${p.nome || 'Sem nome'}`).join('\n')
+          : '';
+        if (!lista.length) { saida.textContent = 'Ninguém para receber agora.' + linhasPrim; return; }
+        const comTexto = lista.find(p=>p.telefone) || lista[0];
+        saida.textContent = (r.foraDaJanela ? 'Fora da janela de horário agora — sai na próxima.\n\n' : '')
+          + lista.map(p=>`• ${p.nome} — ${p.ordem}º no Funcional${p.telefone ? '' : ' ⚠️ ' + p.motivoSemTelefone}`).join('\n')
+          + linhasPrim
+          + '\n\nTexto para ' + comTexto.nome + ':\n' + comTexto.texto;
+      }catch(e){ saida.textContent = 'Não consegui consultar: ' + (e.message || e); }
+    });
+
     document.getElementById('c-add-aviso-tv').addEventListener('click', ()=>{
       document.getElementById('lista-avisos-tv')
         .insertAdjacentHTML('beforeend', linhaAvisoTv());
@@ -6963,6 +7017,12 @@ async function salvarConfig(){
       fim: v('c-exp-fim') || '21:00',
       diasMaximos: Number(v('c-exp-dias')) || 7,
       mensagem: document.getElementById('c-exp-texto').value,
+    },
+    funcionalAviso: {
+      ativo: v('c-fun-ativo') === '1',
+      inicio: v('c-fun-inicio') || '05:00',
+      fim: v('c-fun-fim') || '21:00',
+      mensagem: document.getElementById('c-fun-texto').value,
     },
     metaMensalAviso: {
       ativo: v('c-meta-ativo') === '1',

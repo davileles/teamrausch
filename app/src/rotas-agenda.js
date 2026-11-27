@@ -15,6 +15,7 @@ const historicoAulas = require('./historico-aulas');
 const conquistas = require('./conquistas-mensagens');
 const metaMensal = require('./meta-mensal-mensagens');
 const boasVindasExperimental = require('./boas-vindas-experimental');
+const funcionalAviso = require('./funcional-aviso');
 const boasVindasApp = require('./boas-vindas-app');
 const dispositivos = require('./dispositivos');
 
@@ -1621,6 +1622,23 @@ rotas.put('/admin/config', exigirLogin, exigirAdmin, (req, res) => {
     novo.experimentalAviso = ex;
   }
 
+  if (novo.funcionalAviso !== undefined) {
+    const fu = novo.funcionalAviso || {};
+    const hora = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (fu.inicio !== undefined && !hora.test(String(fu.inicio))) {
+      return res.status(400).json({ erro: 'Início da janela do pedido de Crosstraining inválido. Use HH:MM.' });
+    }
+    if (fu.fim !== undefined && !hora.test(String(fu.fim))) {
+      return res.status(400).json({ erro: 'Fim da janela do pedido de Crosstraining inválido. Use HH:MM.' });
+    }
+    if (fu.inicio !== undefined && fu.fim !== undefined && String(fu.inicio) >= String(fu.fim)) {
+      return res.status(400).json({ erro: 'A janela do pedido de Crosstraining precisa começar antes de terminar.' });
+    }
+    if (fu.ativo !== undefined) fu.ativo = Boolean(fu.ativo);
+    if (fu.mensagem !== undefined) fu.mensagem = String(fu.mensagem).slice(0, 1200);
+    novo.funcionalAviso = fu;
+  }
+
   // Janela do tablet da entrada. Zero dos dois lados é uma janela fechada: a
   // confirmação passaria a ser recusada sempre, e o tablet viraria uma tela que
   // só sabe dizer não. O teto de 240 é o que impede a aula das 6h aceitar
@@ -1879,6 +1897,21 @@ rotas.get('/admin/experimental/previa', exigirLogin, exigirAdmin, async (_req, r
 rotas.post('/admin/experimental/rodar', exigirLogin, exigirAdmin, async (_req, res) => {
   try {
     res.json(await boasVindasExperimental.rodar({ ignorarJanela: true }));
+  } catch (e) {
+    res.status(500).json({ erro: e.message });
+  }
+});
+
+/* ------------------- pedido de check-in como Crosstraining ---------------- */
+
+rotas.get('/admin/funcional/situacao', exigirLogin, exigirAdmin, (_req, res) => {
+  res.json(funcionalAviso.situacao());
+});
+
+/** Quem receberia o pedido agora (check-ins de hoje/ontem) e com que texto. Não envia nem anota. */
+rotas.get('/admin/funcional/previa', exigirLogin, exigirAdmin, async (_req, res) => {
+  try {
+    res.json(await funcionalAviso.rodar({ avisar: false }));
   } catch (e) {
     res.status(500).json({ erro: e.message });
   }
